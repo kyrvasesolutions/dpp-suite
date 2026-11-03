@@ -22,12 +22,23 @@ export interface Mapping {
   to: string;
 }
 
+export type Confidence = "high" | "medium" | "low";
+
+/** A mapping proposed by the LLM, waiting for the user to accept or reject it. */
+export interface Suggestion extends Mapping {
+  confidence: Confidence;
+  reason: string;
+}
+
+export interface NodeRef {
+  side: Side;
+  nodeId: string;
+}
+
 export const otherSide = (side: Side): Side => (side === "left" ? "right" : "left");
 
-/** dnd-kit ids are namespaced by side so both trees can share one DndContext. */
-export const dndId = (side: Side, nodeId: string) => `${side}:${nodeId}`;
+/** Anchor ids are namespaced by side so both trees can share one DOM lookup. */
+export const anchorId = (side: Side, nodeId: string) => `${side}:${nodeId}`;
 
-export const parseDndId = (id: string | number): { side: Side; nodeId: string } => {
-  const [side, ...rest] = String(id).split(":");
-  return { side: side as Side, nodeId: rest.join(":") };
-};
+/** Drag payload MIME type; each tree only accepts drags from the other one. */
+export const dragType = (side: Side) => `application/x-dpp-${side}`;

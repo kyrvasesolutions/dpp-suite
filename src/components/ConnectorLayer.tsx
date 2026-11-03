@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
-import { isSelfOrDescendant, type ParentMap } from "../model/tree";
-import { dndId, type Mapping, type Side, type TreeData } from "../model/types";
-import type { NodeRef } from "./TraceTree";
+import type { ParentMap } from "../model/tree";
+import { anchorId, type Mapping, type Side, type Suggestion, type TreeData } from "../model/types";
 
 interface ConnectorLayerProps {
   boardRef: RefObject<HTMLDivElement | null>;
   mappings: Mapping[];
+  suggestions: Suggestion[];
+  /** Mapping ids touching the current selection. */
+  highlighted: Set<string>;
   trees: Record<Side, TreeData>;
   parents: Record<Side, ParentMap>;
-  active: NodeRef | null;
   flashId: string | null;
-  /** Anything that changes row layout (expansion, mappings, active item). */
+  /** Anything that changes row layout (expansion, filtering, selection). */
   layoutKey: unknown;
 }
 
@@ -25,6 +26,7 @@ interface Connector {
   rolledUp: boolean;
   offscreen: boolean;
   highlighted: boolean;
+  suggested: boolean;
   flash: boolean;
   label: string;
 }
@@ -34,7 +36,8 @@ interface Connector {
  * end is hidden inside a collapsed folder, the curve attaches to the nearest
  * visible ancestor and parallel curves are merged into one with a count.
  */
-export function ConnectorLayer({ boardRef, mappings, trees, parents, active, flashId, layoutKey }: ConnectorLayerProps) {
+export function ConnectorLayer(props: ConnectorLayerProps) {
+  const { boardRef, mappings, suggestions, highlighted, trees, parents, flashId, layoutKey } = props;
   const [connectors, setConnectors] = useState<Connector[]>([]);
   const frame = useRef(0);
 
@@ -50,12 +53,12 @@ export function ConnectorLayer({ boardRef, mappings, trees, parents, active, fla
 
     const anchorCache = new Map<string, { id: string; el: HTMLElement } | null>();
     const visibleAnchor = (side: Side, nodeId: string) => {
-      const cacheKey = `${side}:${nodeId}`;
+      const cacheKey = anchorId(side, nodeId);
       if (anchorCache.has(cacheKey)) return anchorCache.get(cacheKey)!;
       let cur: string | undefined = nodeId;
       let found: { id: string; el: HTMLElement } | null = null;
       while (cur && cur !== trees[side].rootId) {
-        const el = board.querySelector<HTMLElement>(`[data-anchor="${CSS.escape(dndId(side, cur))}"]`);
+        const el = board.querySelector<HTMLElement>(`[data-anchor="${CSS.escape(anchorId(side, cur))}"]`);
         if (el) {
           found = { id: cur, el };
           break;
@@ -66,17 +69,20 @@ export function ConnectorLayer({ boardRef, mappings, trees, parents, active, fla
       return found;
     };
 
-    const groups = new Map<string, { l: HTMLElement; r: HTMLElement; ms: Mapping[]; rolledUp: boolean }>();
-    for (const m of mappings) {
+    type Group = { l: HTMLElement; r: HTMLElement; ms: Mapping[]; rolledUp: boolean; suggested: boolean };
+    const groups = new Map<string, Group>();
+    const add = (m: Mapping, suggested: boolean) => {
       const l = visibleAnchor("left", m.from);
       const r = visibleAnchor("right", m.to);
-      if (!l || !r) continue;
-      const key = `${l.id}|${r.id}`;
-      const g = groups.get(key) ?? { l: l.el, r: r.el, ms: [], rolledUp: false };
+      if (!l || !r) return;
+      const key = `${suggested ? "s" : "m"}|${l.id}|${r.id}`;
+      const g = groups.get(key) ?? { l: l.el, r: r.el, ms: [], rolledUp: false, suggested };
       g.ms.push(m);
       g.rolledUp ||= l.id !== m.from || r.id !== m.to;
       groups.set(key, g);
-    }
+    };
+    mappings.forEach((m) => add(m, false));
+    suggestions.forEach((s) => add(s, true));
 
     const clampY = (rect: DOMRect, list: DOMRect) => {
       const mid = rect.top + rect.height / 2;
@@ -86,18 +92,11 @@ export function ConnectorLayer({ boardRef, mappings, trees, parents, active, fla
 
     const out: Connector[] = [];
     for (const [key, g] of groups) {
-      const lr = g.l.getBoundingClientRect();
-      const rr = g.r.getBoundingClientRect();
       const x1 = lists.left.right - b.left;
       const x2 = lists.right.left - b.left;
-      const a = clampY(lr, lists.left);
-      const z = clampY(rr, lists.right);
+      const a = clampY(g.l.getBoundingClientRect(), lists.left);
+      const z = clampY(g.r.getBoundingClientRect(), lists.right);
       const dx = (x2 - x1) * 0.5;
-      const highlighted =
-        !!active &&
-        g.ms.some((m) =>
-          isSelfOrDescendant(active.side === "left" ? m.from : m.to, active.nodeId, parents[active.side]),
-        );
       out.push({
         key,
         d: `M ${x1} ${a.y} C ${x1 + dx} ${a.y}, ${x2 - dx} ${z.y}, ${x2} ${z.y}`,
@@ -108,17 +107,18 @@ export function ConnectorLayer({ boardRef, mappings, trees, parents, active, fla
         count: g.ms.length,
         rolledUp: g.rolledUp,
         offscreen: a.offscreen || z.offscreen,
-        highlighted,
+        highlighted: g.ms.some((m) => highlighted.has(m.id)),
+        suggested: g.suggested,
         flash: !!flashId && g.ms.some((m) => m.id === flashId),
         label: g.ms
-          .map((m) => `${trees.left.nodes[m.from]?.name} → ${trees.right.nodes[m.to]?.name}`)
+          .map((m) => `${g.suggested ? "Suggested: " : ""}${trees.left.nodes[m.from]?.name} → ${trees.right.nodes[m.to]?.name}`)
           .join("\n"),
       });
     }
     // Draw highlighted curves last so they sit on top.
     out.sort((p, q) => Number(p.highlighted) - Number(q.highlighted));
     setConnectors(out);
-  }, [boardRef, mappings, trees, parents, active, flashId]);
+  }, [boardRef, mappings, suggestions, highlighted, trees, parents, flashId]);
 
   const schedule = useCallback(() => {
     cancelAnimationFrame(frame.current);
@@ -135,14 +135,19 @@ export function ConnectorLayer({ boardRef, mappings, trees, parents, active, fla
     const ro = new ResizeObserver(schedule);
     ro.observe(board);
     lists.forEach((l) => ro.observe(l));
+    // Rows animate in and React Aria renders the collection after mount, so
+    // also re-measure when the trees' DOM changes.
+    const mo = new MutationObserver(schedule);
+    lists.forEach((l) => mo.observe(l, { childList: true, subtree: true }));
     return () => {
       lists.forEach((l) => l.removeEventListener("scroll", schedule));
       ro.disconnect();
+      mo.disconnect();
       cancelAnimationFrame(frame.current);
     };
   }, [boardRef, schedule]);
 
-  const dimOthers = !!active && connectors.some((c) => c.highlighted);
+  const dimOthers = connectors.some((c) => c.highlighted);
 
   return (
     <svg className="connectors" aria-hidden="true">
@@ -151,6 +156,7 @@ export function ConnectorLayer({ boardRef, mappings, trees, parents, active, fla
           "connector",
           c.rolledUp && "rolled",
           c.offscreen && "offscreen",
+          c.suggested && "suggested",
           c.highlighted && "hl",
           dimOthers && !c.highlighted && "dim",
           c.flash && "flash",

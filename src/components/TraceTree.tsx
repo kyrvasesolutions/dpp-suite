@@ -1,201 +1,195 @@
-import { useCallback, type Dispatch, type SetStateAction } from "react";
-import { hotkeysCoreFeature, syncDataLoaderFeature, type ItemInstance } from "@headless-tree/core";
-import { useTree } from "@headless-tree/react";
-import { useDndContext, useDraggable, useDroppable } from "@dnd-kit/core";
-import { dndId, parseDndId, type Side, type TreeData, type TreeNode } from "../model/types";
-
-export interface NodeRef {
-  side: Side;
-  nodeId: string;
-}
+import type { CSSProperties } from "react";
+import {
+  Button,
+  Collection,
+  Tree,
+  TreeItem,
+  TreeItemContent,
+  isTextDropItem,
+  useDragAndDrop,
+  type Key,
+  type Selection,
+} from "react-aria-components";
+import type { TreeItemData } from "../model/tree";
+import { anchorId, dragType, otherSide, type NodeRef, type Side, type TreeData } from "../model/types";
 
 interface TraceTreeProps {
   side: Side;
   data: TreeData;
-  expanded: string[];
-  setExpanded: Dispatch<SetStateAction<string[]>>;
+  items: TreeItemData[];
+  expanded: Set<Key>;
+  onExpandedChange: (keys: Set<Key>) => void;
+  selected: Set<Key>;
+  onSelectionChange: (keys: Set<Key>) => void;
+  onExpandAll: () => void;
+  onCollapseAll: () => void;
   counts: { direct: Record<string, number>; subtree: Record<string, number> };
-  active: NodeRef | null;
-  pending: NodeRef | null;
-  /** Nodes on this side linked to the active item. */
+  /** Nodes on this side linked to the current selection. */
   related: Set<string>;
   /** Ancestors of `related` nodes, so collapsed folders can show they contain a match. */
   relatedAncestors: Set<string>;
-  /** "from|to" keys of existing mappings, to flag duplicate drops while dragging. */
-  existing: Set<string>;
-  onActivate: (ref: NodeRef) => void;
+  /** Nodes on this side that have a pending LLM suggestion. */
+  suggested: Set<string>;
+  pending: NodeRef | null;
+  isFiltered: boolean;
+  onMapDrop: (sourceIds: string[], targetId: string) => void;
+  onHoverStart: (ref: NodeRef, el: HTMLElement) => void;
+  onHoverEnd: () => void;
+  onDragActive: (active: boolean) => void;
 }
 
 export function TraceTree(props: TraceTreeProps) {
-  const { side, data, expanded, setExpanded, onActivate } = props;
+  const { side, data, items, counts, related, relatedAncestors, suggested, pending } = props;
+  const ownType = dragType(side);
+  const acceptType = dragType(otherSide(side));
 
-  const tree = useTree<TreeNode>({
-    rootItemId: data.rootId,
-    state: { expandedItems: expanded },
-    setExpandedItems: setExpanded,
-    getItemName: (item) => item.getItemData().name,
-    isItemFolder: (item) => !!item.getItemData().children?.length,
-    dataLoader: {
-      getItem: (id) => data.nodes[id],
-      getChildren: (id) => data.nodes[id]?.children ?? [],
+  const { dragAndDropHooks } = useDragAndDrop<TreeItemData>({
+    getItems: (keys) =>
+      [...keys].map((key) => ({ [ownType]: String(key), "text/plain": data.nodes[String(key)]?.name ?? String(key) })),
+    acceptedDragTypes: [acceptType],
+    // Only "drop onto an item of the other tree" is a mapping; no reordering.
+    getDropOperation: (target, types) =>
+      target.type === "item" && target.dropPosition === "on" && types.has(acceptType) ? "copy" : "cancel",
+    onItemDrop: async (e) => {
+      const ids = await Promise.all(e.items.filter(isTextDropItem).map((item) => item.getText(acceptType)));
+      props.onMapDrop(ids, String(e.target.key));
     },
-    indent: 18,
-    features: [syncDataLoaderFeature, hotkeysCoreFeature],
+    onDragStart: () => props.onDragActive(true),
+    onDragEnd: () => props.onDragActive(false),
+    renderDragPreview: (dragItems) => (
+      <div className="drag-chip">{dragItems.length > 1 ? `${dragItems.length} items` : dragItems[0]["text/plain"]}</div>
+    ),
   });
 
-  const allFolders = Object.values(data.nodes)
-    .filter((node) => node.id !== data.rootId && node.children?.length)
-    .map((node) => node.id);
+  // React Aria caches rendered items by identity; re-render them when these change.
+  const deps = [counts, related, relatedAncestors, suggested, pending];
+
+  const renderItem = (item: TreeItemData) => {
+    const { id, node } = item;
+    const direct = counts.direct[id] ?? 0;
+    const inside = (counts.subtree[id] ?? 0) - direct;
+    const isFolder = !!node.children?.length;
+    // Requirements without any evidence are what a validator cares about.
+    const isGap = side === "right" && !isFolder && direct === 0;
+
+    return (
+      <TreeItem
+        id={id}
+        textValue={node.name}
+        onHoverStart={(e) => props.onHoverStart({ side, nodeId: id }, e.target)}
+        onHoverEnd={props.onHoverEnd}
+        className={({ isSelected, isFocusVisible, isExpanded, isDragging }) =>
+          [
+            "tree-item",
+            isFolder && "folder",
+            isSelected && "selected",
+            isFocusVisible && "focus-visible",
+            isDragging && "dragging",
+            related.has(id) && "related",
+            !isExpanded && relatedAncestors.has(id) && "contains-related",
+            pending?.side === side && pending.nodeId === id && "pending",
+          ]
+            .filter(Boolean)
+            .join(" ")
+        }
+      >
+        <TreeItemContent>
+          {({ isExpanded, hasChildItems, level, allowsDragging }) => (
+            <div className="row" data-anchor={anchorId(side, id)} style={{ "--level": level - 1 } as CSSProperties}>
+              {allowsDragging && (
+                <Button slot="drag" className="drag-handle" aria-label={`Drag ${node.name}`}>
+                  <svg viewBox="0 0 10 16" width="8" height="14" aria-hidden="true">
+                    <circle cx="2.5" cy="3" r="1.3" />
+                    <circle cx="7.5" cy="3" r="1.3" />
+                    <circle cx="2.5" cy="8" r="1.3" />
+                    <circle cx="7.5" cy="8" r="1.3" />
+                    <circle cx="2.5" cy="13" r="1.3" />
+                    <circle cx="7.5" cy="13" r="1.3" />
+                  </svg>
+                </Button>
+              )}
+              {hasChildItems ? (
+                <Button slot="chevron" className="chevron" data-open={isExpanded}>
+                  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                    <path
+                      d="M6 4l4 4-4 4"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </Button>
+              ) : (
+                <span className={isGap ? "leaf-dot gap" : "leaf-dot"} aria-hidden="true" />
+              )}
+              <span className="row-text">
+                <span className="row-name">{node.name}</span>
+                {node.meta && <span className="row-meta">{node.meta}</span>}
+              </span>
+              {suggested.has(id) && (
+                <span className="badge suggest" title="Claude suggested a mapping">
+                  ?
+                </span>
+              )}
+              {direct > 0 && (
+                <span className="badge" title={`${direct} direct mapping${direct > 1 ? "s" : ""}`}>
+                  {direct}
+                </span>
+              )}
+              {hasChildItems && !isExpanded && inside > 0 && (
+                <span className="badge rollup" title={`${inside} mapping${inside > 1 ? "s" : ""} inside`}>
+                  +{inside}
+                </span>
+              )}
+              {isGap && <span className="gap-label">unmapped</span>}
+            </div>
+          )}
+        </TreeItemContent>
+        <Collection items={item.children} dependencies={deps}>
+          {renderItem}
+        </Collection>
+      </TreeItem>
+    );
+  };
+
+  const toKeySet = (keys: Selection) => (keys === "all" ? new Set<Key>(Object.keys(data.nodes)) : keys);
 
   return (
     <section className={`panel panel-${side}`} aria-labelledby={`${side}-title`}>
       <header className="panel-head">
         <div>
           <h2 id={`${side}-title`}>{data.title}</h2>
-          <p>{data.subtitle}</p>
+          <p>{props.isFiltered ? "Focused on selection" : data.subtitle}</p>
         </div>
         <div className="panel-tools">
-          <button type="button" className="ghost" onClick={() => setExpanded(allFolders)}>
+          <Button className="ghost" onPress={props.onExpandAll}>
             Expand
-          </button>
-          <button type="button" className="ghost" onClick={() => setExpanded([])}>
+          </Button>
+          <Button className="ghost" onPress={props.onCollapseAll}>
             Collapse
-          </button>
+          </Button>
         </div>
       </header>
-      <div className="list" data-list={side} {...tree.getContainerProps(data.title)}>
-        {tree.getItems().map((item) => (
-          <Row key={item.getId()} item={item} {...props} onActivate={onActivate} />
-        ))}
+      <div className="list" data-list={side}>
+        <Tree
+          aria-labelledby={`${side}-title`}
+          className="tree"
+          items={items}
+          dependencies={deps}
+          selectionMode="multiple"
+          selectionBehavior="replace"
+          selectedKeys={props.selected}
+          onSelectionChange={(keys) => props.onSelectionChange(toKeySet(keys))}
+          expandedKeys={props.expanded}
+          onExpandedChange={props.onExpandedChange}
+          dragAndDropHooks={dragAndDropHooks}
+          renderEmptyState={() => <p className="empty">Nothing to show.</p>}
+        >
+          {renderItem}
+        </Tree>
       </div>
     </section>
-  );
-}
-
-function Row({
-  item,
-  side,
-  counts,
-  active,
-  pending,
-  related,
-  relatedAncestors,
-  existing,
-  onActivate,
-}: TraceTreeProps & { item: ItemInstance<TreeNode> }) {
-  const node = item.getItemData();
-  const id = dndId(side, node.id);
-  const isFolder = item.isFolder();
-  const isExpanded = item.isExpanded();
-  const level = item.getItemMeta().level;
-
-  const drag = useDraggable({ id, data: { side, nodeId: node.id, name: node.name } });
-  const drop = useDroppable({ id, data: { side, nodeId: node.id } });
-  const { active: dragActive } = useDndContext();
-
-  const { ref: treeRef, onClick: _ignored, ...treeProps } = item.getProps();
-  const setRef = useCallback(
-    (el: HTMLDivElement | null) => {
-      treeRef?.(el);
-      drag.setNodeRef(el);
-      drop.setNodeRef(el);
-    },
-    // setNodeRef identities are stable per id
-    [treeRef, drag.setNodeRef, drop.setNodeRef],
-  );
-
-  // Drop feedback: only the opposite tree is a valid target.
-  let dropState: "" | "ok" | "dup" = "";
-  if (drop.isOver && dragActive) {
-    const src = parseDndId(dragActive.id);
-    if (src.side !== side) {
-      const key = side === "right" ? `${src.nodeId}|${node.id}` : `${node.id}|${src.nodeId}`;
-      dropState = existing.has(key) ? "dup" : "ok";
-    }
-  }
-
-  const direct = counts.direct[node.id] ?? 0;
-  const inside = (counts.subtree[node.id] ?? 0) - direct;
-  const isActive = active?.side === side && active.nodeId === node.id;
-  const isPending = pending?.side === side && pending.nodeId === node.id;
-  const isRelated = related.has(node.id);
-  const containsRelated = !isExpanded && relatedAncestors.has(node.id);
-  // Requirements without any evidence are what a validator cares about.
-  const isGap = side === "right" && !isFolder && direct === 0;
-
-  const activate = () => {
-    item.setFocused();
-    onActivate({ side, nodeId: node.id });
-  };
-
-  const toggle = () => (isExpanded ? item.collapse() : item.expand());
-
-  const className = [
-    "row",
-    isFolder && "folder",
-    isActive && "active",
-    isPending && "pending",
-    isRelated && "related",
-    containsRelated && "contains-related",
-    drag.isDragging && "dragging",
-    dropState && `drop-${dropState}`,
-    item.isFocused() && "focused",
-  ]
-    .filter(Boolean)
-    .join(" ");
-
-  return (
-    <div
-      {...treeProps}
-      {...drag.listeners}
-      ref={setRef}
-      className={className}
-      data-anchor={id}
-      style={{ paddingInlineStart: `calc(var(--row-pad) + ${level} * var(--indent))` }}
-      onClick={activate}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          activate();
-        }
-      }}
-    >
-      {isFolder ? (
-        <button
-          type="button"
-          className="chevron"
-          tabIndex={-1}
-          aria-hidden="true"
-          data-open={isExpanded}
-          onMouseDown={(e) => e.stopPropagation()}
-          onTouchStart={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation();
-            toggle();
-          }}
-        >
-          <svg viewBox="0 0 16 16" width="14" height="14">
-            <path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
-      ) : (
-        <span className={isGap ? "leaf-dot gap" : "leaf-dot"} aria-hidden="true" />
-      )}
-      <span className="row-text">
-        <span className="row-name">{node.name}</span>
-        {node.meta && <span className="row-meta">{node.meta}</span>}
-      </span>
-      {direct > 0 && (
-        <span className="badge" title={`${direct} direct mapping${direct > 1 ? "s" : ""}`}>
-          {direct}
-        </span>
-      )}
-      {isFolder && !isExpanded && inside > 0 && (
-        <span className="badge rollup" title={`${inside} mapping${inside > 1 ? "s" : ""} inside`}>
-          +{inside}
-        </span>
-      )}
-      {isGap && <span className="gap-label">unmapped</span>}
-    </div>
   );
 }

@@ -1,4 +1,4 @@
-import type { Mapping, Side, TreeData } from "./types";
+import type { Mapping, Side, TreeData, TreeNode } from "./types";
 
 export type ParentMap = Record<string, string | undefined>;
 
@@ -50,4 +50,43 @@ export function linkCounts(mappings: Mapping[], side: Side, parents: ParentMap) 
     }
   }
   return { direct, subtree };
+}
+
+/** Nested shape React Aria's dynamic Tree collection renders. */
+export interface TreeItemData {
+  id: string;
+  node: TreeNode;
+  children: TreeItemData[];
+}
+
+/**
+ * Builds the nested items under the root. With `visible` set, only those ids
+ * are kept (callers include ancestors so the path to each item stays intact).
+ */
+export function nestedItems(data: TreeData, visible?: Set<string>): TreeItemData[] {
+  const build = (id: string): TreeItemData | null => {
+    const node = data.nodes[id];
+    if (!node || (visible && !visible.has(id))) return null;
+    const children = (node.children ?? []).map(build).filter((c): c is TreeItemData => c !== null);
+    return { id, node, children };
+  };
+  return (data.nodes[data.rootId]?.children ?? []).map(build).filter((c): c is TreeItemData => c !== null);
+}
+
+export function leafIds(data: TreeData): string[] {
+  return Object.values(data.nodes)
+    .filter((n) => n.id !== data.rootId && !n.children?.length)
+    .map((n) => n.id);
+}
+
+export function folderIds(data: TreeData): string[] {
+  return Object.values(data.nodes)
+    .filter((n) => n.id !== data.rootId && n.children?.length)
+    .map((n) => n.id);
+}
+
+export function pathNames(id: string, data: TreeData, parents: ParentMap): string[] {
+  return ancestorsOf(id, parents, data.rootId)
+    .reverse()
+    .map((a) => data.nodes[a]?.name ?? a);
 }

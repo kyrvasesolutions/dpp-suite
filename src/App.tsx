@@ -1,73 +1,77 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  DndContext,
-  DragOverlay,
-  MouseSensor,
-  TouchSensor,
-  pointerWithin,
-  useSensor,
-  useSensors,
-  type CollisionDetection,
-  type DragEndEvent,
-  type DragStartEvent,
-} from "@dnd-kit/core";
+import { Button, ToggleButton, type Key } from "react-aria-components";
+import { ClaudeSettings } from "./components/ClaudeSettings";
 import { ConnectorLayer } from "./components/ConnectorLayer";
-import { TraceTree, type NodeRef } from "./components/TraceTree";
-import { passportTree, productTree, sampleMappings } from "./data/sample";
-import { ancestorsOf, buildParentMap, endOn, isSelfOrDescendant, linkCounts } from "./model/tree";
-import { otherSide, parseDndId, type Mapping, type Side } from "./model/types";
+import { HoverPreview } from "./components/HoverPreview";
+import { ImportDialog } from "./components/ImportDialog";
+import { ItemWindow, WINDOW_WIDTH, type WindowState } from "./components/ItemWindow";
+import { TraceTree } from "./components/TraceTree";
+import { loadApiKey, saveApiKey } from "./llm/apiKey";
+import { LlmError, suggestMappings } from "./llm/suggest";
+import { exportProject, loadProject, sampleProject, saveProject, type Project } from "./model/project";
+import {
+  ancestorsOf,
+  buildParentMap,
+  endOn,
+  folderIds,
+  isSelfOrDescendant,
+  leafIds,
+  linkCounts,
+  nestedItems,
+} from "./model/tree";
+import { anchorId, otherSide, type Mapping, type NodeRef, type Side, type Suggestion } from "./model/types";
 import { useInstallPrompt } from "./useInstallPrompt";
 import { useMediaQuery } from "./useMediaQuery";
 
-const STORAGE_KEY = "dpp-trace.mappings.v1";
-const trees = { left: productTree, right: passportTree };
-const parents = { left: buildParentMap(productTree), right: buildParentMap(passportTree) };
+const SIDES: Side[] = ["left", "right"];
+const HOVER_DELAY = 450;
+const CLOSE_ANIMATION = 160;
+const MAX_WINDOWS = 4;
 
-function loadMappings(): Mapping[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as Mapping[];
-  } catch {
-    // Storage unavailable (private mode, blocked): fall back to sample data.
-  }
-  return sampleMappings;
-}
+type PerSide<T> = Record<Side, T>;
 
-// Only rows of the opposite tree are drop targets.
-const oppositeSideOnly: CollisionDetection = (args) => {
-  const from = parseDndId(args.active.id).side;
-  return pointerWithin({
-    ...args,
-    droppableContainers: args.droppableContainers.filter((c) => parseDndId(c.id).side !== from),
-  });
-};
+const newId = (prefix: string) => `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
 export default function App() {
   const wide = useMediaQuery("(min-width: 768px)");
   const boardRef = useRef<HTMLDivElement>(null);
+  const installPrompt = useInstallPrompt();
 
-  const [mappings, setMappings] = useState<Mapping[]>(loadMappings);
-  const [expandedLeft, setExpandedLeft] = useState<string[]>(["pack", "module", "cells", "docs"]);
-  const [expandedRight, setExpandedRight] = useState<string[]>(["general", "materials", "carbon", "recycled"]);
-  const [active, setActive] = useState<NodeRef | null>(null);
+  const [project, setProject] = useState<Project>(loadProject);
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [expanded, setExpanded] = useState<PerSide<Set<Key>>>({
+    left: new Set(["pack", "module", "cells", "docs"]),
+    right: new Set(["general", "materials", "carbon", "recycled"]),
+  });
+  const [selected, setSelected] = useState<PerSide<Set<Key>>>({ left: new Set(), right: new Set() });
+  const [windows, setWindows] = useState<WindowState[]>([]);
   const [pending, setPending] = useState<NodeRef | null>(null);
-  const [dragging, setDragging] = useState<{ name: string; side: Side } | null>(null);
+  const [focusMode, setFocusMode] = useState(false);
+  const [hover, setHover] = useState<{ ref: NodeRef; el: HTMLElement } | null>(null);
+  const [dragging, setDragging] = useState(false);
   const [toast, setToast] = useState<{ text: string; kind: "ok" | "warn" } | null>(null);
   const [flashId, setFlashId] = useState<string | null>(null);
   const [showIosHint, setShowIosHint] = useState(false);
-  const installPrompt = useInstallPrompt();
+  const [importOpen, setImportOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [apiKey, setApiKey] = useState(loadApiKey);
+  const [llm, setLlm] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
+  const hoverTimer = useRef(0);
+  const llmAbort = useRef<AbortController | null>(null);
+  const zTop = useRef(10);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(mappings));
-    } catch {
-      // Not persisted; the session still works.
-    }
-  }, [mappings]);
+  const trees = useMemo(() => ({ left: project.left, right: project.right }), [project.left, project.right]);
+  const parents = useMemo(
+    () => ({ left: buildParentMap(project.left), right: buildParentMap(project.right) }),
+    [project.left, project.right],
+  );
+  const { mappings } = project;
+
+  useEffect(() => saveProject(project), [project]);
 
   useEffect(() => {
     if (!toast) return;
-    const t = setTimeout(() => setToast(null), 2200);
+    const t = setTimeout(() => setToast(null), 2600);
     return () => clearTimeout(t);
   }, [toast]);
 
@@ -77,36 +81,27 @@ export default function App() {
     return () => clearTimeout(t);
   }, [flashId]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      if (pending) setPending(null);
-      else setActive(null);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [pending]);
+  // ---------- Derived state ----------
 
-  const sensors = useSensors(
-    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
-    // Long-press to drag on touch so normal swipes still scroll the list.
-    useSensor(TouchSensor, { activationConstraint: { delay: 220, tolerance: 8 } }),
-  );
-
-  const existing = useMemo(() => new Set(mappings.map((m) => `${m.from}|${m.to}`)), [mappings]);
   const counts = useMemo(
     () => ({ left: linkCounts(mappings, "left", parents.left), right: linkCounts(mappings, "right", parents.right) }),
-    [mappings],
+    [mappings, parents],
   );
 
-  // Mappings touching the active item or anything inside it.
-  const activeMappings = useMemo(
-    () =>
-      active
-        ? mappings.filter((m) => isSelfOrDescendant(endOn(m, active.side), active.nodeId, parents[active.side]))
-        : [],
-    [active, mappings],
+  const selectedIds = useMemo(
+    () => ({ left: [...selected.left].map(String), right: [...selected.right].map(String) }),
+    [selected],
   );
+  const hasSelection = selectedIds.left.length + selectedIds.right.length > 0;
+
+  // Mappings touching anything selected, or inside a selected folder.
+  const touchesSelection = useCallback(
+    (m: Mapping) =>
+      SIDES.some((side) => selectedIds[side].some((id) => isSelfOrDescendant(endOn(m, side), id, parents[side]))),
+    [selectedIds, parents],
+  );
+  const activeMappings = useMemo(() => mappings.filter(touchesSelection), [mappings, touchesSelection]);
+  const highlighted = useMemo(() => new Set(activeMappings.map((m) => m.id)), [activeMappings]);
 
   const relatedSets = useMemo(() => {
     const make = (side: Side) => {
@@ -116,99 +111,215 @@ export default function App() {
       return { related, ancestors };
     };
     return { left: make("left"), right: make("right") };
-  }, [activeMappings]);
+  }, [activeMappings, parents, trees]);
 
-  const addMapping = useCallback(
-    (a: NodeRef, b: NodeRef) => {
-      if (a.side === b.side) return;
-      const [l, r] = a.side === "left" ? [a, b] : [b, a];
-      const name = (ref: NodeRef) => trees[ref.side].nodes[ref.nodeId]?.name;
-      if (existing.has(`${l.nodeId}|${r.nodeId}`)) {
-        setToast({ text: `Already mapped: ${name(l)} → ${name(r)}`, kind: "warn" });
-        return;
-      }
-      const id = `m${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-      setMappings((ms) => [...ms, { id, from: l.nodeId, to: r.nodeId }]);
-      setFlashId(id);
-      setToast({ text: `Mapped ${name(l)} → ${name(r)}`, kind: "ok" });
-    },
-    [existing],
+  const suggestedIds = useMemo(
+    () => ({ left: new Set(suggestions.map((s) => s.from)), right: new Set(suggestions.map((s) => s.to)) }),
+    [suggestions],
   );
 
-  const removeMapping = (id: string) => setMappings((ms) => ms.filter((m) => m.id !== id));
-
-  const activate = useCallback(
-    (ref: NodeRef) => {
-      if (pending && pending.side !== ref.side) {
-        addMapping(pending, ref);
-        setPending(null);
-        return;
+  // Focus mode: show only the selection, what it maps to, and the paths to them.
+  const visible = useMemo<PerSide<Set<string>> | null>(() => {
+    if (!focusMode || !hasSelection) return null;
+    const make = (side: Side) => {
+      const keep = new Set<string>(relatedSets[side].related);
+      for (const id of selectedIds[side]) {
+        keep.add(id);
+        for (const n of Object.keys(trees[side].nodes)) if (isSelfOrDescendant(n, id, parents[side])) keep.add(n);
       }
-      if (pending) setPending(ref);
-      setActive((cur) => (cur && cur.side === ref.side && cur.nodeId === ref.nodeId && !pending ? null : ref));
-    },
-    [pending, addMapping],
+      for (const id of [...keep]) for (const a of ancestorsOf(id, parents[side], trees[side].rootId)) keep.add(a);
+      return keep;
+    };
+    return { left: make("left"), right: make("right") };
+  }, [focusMode, hasSelection, relatedSets, selectedIds, trees, parents]);
+
+  const items = useMemo(
+    () => ({ left: nestedItems(trees.left, visible?.left), right: nestedItems(trees.right, visible?.right) }),
+    [trees, visible],
   );
 
-  const reveal = (side: Side, nodeId: string) => {
-    const setExpanded = side === "left" ? setExpandedLeft : setExpandedRight;
-    const ancestors = ancestorsOf(nodeId, parents[side], trees[side].rootId);
-    setExpanded((cur) => Array.from(new Set([...cur, ...ancestors])));
+  // In focus mode, open every folder on the way to a visible item.
+  const effectiveExpanded = useMemo<PerSide<Set<Key>>>(() => {
+    if (!visible) return expanded;
+    const open = (side: Side) =>
+      new Set<Key>([...expanded[side], ...[...visible[side]].filter((id) => trees[side].nodes[id]?.children?.length)]);
+    return { left: open("left"), right: open("right") };
+  }, [visible, expanded, trees]);
+
+  // ---------- Actions ----------
+
+  const nodeName = (ref: NodeRef) => trees[ref.side].nodes[ref.nodeId]?.name ?? ref.nodeId;
+
+  const addMappings = useCallback(
+    (pairs: Array<{ from: string; to: string }>) => {
+      const existing = new Set(mappings.map((m) => `${m.from}|${m.to}`));
+      const fresh = pairs.filter((p) => !existing.has(`${p.from}|${p.to}`));
+      if (fresh.length === 0) {
+        setToast({ text: pairs.length > 1 ? "All already mapped" : "Already mapped", kind: "warn" });
+        return;
+      }
+      const added = fresh.map((p) => ({ id: newId("m"), ...p }));
+      setProject((p) => ({ ...p, mappings: [...p.mappings, ...added] }));
+      setSuggestions((ss) => ss.filter((s) => !fresh.some((p) => p.from === s.from && p.to === s.to)));
+      setFlashId(added[added.length - 1].id);
+      const first = fresh[0];
+      setToast({
+        text:
+          fresh.length === 1
+            ? `Mapped ${trees.left.nodes[first.from]?.name} → ${trees.right.nodes[first.to]?.name}`
+            : `Added ${fresh.length} mappings${fresh.length < pairs.length ? ` (${pairs.length - fresh.length} already existed)` : ""}`,
+        kind: "ok",
+      });
+    },
+    [mappings, trees],
+  );
+
+  const mapBetween = (sources: NodeRef[], target: NodeRef) =>
+    addMappings(
+      sources
+        .filter((s) => s.side !== target.side)
+        .map((s) => (s.side === "left" ? { from: s.nodeId, to: target.nodeId } : { from: target.nodeId, to: s.nodeId })),
+    );
+
+  const removeMapping = (id: string) => setProject((p) => ({ ...p, mappings: p.mappings.filter((m) => m.id !== id) }));
+
+  const openWindow = (ref: NodeRef) => {
+    const key = anchorId(ref.side, ref.nodeId);
+    const z = ++zTop.current;
+    setWindows((ws) => {
+      const existing = ws.find((w) => w.key === key);
+      if (existing) return ws.map((w) => (w.key === key ? { ...w, z, closing: false } : w));
+      // Open just below the row, inside its own panel, so the other list and the lines stay visible.
+      const row = document.querySelector(`[data-anchor="${CSS.escape(key)}"]`)?.getBoundingClientRect();
+      const rawX = row ? (ref.side === "left" ? row.right - WINDOW_WIDTH - 12 : row.left + 12) : 80;
+      const below = row ? row.bottom + 6 : 120;
+      const rawY = row && below + 300 > window.innerHeight ? row.top - 306 : below;
+      const x = Math.min(Math.max(rawX, 8), window.innerWidth - WINDOW_WIDTH - 8);
+      const y = Math.min(Math.max(rawY, 8), window.innerHeight - 320);
+      const kept = ws.filter((w) => !w.closing).slice(-(MAX_WINDOWS - 1));
+      return [...kept, { key, ref, x, y, z, closing: false }];
+    });
+  };
+
+  const closeWindow = (key: string) => {
+    setWindows((ws) => ws.map((w) => (w.key === key ? { ...w, closing: true } : w)));
+    setTimeout(() => setWindows((ws) => ws.filter((w) => w.key !== key || !w.closing)), CLOSE_ANIMATION);
+    if (pending && anchorId(pending.side, pending.nodeId) === key) setPending(null);
+  };
+
+  const onSelectionChange = (side: Side, keys: Set<Key>) => {
+    const added = [...keys].filter((k) => !selected[side].has(k)).map(String);
+    // Tap-to-map: a tap on the other tree completes the pending mapping.
+    if (pending && pending.side !== side && added.length > 0) {
+      mapBetween([pending], { side, nodeId: added[added.length - 1] });
+      setPending(null);
+      return;
+    }
+    setSelected((s) => ({ ...s, [side]: keys }));
+    if (added.length > 0) openWindow({ side, nodeId: added[added.length - 1] });
+  };
+
+  const reveal = (ref: NodeRef) => {
+    const ancestors = ancestorsOf(ref.nodeId, parents[ref.side], trees[ref.side].rootId);
+    setExpanded((e) => ({ ...e, [ref.side]: new Set([...e[ref.side], ...ancestors]) }));
     requestAnimationFrame(() =>
-      requestAnimationFrame(() => {
+      requestAnimationFrame(() =>
         document
-          .querySelector(`[data-anchor="${CSS.escape(`${side}:${nodeId}`)}"]`)
-          ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-      }),
+          .querySelector(`[data-anchor="${CSS.escape(anchorId(ref.side, ref.nodeId))}"]`)
+          ?.scrollIntoView({ block: "nearest", behavior: "smooth" }),
+      ),
     );
   };
 
-  const onDragStart = ({ active: a }: DragStartEvent) => {
-    const { side, nodeId } = parseDndId(a.id);
-    setDragging({ side, name: trees[side].nodes[nodeId]?.name ?? nodeId });
-    setActive({ side, nodeId });
+  const onHoverStart = (ref: NodeRef, el: HTMLElement) => {
+    clearTimeout(hoverTimer.current);
+    if (dragging) return;
+    hoverTimer.current = window.setTimeout(() => setHover({ ref, el }), HOVER_DELAY);
+  };
+  const onHoverEnd = () => {
+    clearTimeout(hoverTimer.current);
+    setHover(null);
+  };
+
+  const askClaude = async () => {
+    if (!apiKey.key) {
+      setSettingsOpen(true);
+      return;
+    }
+    llmAbort.current?.abort();
+    const controller = new AbortController();
+    llmAbort.current = controller;
+    setLlm({ busy: true, error: null });
+    try {
+      const result = await suggestMappings(apiKey.key, project, controller.signal);
+      setSuggestions(result);
+      setLlm({ busy: false, error: null });
+      setToast({
+        text: result.length ? `Claude suggested ${result.length} mappings` : "Claude found no new mappings",
+        kind: "ok",
+      });
+    } catch (error) {
+      const message = error instanceof LlmError ? error.message : "Something went wrong asking Claude.";
+      setLlm({ busy: false, error: controller.signal.aborted ? null : message });
+    }
+  };
+
+  const acceptSuggestion = (s: Suggestion) => addMappings([{ from: s.from, to: s.to }]);
+  const rejectSuggestion = (id: string) => setSuggestions((ss) => ss.filter((s) => s.id !== id));
+
+  const resetAll = () => {
+    setProject(sampleProject());
+    setSuggestions([]);
+    setSelected({ left: new Set(), right: new Set() });
+    setWindows([]);
     setPending(null);
   };
 
-  const onDragEnd = ({ active: a, over }: DragEndEvent) => {
-    setDragging(null);
-    if (over) addMapping(parseDndId(a.id), parseDndId(over.id));
-  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && pending) setPending(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [pending]);
 
-  const requirementLeaves = Object.values(passportTree.nodes).filter((n) => !n.children?.length);
-  const covered = requirementLeaves.filter((n) => counts.right.direct[n.id]).length;
-  const coverage = Math.round((covered / requirementLeaves.length) * 100);
+  // ---------- Render ----------
 
-  const exportJson = () => {
-    const blob = new Blob([JSON.stringify(mappings, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "dpp-mappings.json";
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+  const requirementLeaves = leafIds(trees.right);
+  const covered = requirementLeaves.filter((id) => counts.right.direct[id]).length;
+  const coverage = requirementLeaves.length ? Math.round((covered / requirementLeaves.length) * 100) : 0;
+
+  // Phones show one window as a bottom sheet, hidden while picking a "Map to…" target underneath it.
+  const visibleWindows = wide ? windows : pending ? [] : windows.slice(-1);
 
   const treeProps = (side: Side) => ({
     side,
     data: trees[side],
-    expanded: side === "left" ? expandedLeft : expandedRight,
-    setExpanded: side === "left" ? setExpandedLeft : setExpandedRight,
+    items: items[side],
+    expanded: effectiveExpanded[side],
+    onExpandedChange: (keys: Set<Key>) => setExpanded((e) => ({ ...e, [side]: keys })),
+    selected: selected[side],
+    onSelectionChange: (keys: Set<Key>) => onSelectionChange(side, keys),
+    onExpandAll: () => setExpanded((e) => ({ ...e, [side]: new Set(folderIds(trees[side])) })),
+    onCollapseAll: () => setExpanded((e) => ({ ...e, [side]: new Set() })),
     counts: counts[side],
-    active,
-    pending,
     related: relatedSets[side].related,
     relatedAncestors: relatedSets[side].ancestors,
-    existing,
-    onActivate: activate,
+    suggested: suggestedIds[side],
+    pending,
+    isFiltered: !!visible,
+    onMapDrop: (sourceIds: string[], targetId: string) =>
+      mapBetween(
+        sourceIds.map((nodeId) => ({ side: otherSide(side), nodeId })),
+        { side, nodeId: targetId },
+      ),
+    onHoverStart,
+    onHoverEnd,
+    onDragActive: (active: boolean) => {
+      setDragging(active);
+      if (active) onHoverEnd();
+    },
   });
-
-  const activeNode = active ? trees[active.side].nodes[active.nodeId] : null;
-  const activePath = active
-    ? ancestorsOf(active.nodeId, parents[active.side], trees[active.side].rootId)
-        .reverse()
-        .map((id) => trees[active.side].nodes[id]?.name)
-    : [];
 
   return (
     <div className={wide ? "app wide" : "app narrow"}>
@@ -227,29 +338,40 @@ export default function App() {
         </div>
         <div className="toolbar">
           {installPrompt.mode && (
-            <button
-              type="button"
+            <Button
               className="primary"
               aria-expanded={installPrompt.mode === "ios" ? showIosHint : undefined}
-              onClick={() => (installPrompt.mode === "ios" ? setShowIosHint((v) => !v) : installPrompt.install())}
+              onPress={() => (installPrompt.mode === "ios" ? setShowIosHint((v) => !v) : installPrompt.install())}
             >
               Install
-            </button>
+            </Button>
           )}
-          <button type="button" className="ghost" onClick={exportJson}>
+          <Button className="primary claude" isDisabled={llm.busy} onPress={askClaude}>
+            {llm.busy ? "Asking Claude…" : "Suggest with Claude"}
+          </Button>
+          <Button className="ghost icon" aria-label="Claude settings" onPress={() => setSettingsOpen(true)}>
+            <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+              <circle cx="8" cy="8" r="2.2" fill="none" stroke="currentColor" strokeWidth="1.4" />
+              <path
+                d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinecap="round"
+              />
+            </svg>
+          </Button>
+          <ToggleButton className="ghost toggle" isSelected={focusMode} onChange={setFocusMode}>
+            Focus
+          </ToggleButton>
+          <Button className="ghost" onPress={() => setImportOpen(true)}>
+            Upload
+          </Button>
+          <Button className="ghost" onPress={() => exportProject(project)}>
             Export
-          </button>
-          <button
-            type="button"
-            className="ghost"
-            onClick={() => {
-              setMappings(sampleMappings);
-              setActive(null);
-              setPending(null);
-            }}
-          >
+          </Button>
+          <Button className="ghost" onPress={resetAll}>
             Reset
-          </button>
+          </Button>
         </div>
       </header>
 
@@ -269,104 +391,141 @@ export default function App() {
             </svg>
             then <strong>Add to Home Screen</strong>.
           </span>
-          <button type="button" className="ghost icon" aria-label="Close" onClick={() => setShowIosHint(false)}>
+          <Button className="ghost icon" aria-label="Close" onPress={() => setShowIosHint(false)}>
             ×
-          </button>
+          </Button>
         </div>
       )}
 
-      <p className="hint">
-        {pending
-          ? `Tap an item in “${trees[otherSide(pending.side)].title}” to map it. Esc to cancel.`
-          : wide
-            ? "Drag an item onto the other list to map it. Click an item to see its links."
-            : "Long-press and drag to map, or tap an item and use “Map to…”."}
-      </p>
+      {pending ? (
+        <div className="banner info" role="status">
+          <span>
+            Tap an item in “{trees[otherSide(pending.side)].title}” to map <strong>{nodeName(pending)}</strong>.
+          </span>
+          <Button className="ghost" onPress={() => setPending(null)}>
+            Cancel
+          </Button>
+        </div>
+      ) : (
+        <p className="hint">
+          {wide
+            ? "Hover for a preview, click to select and pin details, drag onto the other list to map."
+            : "Tap to select and pin details. Long-press the ⋮⋮ handle to drag, or use “Map to…”."}
+        </p>
+      )}
 
-      <DndContext
-        sensors={sensors}
-        collisionDetection={oppositeSideOnly}
-        onDragStart={onDragStart}
-        onDragEnd={onDragEnd}
-        onDragCancel={() => setDragging(null)}
-        autoScroll={{ threshold: { x: 0, y: 0.15 } }}
-      >
-        <main className="board" ref={boardRef} data-pending={pending ? otherSide(pending.side) : undefined}>
-          <TraceTree {...treeProps("left")} />
-          {wide && <div className="gutter" aria-hidden="true" />}
-          <TraceTree {...treeProps("right")} />
-          {wide && (
-            <ConnectorLayer
-              boardRef={boardRef}
-              mappings={mappings}
-              trees={trees}
-              parents={parents}
-              active={active}
-              flashId={flashId}
-              layoutKey={`${expandedLeft.join()}|${expandedRight.join()}|${wide}`}
-            />
-          )}
-        </main>
-        <DragOverlay dropAnimation={null}>
-          {dragging && <div className={`drag-chip from-${dragging.side}`}>{dragging.name}</div>}
-        </DragOverlay>
-      </DndContext>
+      {llm.error && (
+        <div className="banner warn" role="alert">
+          <span>{llm.error}</span>
+          <Button className="ghost icon" aria-label="Dismiss" onPress={() => setLlm({ busy: false, error: null })}>
+            ×
+          </Button>
+        </div>
+      )}
 
-      <aside className={active ? "details open" : "details"} aria-live="polite">
-        {active && activeNode ? (
-          <>
-            <div className="details-head">
-              <div className="details-title">
-                {activePath.length > 0 && <span className="crumbs">{activePath.join(" / ")}</span>}
-                <strong>{activeNode.name}</strong>
-              </div>
-              <div className="details-actions">
-                <button
-                  type="button"
-                  className={pending ? "primary on" : "primary"}
-                  onClick={() => setPending(pending ? null : active)}
-                >
-                  {pending ? "Cancel" : "Map to…"}
-                </button>
-                <button type="button" className="ghost icon" aria-label="Close" onClick={() => setActive(null)}>
-                  ×
-                </button>
-              </div>
-            </div>
-            {activeMappings.length === 0 ? (
-              <p className="empty">No mappings yet.</p>
-            ) : (
-              <ul className="links">
-                {activeMappings.map((m) => {
-                  const other = otherSide(active.side);
-                  const otherId = endOn(m, other);
-                  const ownId = endOn(m, active.side);
-                  return (
-                    <li key={m.id}>
-                      <button type="button" className="link-target" onClick={() => reveal(other, otherId)}>
-                        {ownId !== active.nodeId && (
-                          <span className="via">{trees[active.side].nodes[ownId]?.name} →</span>
-                        )}
-                        <span>{trees[other].nodes[otherId]?.name}</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="ghost icon"
-                        aria-label={`Remove mapping to ${trees[other].nodes[otherId]?.name}`}
-                        onClick={() => removeMapping(m.id)}
-                      >
-                        ×
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </>
-        ) : (
-          <p className="empty">Select an item to see and edit its mappings.</p>
+      <main className="board" ref={boardRef} data-pending={pending ? otherSide(pending.side) : undefined}>
+        <TraceTree {...treeProps("left")} />
+        {wide && <div className="gutter" aria-hidden="true" />}
+        <TraceTree {...treeProps("right")} />
+        {wide && (
+          <ConnectorLayer
+            boardRef={boardRef}
+            mappings={mappings}
+            suggestions={suggestions}
+            highlighted={highlighted}
+            trees={trees}
+            parents={parents}
+            flashId={flashId}
+            layoutKey={items}
+          />
         )}
-      </aside>
+      </main>
+
+      {suggestions.length > 0 && (
+        <aside className="suggestions" aria-label="Suggestions from Claude">
+          <div className="suggestions-head">
+            <strong>{suggestions.length} suggested by Claude</strong>
+            <div className="suggestions-actions">
+              <Button className="ghost" onPress={() => addMappings(suggestions.map(({ from, to }) => ({ from, to })))}>
+                Accept all
+              </Button>
+              <Button className="ghost" onPress={() => setSuggestions([])}>
+                Dismiss
+              </Button>
+            </div>
+          </div>
+          <ul className="suggestion-chips">
+            {suggestions.map((s) => (
+              <li key={s.id} title={s.reason}>
+                <span className={`conf ${s.confidence}`} aria-label={`${s.confidence} confidence`} />
+                <span className="chip-text">
+                  {trees.left.nodes[s.from]?.name} → {trees.right.nodes[s.to]?.name}
+                </span>
+                <Button className="ghost icon ok" aria-label="Accept" onPress={() => acceptSuggestion(s)}>
+                  ✓
+                </Button>
+                <Button className="ghost icon" aria-label="Reject" onPress={() => rejectSuggestion(s.id)}>
+                  ×
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </aside>
+      )}
+
+      {visibleWindows.map((win) => (
+        <ItemWindow
+          key={win.key}
+          win={win}
+          docked={!wide}
+          trees={trees}
+          parents={parents}
+          mappings={mappings}
+          suggestions={suggestions}
+          isPending={!!pending && anchorId(pending.side, pending.nodeId) === win.key}
+          onClose={() => closeWindow(win.key)}
+          onRaise={() => {
+            const z = ++zTop.current;
+            setWindows((ws) => ws.map((w) => (w.key === win.key ? { ...w, z } : w)));
+          }}
+          onMove={(x, y) => setWindows((ws) => ws.map((w) => (w.key === win.key ? { ...w, x, y } : w)))}
+          onTogglePending={() =>
+            setPending((p) => (p && anchorId(p.side, p.nodeId) === win.key ? null : win.ref))
+          }
+          onReveal={reveal}
+          onRemoveMapping={removeMapping}
+          onAccept={acceptSuggestion}
+          onReject={rejectSuggestion}
+        />
+      ))}
+
+      {wide && !dragging && <HoverPreview target={hover} trees={trees} parents={parents} mappings={mappings} />}
+
+      <ImportDialog
+        isOpen={importOpen}
+        onOpenChange={setImportOpen}
+        current={project}
+        onImport={(next, summary) => {
+          setProject(next);
+          setSuggestions([]);
+          setSelected({ left: new Set(), right: new Set() });
+          setWindows([]);
+          setPending(null);
+          setToast({ text: summary, kind: "ok" });
+        }}
+      />
+
+      <ClaudeSettings
+        isOpen={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        apiKey={apiKey.key}
+        remember={apiKey.remember}
+        onSave={(key, remember) => {
+          saveApiKey(key, remember);
+          setApiKey({ key, remember });
+          setToast({ text: key ? "Claude key saved" : "Claude key removed", kind: "ok" });
+        }}
+      />
 
       {toast && (
         <div className={`toast ${toast.kind}`} role="status">
