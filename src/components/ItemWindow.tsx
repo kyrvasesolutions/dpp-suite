@@ -1,7 +1,15 @@
 import { useRef, type CSSProperties, type PointerEvent } from "react";
 import { Button, Dialog, Heading } from "react-aria-components";
-import { endOn, isSelfOrDescendant, pathNames, type ParentMap } from "../model/tree";
-import { otherSide, type Mapping, type NodeRef, type Side, type Suggestion, type TreeData } from "../model/types";
+import { ancestorsOf, endOn, isSelfOrDescendant, pathNames, type ParentMap } from "../model/tree";
+import {
+  otherSide,
+  type Mapping,
+  type NodeRef,
+  type Side,
+  type SourceDoc,
+  type Suggestion,
+  type TreeData,
+} from "../model/types";
 
 export interface WindowState {
   key: string;
@@ -19,6 +27,7 @@ interface ItemWindowProps {
   parents: Record<Side, ParentMap>;
   mappings: Mapping[];
   suggestions: Suggestion[];
+  sources: Record<string, SourceDoc>;
   isPending: boolean;
   onClose: () => void;
   onRaise: () => void;
@@ -52,6 +61,11 @@ export function ItemWindow(props: ItemWindowProps) {
   const suggestions = props.suggestions.filter(inScope);
   const path = pathNames(nodeId, tree, parents[side]);
   const name = (s: Side, id: string) => trees[s].nodes[id]?.name ?? id;
+  // Indicators carry no text of their own; show the provision they are listed under.
+  const textNode = [nodeId, ...ancestorsOf(nodeId, parents[side], tree.rootId)]
+    .map((id) => tree.nodes[id])
+    .find((n) => n?.description);
+  const source = node.sourceId ? props.sources[node.sourceId] : undefined;
 
   const onPointerDown = (e: PointerEvent<HTMLElement>) => {
     if (docked || (e.target as HTMLElement).closest("button")) return;
@@ -98,6 +112,22 @@ export function ItemWindow(props: ItemWindowProps) {
             <span className={`side-tag ${side}`}>{tree.title}</span>
             {node.meta && <span className="muted">{node.meta}</span>}
           </div>
+
+          {textNode?.description && textNode.id !== tree.rootId && (
+            <figure className="legal">
+              <blockquote>{textNode.description}</blockquote>
+              <figcaption>
+                {source?.url ? (
+                  <a href={source.url} target="_blank" rel="noreferrer">
+                    {node.sourceRef ?? source.title}
+                  </a>
+                ) : (
+                  (node.sourceRef ?? source?.title)
+                )}
+                {source && <span className="muted"> · {source.title}</span>}
+              </figcaption>
+            </figure>
+          )}
 
           <h3>Mappings ({links.length})</h3>
           {links.length === 0 ? (

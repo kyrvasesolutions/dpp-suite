@@ -9,15 +9,16 @@ const SuggestionsSchema = z.object({
   suggestions: z.array(
     z.object({
       from: z.string().describe("Exact id of the product-structure item"),
-      to: z.string().describe("Exact id of the passport requirement"),
+      to: z.string().describe("Exact id of the data category"),
       confidence: z.enum(["high", "medium", "low"]),
-      reason: z.string().describe("Why this item is evidence for the requirement, at most 20 words"),
+      reason: z.string().describe("Why this item supplies data for the category, at most 20 words"),
     }),
   ),
 });
 
-const SYSTEM = `You help map a product's structure to digital product passport (DPP) requirements.
-A mapping means the product item (a part, material, firmware or document) is a data source or evidence for the requirement.
+const SYSTEM = `You help map a product's structure to digital product passport (DPP) data categories.
+The data categories come from the EU Ecodesign for Sustainable Products Regulation (ESPR); their legal text is included.
+A mapping means the product item (a part, material, firmware or document) is a data source or evidence for the data category.
 Propose only mappings a compliance engineer would accept. Prefer the most specific item on both sides.
 Use the exact ids given. Do not repeat existing mappings. Return an empty list if nothing fits.`;
 
@@ -27,7 +28,8 @@ function listTree(tree: TreeData) {
     .filter((n) => n.id !== tree.rootId)
     .map((n) => {
       const path = pathNames(n.id, tree, parents);
-      return `${n.id} | ${[...path, n.name].join(" > ")}${n.meta ? ` | ${n.meta}` : ""}`;
+      const fields = [n.id, [...path, n.name].join(" > "), n.meta, n.description && `text: ${n.description}`];
+      return fields.filter(Boolean).join(" | ");
     })
     .join("\n");
 }
@@ -38,15 +40,15 @@ function buildPrompt(project: Project) {
 ${listTree(project.left)}
 </product_structure>
 
-<passport_requirements title="${project.right.title}">
+<data_categories title="${project.right.title}">
 ${listTree(project.right)}
-</passport_requirements>
+</data_categories>
 
 <existing_mappings>
 ${existing}
 </existing_mappings>
 
-Suggest new mappings from product_structure ids to passport_requirements ids.`;
+Suggest new mappings from product_structure ids to data_categories ids.`;
 }
 
 export class LlmError extends Error {}

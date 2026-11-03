@@ -29,7 +29,7 @@ export default defineConfig({
       },
       workbox: {
         // Precache the app shell so it opens offline once installed.
-        globPatterns: ["**/*.{js,css,html,ico,png,svg}"],
+        globPatterns: ["**/*.{js,css,html,ico,png,svg,wasm}"],
       },
     }),
   ],

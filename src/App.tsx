@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button, ToggleButton, type Key } from "react-aria-components";
+import { Button, Menu, MenuItem, MenuTrigger, Popover, ToggleButton, type Key } from "react-aria-components";
+import type { Database } from "sql.js";
 import { ClaudeSettings } from "./components/ClaudeSettings";
 import { ConnectorLayer } from "./components/ConnectorLayer";
 import { HoverPreview } from "./components/HoverPreview";
@@ -8,7 +9,8 @@ import { ItemWindow, WINDOW_WIDTH, type WindowState } from "./components/ItemWin
 import { TraceTree } from "./components/TraceTree";
 import { loadApiKey, saveApiKey } from "./llm/apiKey";
 import { LlmError, suggestMappings } from "./llm/suggest";
-import { exportProject, loadProject, sampleProject, saveProject, type Project } from "./model/project";
+import { openDatabase, persist, readProject, resetDatabase, writeProject } from "./db/database";
+import { download, exportProject, type Project } from "./model/project";
 import {
   ancestorsOf,
   buildParentMap,
@@ -32,16 +34,23 @@ type PerSide<T> = Record<Side, T>;
 
 const newId = (prefix: string) => `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
-export default function App() {
+const SAVE_DELAY = 300;
+
+interface WorkspaceProps {
+  database: Database;
+}
+
+export function Workspace({ database }: WorkspaceProps) {
   const wide = useMediaQuery("(min-width: 768px)");
   const boardRef = useRef<HTMLDivElement>(null);
   const installPrompt = useInstallPrompt();
+  const dbRef = useRef(database);
 
-  const [project, setProject] = useState<Project>(loadProject);
+  const [project, setProject] = useState<Project>(() => readProject(database));
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [expanded, setExpanded] = useState<PerSide<Set<Key>>>({
     left: new Set(["pack", "module", "cells", "docs"]),
-    right: new Set(["general", "materials", "carbon", "recycled"]),
+    right: new Set(["espr-b"]),
   });
   const [selected, setSelected] = useState<PerSide<Set<Key>>>({ left: new Set(), right: new Set() });
   const [windows, setWindows] = useState<WindowState[]>([]);
@@ -67,7 +76,23 @@ export default function App() {
   );
   const { mappings } = project;
 
-  useEffect(() => saveProject(project), [project]);
+  // Every change is written to SQLite and the file saved in this browser (debounced).
+  const firstSave = useRef(true);
+  useEffect(() => {
+    if (firstSave.current) {
+      firstSave.current = false;
+      return;
+    }
+    const t = setTimeout(() => {
+      try {
+        writeProject(dbRef.current, project);
+        persist(dbRef.current).catch(() => setToast({ text: "Couldn't save to this browser's storage", kind: "warn" }));
+      } catch (error) {
+        setToast({ text: `Database error: ${error instanceof Error ? error.message : String(error)}`, kind: "warn" });
+      }
+    }, SAVE_DELAY);
+    return () => clearTimeout(t);
+  }, [project]);
 
   useEffect(() => {
     if (!toast) return;
@@ -267,8 +292,9 @@ export default function App() {
   const acceptSuggestion = (s: Suggestion) => addMappings([{ from: s.from, to: s.to }]);
   const rejectSuggestion = (id: string) => setSuggestions((ss) => ss.filter((s) => s.id !== id));
 
-  const resetAll = () => {
-    setProject(sampleProject());
+  const resetAll = async () => {
+    dbRef.current = await resetDatabase();
+    setProject(readProject(dbRef.current));
     setSuggestions([]);
     setSelected({ left: new Set(), right: new Set() });
     setWindows([]);
@@ -329,7 +355,7 @@ export default function App() {
           <span className="stat">
             <strong>{mappings.length}</strong> mappings
           </span>
-          <span className="stat" title={`${covered} of ${requirementLeaves.length} requirements have evidence`}>
+          <span className="stat" title={`${covered} of ${requirementLeaves.length} data categories have a mapping`}>
             <span className="meter" aria-hidden="true">
               <span style={{ width: `${coverage}%` }} />
             </span>
@@ -366,9 +392,25 @@ export default function App() {
           <Button className="ghost" onPress={() => setImportOpen(true)}>
             Upload
           </Button>
-          <Button className="ghost" onPress={() => exportProject(project)}>
-            Export
-          </Button>
+          <MenuTrigger>
+            <Button className="ghost">Export</Button>
+            <Popover className="menu-popover" placement="bottom end">
+              <Menu
+                className="menu"
+                onAction={(key) => {
+                  if (key === "json") exportProject(project);
+                  else download(new Blob([dbRef.current.export() as BlobPart]), "dpp-traceability.sqlite");
+                }}
+              >
+                <MenuItem id="json" className="menu-item">
+                  Project (JSON)
+                </MenuItem>
+                <MenuItem id="sqlite" className="menu-item">
+                  Database (SQLite)
+                </MenuItem>
+              </Menu>
+            </Popover>
+          </MenuTrigger>
           <Button className="ghost" onPress={resetAll}>
             Reset
           </Button>
@@ -482,6 +524,7 @@ export default function App() {
           parents={parents}
           mappings={mappings}
           suggestions={suggestions}
+          sources={project.sources}
           isPending={!!pending && anchorId(pending.side, pending.nodeId) === win.key}
           onClose={() => closeWindow(win.key)}
           onRaise={() => {
@@ -534,4 +577,20 @@ export default function App() {
       )}
     </div>
   );
+}
+
+/** Opens the SQLite database (from this browser, or seeded) before showing the workspace. */
+export default function App() {
+  const [state, setState] = useState<{ db?: Database; error?: string }>({});
+
+  useEffect(() => {
+    openDatabase().then(
+      (db) => setState({ db }),
+      (error) => setState({ error: error instanceof Error ? error.message : String(error) }),
+    );
+  }, []);
+
+  if (state.error) return <p className="loading error">Couldn't open the database: {state.error}</p>;
+  if (!state.db) return <p className="loading">Loading database…</p>;
+  return <Workspace database={state.db} />;
 }

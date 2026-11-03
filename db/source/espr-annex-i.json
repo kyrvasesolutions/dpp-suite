@@ -1,0 +1,33 @@
+{
+  "source": {
+    "id": "espr",
+    "title": "Regulation (EU) 2024/1781 (Ecodesign for Sustainable Products Regulation)",
+    "celex": "32024R1781",
+    "url": "https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=OJ:L_202401781",
+    "section": "Annex I - Product parameters",
+    "retrieved": "2026-11-03"
+  },
+  "intro": "The following parameters shall, as appropriate, and where necessary supplemented by others, be used, individually or in combination, as a basis for improving the product aspects:",
+  "parameters": [
+    ["(a)", "durability and reliability of the product or its components as expressed through the product’s guaranteed lifetime, technical lifetime, mean time between failures, indication of real use information on the product, resistance to stresses or ageing mechanisms;"],
+    ["(b)", "ease of repair and maintenance, as expressed through characteristics, availability, delivery time and affordability of spare parts, modularity, compatibility with commonly available tools and spare parts, availability of repair and maintenance instructions, number of materials and components used, use of standard components, use of component and material coding standards for the identification of components and materials, number and complexity of processes and whether specialised tools are needed, ease of non-destructive disassembly and re-assembly, conditions for access to product data, conditions for access to or use of hardware and software needed;"],
+    ["(c)", "ease of upgrading, reuse, remanufacturing and refurbishment as expressed through number of materials and components used, use of standard components, use of component and material coding standards for the identification of components and materials, number and complexity of processes and tools needed, ease of non-destructive disassembly and re-assembly, conditions for access to product data, conditions for access to or use of hardware and software needed, conditions of access to test protocols or not commonly available testing equipment, availability of guarantees specific to remanufactured or refurbished products, conditions for access to or use of technologies protected by intellectual property rights, modularity;"],
+    ["(d)", "design for recycling, ease and quality of recycling as expressed through use of easily recyclable materials, safe, easy and non-destructive access to recyclable components and materials or components and materials containing hazardous substances and material composition and homogeneity, possibility for high-purity sorting, number of materials and components used, use of standard components, use of component and material coding standards for the identification of components and materials, number and complexity of processes and tools needed, ease of non-destructive disassembly and re-assembly, conditions for access to product data, conditions for access to or use of hardware and software needed;"],
+    ["(e)", "avoidance of technical solutions detrimental to reuse, upgrading, repair, maintenance, refurbishment, remanufacturing and recycling of products and components;"],
+    ["(f)", "use of substances, and in particular the use of substances of concern, on their own, as constituents of substances or in mixtures, during the production process of products, or leading to their presence in products, including once those products become waste, and their impacts on human health and the environment;"],
+    ["(g)", "use or consumption of energy, water and other resources in one or more life cycle stages of the product, including the effect of physical factors or software and firmware updates on product efficiency and including the impact on deforestation;"],
+    ["(h)", "use or content of recycled materials and recovery of materials, including critical raw materials;"],
+    ["(i)", "use or content of sustainable renewable materials;"],
+    ["(j)", "weight and volume of the product and its packaging, and the product-to-packaging ratio;"],
+    ["(k)", "incorporation of used components;"],
+    ["(l)", "quantity, characteristics and availability of consumables needed for proper use and maintenance as expressed, inter alia, through yield, technical lifetime, ability to reuse, repair, and remanufacture, mass-resource efficiency, and interoperability;"],
+    ["(m)", "the environmental footprint of the product, expressed as a quantification, in accordance with the applicable delegated act, of a product’s life cycle environmental impacts, whether in relation to one or more environmental impact categories or an aggregated set of impact categories;"],
+    ["(n)", "the carbon footprint of the product;"],
+    ["(o)", "the material footprint of the product;"],
+    ["(p)", "microplastic and nanoplastic release as expressed through the release during relevant product life cycle stages, including manufacturing, transport, use and end-of-life stages;"],
+    ["(q)", "emissions to air, water or soil released in one or more lifecycle stages of the product as expressed through quantities and nature of emissions, including noise;"],
+    ["(r)", "amounts of waste generated, including plastic waste and packaging waste and their ease of reuse, and amounts of hazardous waste generated;"],
+    ["(s)", "functional performance and conditions for use, including as expressed through the ability to perform its intended use, precautions for use, skills required and compatibility with other products or systems;"],
+    ["(t)", "lightweight design as expressed through reduction of material consumption, load- and stress-optimisation of structures, integration of functions within the material or into a single product component, use of lower density or high-strength materials and hybrid materials, with regard to material savings, recycling and other circularity aspects, and waste reduction."]
+  ]
+}

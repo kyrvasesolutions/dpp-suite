@@ -5,10 +5,22 @@ export interface TreeNode {
   name: string;
   /** Short secondary label, e.g. part number or regulation reference. */
   meta?: string;
+  /** Longer text, e.g. the verbatim legal provision a data category comes from. */
+  description?: string;
+  /** Document the node was extracted from (key into Project.sources) and where in it. */
+  sourceId?: string;
+  sourceRef?: string;
   children?: string[];
 }
 
+export interface SourceDoc {
+  title: string;
+  url?: string;
+}
+
 export interface TreeData {
+  /** Database id; trees without one get "left" / "right" when saved. */
+  id?: string;
   title: string;
   subtitle: string;
   rootId: string;

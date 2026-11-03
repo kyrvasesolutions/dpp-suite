@@ -12,6 +12,8 @@ interface HoverPreviewProps {
 
 const MAX_LINKS = 4;
 
+const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max).trimEnd()}…` : text);
+
 // The app decides when the preview shows, so the tooltip gets a fixed "open"
 // state instead of React Aria's own hover/focus trigger.
 const OPEN_STATE = { isOpen: true, shouldSkipAnimation: false, open() {}, close() {} };
@@ -40,6 +42,7 @@ export function HoverPreview({ target, trees, parents, mappings }: HoverPreviewP
         {path.length > 0 && <div className="crumbs">{path.join(" / ")}</div>}
         <strong>{node.name}</strong>
         {node.meta && <span className="muted"> · {node.meta}</span>}
+        {node.description && <p className="preview-text">{clip(node.description, 180)}</p>}
         {links.length > 0 ? (
           <ul className="preview-links">
             {links.slice(0, MAX_LINKS).map((name, i) => (
