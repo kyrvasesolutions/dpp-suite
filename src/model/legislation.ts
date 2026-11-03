@@ -5,8 +5,9 @@
  * Every requirement belongs to one generic data point, so when several
  * legislations ask for the same kind of data (e.g. ESPR's carbon footprint and
  * CBAM's embedded emissions) they show up as one row with both behind it.
- * Texts are short summaries for orientation, not legal text; follow `url` for
- * the act itself.
+ * Where a requirement has `quotes`, they are the act's own words, taken from the
+ * Official Journal text (amending and implementing acts included) and checked by
+ * `npm run check-legal-text`; `text` is a plain-language reading next to them.
  */
 
 export type ProductGroup = "aluminium" | "textile";
@@ -40,13 +41,14 @@ export interface Legislation {
   short: string;
   title: string;
   ref: string;
-  url: string;
+  /** CELEX number of the act on EUR-Lex. */
+  celex: string;
   category: LegislationCategory;
   /** Why and from when it applies, per product group it covers. */
   scope: Partial<Record<ProductGroup, string>>;
 }
 
-const eurLex = (celex: string) => `https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:${celex}`;
+export const eurLex = (celex: string) => `https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:${celex}`;
 
 export const LEGISLATIONS: Legislation[] = [
   {
@@ -54,7 +56,7 @@ export const LEGISLATIONS: Legislation[] = [
     short: "ESPR",
     title: "Ecodesign for Sustainable Products Regulation",
     ref: "Regulation (EU) 2024/1781",
-    url: eurLex("32024R1781"),
+    celex: "32024R1781",
     category: "product",
     scope: {
       aluminium:
@@ -68,7 +70,7 @@ export const LEGISLATIONS: Legislation[] = [
     short: "CPR",
     title: "Construction Products Regulation",
     ref: "Regulation (EU) 2024/3110",
-    url: eurLex("32024R3110"),
+    celex: "32024R3110",
     category: "product",
     scope: {
       aluminium:
@@ -80,7 +82,7 @@ export const LEGISLATIONS: Legislation[] = [
     short: "PPWR",
     title: "Packaging and Packaging Waste Regulation",
     ref: "Regulation (EU) 2025/40",
-    url: eurLex("32025R0040"),
+    celex: "32025R0040",
     category: "product",
     scope: {
       aluminium: "Aluminium packaging (cans, foil, trays, tubes, aerosols). Applies from 12 August 2026.",
@@ -91,11 +93,11 @@ export const LEGISLATIONS: Legislation[] = [
     short: "CBAM",
     title: "Carbon Border Adjustment Mechanism",
     ref: "Regulation (EU) 2023/956",
-    url: eurLex("32023R0956"),
+    celex: "32023R0956",
     category: "climate",
     scope: {
       aluminium:
-        "Unwrought aluminium and aluminium products (CN 7601, 7603–7616) imported into the EU. Definitive period since 1 January 2026.",
+        "Unwrought aluminium and aluminium products (CN 7601, 7603–7616) imported into the EU. Definitive period since 1 January 2026; importers under 50 tonnes net mass a year are exempt.",
     },
   },
   {
@@ -103,7 +105,7 @@ export const LEGISLATIONS: Legislation[] = [
     short: "REACH",
     title: "Registration, Evaluation, Authorisation and Restriction of Chemicals",
     ref: "Regulation (EC) No 1907/2006",
-    url: eurLex("32006R1907"),
+    celex: "32006R1907",
     category: "chemicals",
     scope: {
       aluminium: "Substances of very high concern in articles; Annex XVII restrictions that apply to metal articles.",
@@ -115,7 +117,7 @@ export const LEGISLATIONS: Legislation[] = [
     short: "BPR",
     title: "Biocidal Products Regulation",
     ref: "Regulation (EU) No 528/2012",
-    url: eurLex("32012R0528"),
+    celex: "32012R0528",
     category: "chemicals",
     scope: {
       textile: "Treated articles, e.g. antibacterial, anti-odour or anti-mould textiles.",
@@ -126,7 +128,7 @@ export const LEGISLATIONS: Legislation[] = [
     short: "TLR",
     title: "Textile Labelling Regulation",
     ref: "Regulation (EU) No 1007/2011",
-    url: eurLex("32011R1007"),
+    celex: "32011R1007",
     category: "consumer",
     scope: {
       textile: "All textile products made available on the EU market.",
@@ -137,7 +139,7 @@ export const LEGISLATIONS: Legislation[] = [
     short: "GPSR",
     title: "General Product Safety Regulation",
     ref: "Regulation (EU) 2023/988",
-    url: eurLex("32023R0988"),
+    celex: "32023R0988",
     category: "consumer",
     scope: {
       textile: "Consumer textile products. Applies since 13 December 2024.",
@@ -148,7 +150,7 @@ export const LEGISLATIONS: Legislation[] = [
     short: "WFD",
     title: "Waste Framework Directive",
     ref: "Directive 2008/98/EC, as amended by Directive (EU) 2025/1892",
-    url: eurLex("32025L1892"),
+    celex: "32008L0098",
     category: "waste",
     scope: {
       aluminium: "SCIP notification of articles containing substances of very high concern.",
@@ -161,7 +163,7 @@ export const LEGISLATIONS: Legislation[] = [
     short: "FLR",
     title: "Forced Labour Regulation",
     ref: "Regulation (EU) 2024/3015",
-    url: eurLex("32024R3015"),
+    celex: "32024R3015",
     category: "dueDiligence",
     scope: {
       aluminium: "Ban on products made with forced labour, e.g. in bauxite mining or smelting. Applies from 14 December 2027.",
@@ -232,14 +234,41 @@ export interface Requirement {
   dataPoint: string;
   legislation: string;
   groups: ProductGroup[];
-  /** Article, annex or chapter of the act. */
+  /** Article, annex or point of the act. */
   ref: string;
+  /** Plain-language reading of the provision. */
   text: string;
+  /**
+   * Excerpts copied word for word from the act (`npm run check-legal-text`
+   * verifies them). Several excerpts of one provision are shown joined by an ellipsis.
+   */
+  quotes?: string[];
+  /** CELEX number of the act quoted, when it is an amending or implementing act rather than the legislation itself. */
+  source?: string;
 }
+
+/** Amending and implementing acts some requirements are quoted from. */
+export const SOURCE_ACTS: Record<string, { ref: string; title: string }> = {
+  "32025R2083": {
+    ref: "Regulation (EU) 2025/2083",
+    title: "amending Regulation (EU) 2023/956 as regards simplifying and strengthening the CBAM",
+  },
+  "32025R2547": {
+    ref: "Implementing Regulation (EU) 2025/2547",
+    title: "methods for the calculation of emissions embedded in goods under the CBAM",
+  },
+  "32018L0851": {
+    ref: "Directive (EU) 2018/851",
+    title: "amending Directive 2008/98/EC on waste",
+  },
+};
 
 const AL: ProductGroup[] = ["aluminium"];
 const TX: ProductGroup[] = ["textile"];
 const BOTH: ProductGroup[] = ["aluminium", "textile"];
+
+/** ESPR information requirements bind a product group only once its delegated act sets them. */
+const ESPR_DELEGATED = "Applies once the ESPR delegated act for the product group requires it.";
 
 export const REQUIREMENTS: Requirement[] = [
   // ---------- Identification & operators ----------
@@ -247,22 +276,31 @@ export const REQUIREMENTS: Requirement[] = [
     dataPoint: "product-id",
     legislation: "espr",
     groups: BOTH,
-    ref: "Arts. 9–10, Annex III(b)",
-    text: "Unique product identifier, linked to the digital product passport through a data carrier on the product, its packaging or documentation.",
+    ref: "Art. 10(1)(a)–(b)",
+    quotes: [
+      "it shall be connected through a data carrier to a persistent unique product identifier; (b) the data carrier shall be physically present on the product, its packaging or on documentation accompanying the product",
+    ],
+    text: `Persistent unique product identifier, reached through a data carrier on the product, packaging or documentation. ${ESPR_DELEGATED}`,
   },
   {
     dataPoint: "product-id",
     legislation: "cpr",
     groups: AL,
-    ref: "Arts. 15–16",
-    text: "Unique identification of the product type in the declaration of performance and conformity, and type, batch or serial number on the product.",
+    ref: "Art. 22(5)",
+    quotes: [
+      "The manufacturer shall ensure that its products bear a manufacturer-specific unique identification code of the product type and, where available, a batch or serial number which is easily visible and legible for users.",
+    ],
+    text: "Unique identification code of the product type, plus batch or serial number where available, on the product.",
   },
   {
     dataPoint: "product-id",
     legislation: "ppwr",
     groups: AL,
-    ref: "Art. 15",
-    text: "Packaging bears a type, batch or serial number, or another element allowing its identification.",
+    ref: "Art. 15(5)",
+    quotes: [
+      "Manufacturers shall ensure that the packaging bears a type, batch or serial number or other element allowing its identification",
+    ],
+    text: "Type, batch or serial number on the packaging, or in a document accompanying the packaged product.",
   },
   {
     dataPoint: "product-id",
@@ -272,39 +310,58 @@ export const REQUIREMENTS: Requirement[] = [
     text: "Type, batch or serial number or another identifying element on the product, or on its packaging or accompanying document where the product is too small.",
   },
   {
+    dataPoint: "product-id",
+    legislation: "flr",
+    groups: BOTH,
+    ref: "Art. 27(2)",
+    quotes: [
+      "shall provide or make available to customs authorities information identifying the product, information about the manufacturer or the producer and information about the product suppliers",
+    ],
+    text: "At release for free circulation or export, for products or product groups named in a delegated act under Art. 27(1).",
+  },
+  {
     dataPoint: "commodity-code",
     legislation: "espr",
     groups: BOTH,
     ref: "Annex III(d)",
-    text: "Relevant commodity code of the product, such as its TARIC code.",
+    quotes: ["relevant commodity codes, such as a TARIC code as defined in Regulation (EEC) No 2658/87"],
+    text: `Commodity code of the product in the digital product passport; Art. 13(1) also stores it in the registry for goods released for free circulation. ${ESPR_DELEGATED}`,
   },
   {
     dataPoint: "commodity-code",
     legislation: "cbam",
     groups: AL,
-    ref: "Art. 6, Annex I",
-    text: "Eight-digit CN code of each type of good imported (CN 7601, 7603–7616), declared in the annual CBAM declaration.",
+    ref: "Annex I",
+    quotes: ["7601 – Unwrought aluminium", "7616 – Other articles of aluminium"],
+    text: "CBAM goods are identified by CN code: aluminium is 7601 and 7603 to 7616. The declaration reports per type of goods.",
   },
   {
     dataPoint: "manufacturer",
     legislation: "espr",
     groups: BOTH,
     ref: "Annex III(g)",
-    text: "Information on the manufacturer, including its unique operator identifier.",
+    quotes: ["information related to the manufacturer, such as its unique operator identifier and the information referred to in Article 27(7)"],
+    text: `Manufacturer identity and contact details, with its unique operator identifier. ${ESPR_DELEGATED}`,
   },
   {
     dataPoint: "manufacturer",
     legislation: "cpr",
     groups: AL,
-    ref: "Arts. 15–16",
-    text: "Name and contact address of the manufacturer in the declaration of performance and conformity and on the product.",
+    ref: "Annex IV, point 1.3; Art. 18(2)(b)",
+    quotes: [
+      "Contact details of the manufacturer or the authorised representative: (a) name; (b) postal address; (c) telephone; (d) email address; (e) website, where available.",
+    ],
+    text: "Part of the general product information; the CE marking is also followed by the manufacturer's name and registered address.",
   },
   {
     dataPoint: "manufacturer",
     legislation: "ppwr",
     groups: AL,
-    ref: "Art. 15",
-    text: "Name, registered trade name or trade mark, and postal and electronic address of the manufacturer on the packaging.",
+    ref: "Art. 15(6)",
+    quotes: [
+      "Manufacturers shall indicate on the packaging or on a QR code or another data carrier their name, registered trade name or registered trademark as well as the postal address at which and, where available, the electronic means of communication by which they can be contacted.",
+    ],
+    text: "Manufacturer name and postal address on the packaging or through its data carrier.",
   },
   {
     dataPoint: "manufacturer",
@@ -314,25 +371,53 @@ export const REQUIREMENTS: Requirement[] = [
     text: "Name, registered trade name or trade mark, and postal and electronic address of the manufacturer on the product or its packaging.",
   },
   {
+    dataPoint: "manufacturer",
+    legislation: "flr",
+    groups: BOTH,
+    ref: "Art. 27(2)",
+    quotes: ["information about the manufacturer or the producer"],
+    text: "Given to customs for products or product groups named in a delegated act under Art. 27(1).",
+  },
+  {
     dataPoint: "importer",
     legislation: "espr",
     groups: BOTH,
     ref: "Annex III(j)–(k)",
-    text: "Importer information including its EORI number, and the name, contact details and identifier of the EU-established economic operator responsible for the product.",
+    quotes: [
+      "information related to the importer, including the information referred to in Article 29(3) and its Economic Operators Registration and Identification (EORI) number; (k) the name, contact details and unique operator identifier of the economic operator established in the Union responsible for carrying out the tasks set out in Article 4 of Regulation (EU) 2019/1020",
+    ],
+    text: `Importer details with EORI number, and the EU-established operator responsible for the product. ${ESPR_DELEGATED}`,
   },
   {
     dataPoint: "importer",
     legislation: "cbam",
     groups: AL,
-    ref: "Arts. 4–5, 17",
-    text: "Only an authorised CBAM declarant may import CBAM goods; its CBAM account number identifies the declarant in the declaration.",
+    ref: "Art. 5(1) as amended; Annex V, point 1.1",
+    source: "32025R2083",
+    quotes: [
+      "Any importer established in a Member State shall, prior to importing goods into the customs territory of the Union, apply for the status of authorised CBAM declarant",
+    ],
+    text: "Only an authorised CBAM declarant may import CBAM goods. Records must identify the declarant by name and CBAM account number (Annex V). Importers under 50 tonnes net mass a year are exempt (Art. 2a).",
   },
   {
     dataPoint: "importer",
     legislation: "cpr",
     groups: AL,
-    ref: "Importer obligations",
-    text: "Name and contact address of the importer on the product, or where not possible on its packaging or accompanying documents.",
+    ref: "Art. 24(6)",
+    quotes: [
+      "importer shall indicate its name, registered trade name or registered trade mark, its place of business, its contact address and, where available, electronic means of communication, either on the product or, where that is not possible, on its packaging, or in a document accompanying the product.",
+    ],
+    text: "Importer name and contact address on the product, its packaging or accompanying document.",
+  },
+  {
+    dataPoint: "importer",
+    legislation: "ppwr",
+    groups: AL,
+    ref: "Art. 18(3)",
+    quotes: [
+      "Importers shall indicate on the packaging their name and their registered trade name or registered trademark as well as the postal address at which and, where available, the electronic means of communication by which they can be contacted.",
+    ],
+    text: "Importer name and postal address on the packaging, or through its data carrier or an accompanying document.",
   },
   {
     dataPoint: "importer",
@@ -345,8 +430,11 @@ export const REQUIREMENTS: Requirement[] = [
     dataPoint: "producer-registration",
     legislation: "ppwr",
     groups: AL,
-    ref: "Art. 44",
-    text: "Producers of packaging register in the producer register of each Member State where they first make packaging available.",
+    ref: "Art. 44(2)",
+    quotes: [
+      "Producers shall be obliged to register in the register referred to in paragraph 1 of this Article in each Member State where they make packaging or packaged products available on the territory of the Member State for the first time",
+    ],
+    text: "Registration in the national register of producers of each Member State where the packaging is first made available.",
   },
   {
     dataPoint: "producer-registration",
@@ -362,21 +450,26 @@ export const REQUIREMENTS: Requirement[] = [
     legislation: "espr",
     groups: BOTH,
     ref: "Annex I(d)",
-    text: "Material composition and homogeneity, so the product can be sorted and recycled at high purity.",
+    quotes: ["material composition and homogeneity, possibility for high-purity sorting"],
+    text: `Material composition as a parameter of design for recycling. ${ESPR_DELEGATED}`,
   },
   {
     dataPoint: "material-composition",
-    legislation: "cbam",
+    legislation: "cpr",
     groups: AL,
-    ref: "Implementing rules, aluminium parameters",
-    text: "Alloy content: total share of elements other than aluminium where it exceeds 1 %.",
+    ref: "Annex IV, point 1.2(e)",
+    quotes: ["main materials used."],
+    text: "Main materials, as part of the product description in the general product information.",
   },
   {
     dataPoint: "material-composition",
     legislation: "ppwr",
     groups: AL,
-    ref: "Art. 12",
-    text: "Label with pictograms giving the material composition of the packaging, to help consumers sort it.",
+    ref: "Art. 12(1)",
+    quotes: [
+      "packaging placed on the market shall be marked with a harmonised label containing information on its material composition in order to facilitate consumer sorting.",
+    ],
+    text: "From 12 August 2028, or 24 months after the implementing acts, whichever is later.",
   },
   {
     dataPoint: "material-composition",
@@ -397,35 +490,69 @@ export const REQUIREMENTS: Requirement[] = [
     legislation: "espr",
     groups: BOTH,
     ref: "Art. 7(5)",
-    text: "Substances of concern tracked through the life cycle: name and identifiers (CAS/EC), location in the product, concentration, and safe-use and disassembly information.",
+    quotes: [
+      "the information requirements shall make it possible to track the substances of concern, throughout the life cycle of the products concerned",
+      "the name or numerical code of the substances of concern present in the product",
+      "the location of the substances of concern within the product;",
+      "the concentration, maximum concentration or concentration range of the substances of concern, at the level of the product, its relevant components, or spare parts;",
+    ],
+    text: `Name (IUPAC, EC, CAS), location and concentration of each substance of concern, plus safe-use and end-of-life information. ${ESPR_DELEGATED}`,
   },
   {
     dataPoint: "substances-of-concern",
     legislation: "reach",
     groups: BOTH,
-    ref: "Arts. 7(2), 33",
-    text: "Articles with Candidate List substances above 0.1 % w/w: inform recipients (and consumers on request, within 45 days) at least of the substance name; notify ECHA above 1 t/year.",
+    ref: "Art. 33(1)",
+    quotes: [
+      "Any supplier of an article containing a substance meeting the criteria in Article 57 and identified in accordance with Article 59(1) in a concentration above 0,1 % weight by weight (w/w) shall provide the recipient of the article with sufficient information, available to the supplier, to allow safe use of the article including, as a minimum, the name of that substance.",
+    ],
+    text: "Candidate List substances above 0.1 % w/w: inform recipients; consumers on request within 45 days (Art. 33(2)).",
+  },
+  {
+    dataPoint: "substances-of-concern",
+    legislation: "reach",
+    groups: BOTH,
+    ref: "Art. 7(2)",
+    quotes: [
+      "Any producer or importer of articles shall notify the Agency, in accordance with paragraph 4 of this Article, if a substance meets the criteria in Article 57 and is identified in accordance with Article 59(1)",
+      "the substance is present in those articles in quantities totalling over one tonne per producer or importer per year;",
+      "the substance is present in those articles above a concentration of 0,1 % weight by weight (w/w).",
+    ],
+    text: "Notify ECHA when a Candidate List substance is in the articles above 0.1 % w/w and above 1 tonne a year.",
   },
   {
     dataPoint: "substances-of-concern",
     legislation: "wfd",
     groups: BOTH,
     ref: "Art. 9(1)(i)",
-    text: "Notify articles containing Candidate List substances above 0.1 % w/w to ECHA's SCIP database.",
+    source: "32018L0851",
+    quotes: [
+      "ensure that any supplier of an article as defined in point 33 of Article 3 of Regulation (EC) No 1907/2006",
+      "provides the information pursuant to Article 33(1) of that Regulation to the European Chemicals Agency as from 5 January 2021;",
+    ],
+    text: "The REACH Art. 33(1) information goes to ECHA's SCIP database.",
   },
   {
     dataPoint: "substances-of-concern",
     legislation: "cpr",
     groups: AL,
-    ref: "Arts. 15–16",
-    text: "Information on hazardous substances contained in the product supplied with the declaration of performance and conformity.",
+    ref: "Art. 15(6)",
+    quotes: [
+      "The information referred to in Article 31 or, as the case may be, in Article 33 of Regulation (EC) No 1907/2006",
+      "shall be provided together with the declaration of performance and conformity.",
+    ],
+    text: "The REACH safety data sheet or Art. 33 information is supplied with the declaration of performance and conformity.",
   },
   {
-    dataPoint: "restricted-substances",
-    legislation: "reach",
+    dataPoint: "substances-of-concern",
+    legislation: "ppwr",
     groups: AL,
-    ref: "Annex XVII",
-    text: "Compliance with restrictions that apply to the article, e.g. lead in consumer articles (entry 63) or nickel release from skin-contact parts (entry 27).",
+    ref: "Arts. 5(1), 12(1)",
+    quotes: [
+      "Packaging placed on the market shall be so manufactured that the presence and concentration of substances of concern as constituents of the packaging material or of any of the packaging components is minimised",
+      "The packaging placed on the market containing substances of concern shall be marked by means of standardised, open, digital-marking technologies",
+    ],
+    text: "Substances of concern minimised, and packaging containing them digitally marked.",
   },
   {
     dataPoint: "restricted-substances",
@@ -438,8 +565,12 @@ export const REQUIREMENTS: Requirement[] = [
     dataPoint: "restricted-substances",
     legislation: "ppwr",
     groups: AL,
-    ref: "Art. 5",
-    text: "Sum of lead, cadmium, mercury and hexavalent chromium at most 100 mg/kg; PFAS limits for food-contact packaging; substances of concern documented.",
+    ref: "Art. 5(4)–(5)",
+    quotes: [
+      "the sum of the concentrations of lead, cadmium, mercury and hexavalent chromium resulting from substances present in packaging or packaging components shall not exceed 100 mg/kg.",
+      "From 12 August 2026, food-contact packaging shall not be placed on the market if it contains per- and polyfluorinated alkyl substances (PFAS) in a concentration equal to or above the following limit values",
+    ],
+    text: "Heavy-metal sum limit for all packaging; PFAS limits for food-contact packaging.",
   },
   {
     dataPoint: "biocidal-treatment",
@@ -454,78 +585,109 @@ export const REQUIREMENTS: Requirement[] = [
     dataPoint: "carbon-footprint",
     legislation: "espr",
     groups: BOTH,
-    ref: "Annex I(n)",
-    text: "Carbon footprint of the product, calculated with the method set in the delegated act.",
+    ref: "Art. 7(2)(b)(i); Annex I(n)",
+    quotes: [
+      "information on the performance of the product in relation to one or more of the product parameters referred to in Annex I, including a repairability score, a durability score, a carbon footprint or an environmental footprint;",
+      "the carbon footprint of the product;",
+    ],
+    text: `Carbon footprint, calculated with the method the delegated act sets. ${ESPR_DELEGATED}`,
   },
   {
     dataPoint: "carbon-footprint",
     legislation: "cbam",
     groups: AL,
-    ref: "Art. 7, Annex IV",
-    text: "Specific embedded emissions (t CO₂e per t of good) per installation, from actual data or default values; for aluminium only direct emissions are charged.",
+    ref: "Art. 6(2)(b); Art. 7(1)",
+    quotes: [
+      "the total embedded emissions in the goods referred to in point (a) of this paragraph, expressed in tonnes of CO2e emissions per megawatt-hour of electricity or, for other goods, in tonnes of CO2e emissions per tonne of each type of goods",
+      "For goods listed in Annex II only direct emissions shall be calculated and taken into account.",
+    ],
+    text: "Aluminium is in Annex II, so only direct embedded emissions count. They come from actual installation data or default values (Art. 7(2) as amended).",
   },
   {
     dataPoint: "carbon-footprint",
     legislation: "cpr",
     groups: AL,
-    ref: "Annex II",
-    text: "Global warming potential over the life cycle, declared in the declaration of performance and conformity where the harmonised technical specification requires it.",
+    ref: "Art. 15(2)–(3)(a); Annex II(a)–(d)",
+    quotes: [
+      "The declaration of performance and conformity shall include the product’s environmental sustainability performance over its life cycle in respect of the predetermined environmental essential characteristics listed in Annex II for those characteristics that are declared.",
+      "essential characteristics listed in points (a) to (d) of Annex II, from 8 January 2026;",
+      "climate change effects – total;",
+    ],
+    text: "Life-cycle climate change effects (total, fossil, biogenic, land use) declared in the DoPC, calculated with the Commission's free software.",
   },
   {
     dataPoint: "environmental-footprint",
     legislation: "espr",
     groups: BOTH,
     ref: "Annex I(m)",
-    text: "Environmental footprint of the product quantified with the applicable method (e.g. PEF) across impact categories.",
+    quotes: [
+      "the environmental footprint of the product, expressed as a quantification, in accordance with the applicable delegated act, of a product’s life cycle environmental impacts, whether in relation to one or more environmental impact categories or an aggregated set of impact categories;",
+    ],
+    text: ESPR_DELEGATED,
   },
   {
     dataPoint: "environmental-footprint",
     legislation: "cpr",
     groups: AL,
-    ref: "Annex II",
-    text: "Further life-cycle environmental sustainability characteristics as set out in harmonised technical specifications.",
+    ref: "Art. 15(3)(b)–(c); Annex II(e)–(s)",
+    quotes: [
+      "essential characteristics listed in points (e) to (m), of Annex II, from 9 January 2030;",
+      "essential characteristics listed in points (n) to (s), of Annex II, from 9 January 2032.",
+    ],
+    text: "Further life-cycle indicators in the DoPC: ozone depletion, acidification, eutrophication, resource depletion and water use from 2030; particulate matter, toxicity and land use from 2032.",
   },
   {
     dataPoint: "process-emissions",
     legislation: "espr",
     groups: BOTH,
     ref: "Annex I(q)",
-    text: "Emissions to air, water or soil released in one or more life-cycle stages.",
+    quotes: [
+      "emissions to air, water or soil released in one or more lifecycle stages of the product as expressed through quantities and nature of emissions",
+    ],
+    text: ESPR_DELEGATED,
   },
   {
     dataPoint: "process-emissions",
     legislation: "cbam",
     groups: AL,
-    ref: "Annex IV, monitoring rules",
-    text: "Production route (primary smelting or secondary remelting) and process emissions, including CO₂ from anode consumption and PFCs (CF₄, C₂F₆) from anode effects.",
+    ref: "Annex I, point 3.17.2.1",
+    source: "32025R2547",
+    quotes: [
+      "all processes directly or indirectly linked to the production processes emitting CO2 emissions from the consumption of electrodes or electrode pastes;",
+      "perfluorocarbon emissions caused by anode effects monitored in accordance with point B.7 of Annex II.",
+    ],
+    text: "Primary (electrolytic) smelting: monitor CO₂ from anode consumption and PFCs (CF₄, C₂F₆) from anode effects. Secondary melting covers fuel emissions only (point 3.17.2.2).",
   },
   {
     dataPoint: "energy-resources",
     legislation: "espr",
     groups: BOTH,
     ref: "Annex I(g)",
-    text: "Use or consumption of energy, water and other resources in one or more life-cycle stages.",
-  },
-  {
-    dataPoint: "energy-resources",
-    legislation: "cbam",
-    groups: AL,
-    ref: "Annex IV",
-    text: "Electricity consumed per tonne of good and its emission factor (indirect emissions; reported, but not charged for aluminium).",
+    quotes: ["use or consumption of energy, water and other resources in one or more life cycle stages of the product"],
+    text: ESPR_DELEGATED,
   },
   {
     dataPoint: "precursors",
     legislation: "cbam",
     groups: AL,
-    ref: "Annex IV",
-    text: "For aluminium products made from unwrought aluminium: quantity of each precursor, its embedded emissions and the installation that produced it.",
+    ref: "Annex VI, point 2(k)",
+    quotes: [
+      "quantities of each input material (precursor) used;",
+      "the specific embedded emissions associated with each of the input materials (precursors) used;",
+    ],
+    text: "Complex goods (e.g. aluminium products made from unwrought aluminium) carry the embedded emissions of their precursors; the verification report states them.",
   },
   {
     dataPoint: "carbon-price",
     legislation: "cbam",
     groups: AL,
-    ref: "Art. 9",
-    text: "Carbon price effectively paid in the country of origin, with evidence, to reduce the number of CBAM certificates to surrender.",
+    ref: "Art. 9(1)–(2) as amended",
+    source: "32025R2083",
+    quotes: [
+      "Where the embedded emissions are determined on the basis of actual emissions, an authorised CBAM declarant may claim in the CBAM declaration a reduction in the number of CBAM certificates to be surrendered in order to take into account the carbon price paid in a third country for the declared embedded emissions.",
+      "The authorised CBAM declarant shall also keep evidence of the actual payment of the carbon price.",
+    ],
+    text: "Optional reduction, backed by documentation certified by an independent person; with default values, only yearly default carbon prices can be used (Art. 9(4)).",
   },
   {
     dataPoint: "microplastics",
@@ -541,14 +703,20 @@ export const REQUIREMENTS: Requirement[] = [
     legislation: "espr",
     groups: BOTH,
     ref: "Annex I(h)",
-    text: "Use or content of recycled materials and recovery of materials, including critical raw materials.",
+    quotes: ["use or content of recycled materials and recovery of materials, including critical raw materials;"],
+    text: ESPR_DELEGATED,
   },
   {
     dataPoint: "recycled-content",
     legislation: "cbam",
     groups: AL,
-    ref: "Implementing rules, aluminium parameters",
-    text: "Tonnes of scrap used per tonne of product and the share of pre-consumer scrap.",
+    ref: "Annex I, point 3.17.2.2; Annex II, section F",
+    source: "32025R2547",
+    quotes: [
+      "Secondary melting (recycling) of aluminium uses aluminium scrap as main input.",
+      "Off-spec products, by-products, waste, and scrap produced in a production process, irrespective of whether they are returned to production processes, delivered to other installations, or disposed of, shall not be included in the determination of the activity level. They shall therefore be assigned zero embedded emissions when entering another production process.",
+    ],
+    text: "No recycled-content share is declared, but the production route (primary or secondary) must be known: scrap enters with zero embedded emissions.",
   },
   {
     dataPoint: "durability",
@@ -556,6 +724,14 @@ export const REQUIREMENTS: Requirement[] = [
     groups: TX,
     ref: "Annex I(a)",
     text: "Durability and reliability, e.g. guaranteed or technical lifetime, resistance to stresses or ageing (pilling, colour fastness, seam strength).",
+  },
+  {
+    dataPoint: "durability",
+    legislation: "cpr",
+    groups: AL,
+    ref: "Annex IV, point 1.2(d)",
+    quotes: ["estimated average and minimum service life span for declared use (durability);"],
+    text: "Part of the product description in the general product information.",
   },
   {
     dataPoint: "durability",
@@ -576,14 +752,21 @@ export const REQUIREMENTS: Requirement[] = [
     legislation: "espr",
     groups: BOTH,
     ref: "Annex I(d)",
-    text: "Design for recycling: easily recyclable materials, access to components, possibility of high-purity sorting.",
+    quotes: [
+      "design for recycling, ease and quality of recycling as expressed through use of easily recyclable materials",
+    ],
+    text: ESPR_DELEGATED,
   },
   {
     dataPoint: "recyclability",
     legislation: "ppwr",
     groups: AL,
-    ref: "Art. 6",
-    text: "Packaging must be recyclable, with a recyclability performance grade (A–C) documented; grades below C banned from 2030.",
+    ref: "Art. 6(1), (3)",
+    quotes: [
+      "All packaging placed on the market shall be recyclable.",
+      "Packaging recyclability shall be expressed in the recyclability performance grades A, B or C as described in Table 3 of Annex II.",
+    ],
+    text: "Grades A–C required from 2030 (or 24 months after the delegated acts); only A or B from 2038.",
   },
   {
     dataPoint: "recyclability",
@@ -596,15 +779,27 @@ export const REQUIREMENTS: Requirement[] = [
     dataPoint: "end-of-life-info",
     legislation: "espr",
     groups: BOTH,
-    ref: "Art. 7(2)(b)",
-    text: "Information for users and recyclers on disassembly, recycling or disposal at end of life.",
+    ref: "Art. 7(2)(b)(iii)",
+    quotes: ["information for treatment facilities on disassembly, reuse, refurbishment, recycling, or disposal at end-of-life;"],
+    text: ESPR_DELEGATED,
+  },
+  {
+    dataPoint: "end-of-life-info",
+    legislation: "cpr",
+    groups: AL,
+    ref: "Annex IV, point 1.4(a)",
+    quotes: ["information on installation, maintenance, use, deconstruction and demolition;"],
+    text: "Contact point for deconstruction and demolition information, where different from the manufacturer's contact details.",
   },
   {
     dataPoint: "end-of-life-info",
     legislation: "ppwr",
     groups: AL,
-    ref: "Arts. 12–13",
-    text: "Harmonised sorting label on the packaging, matching labels on waste receptacles.",
+    ref: "Art. 12(1)",
+    quotes: [
+      "economic operators may place a QR code or other type of standardised, open, digital data carrier on the packaging that contains information on the destination of each separate component of the packaging in order to facilitate consumer sorting.",
+    ],
+    text: "Optional, in addition to the mandatory harmonised sorting label.",
   },
   {
     dataPoint: "end-of-life-info",
@@ -617,15 +812,22 @@ export const REQUIREMENTS: Requirement[] = [
     dataPoint: "quantities",
     legislation: "cbam",
     groups: AL,
-    ref: "Art. 6",
-    text: "Total quantity (tonnes) of each type of good imported during the calendar year, in the annual CBAM declaration.",
+    ref: "Art. 6(2)(a) as amended",
+    source: "32025R2083",
+    quotes: [
+      "the total quantity of each type of goods imported during the preceding calendar year, expressed in megawatt-hours for electricity and in tonnes for other goods, including the imported goods below the single mass-based threshold;",
+    ],
+    text: "In the annual CBAM declaration, due by 30 September for the preceding year (first in 2027 for 2026).",
   },
   {
     dataPoint: "quantities",
     legislation: "ppwr",
     groups: AL,
-    ref: "Art. 44",
-    text: "Quantities of packaging made available on the market, by weight and material, reported to the producer register.",
+    ref: "Art. 44(7); Annex IX, Part B, point 1(c)",
+    quotes: [
+      "quantities by weight of packaging categories as set out in Table 1 of Annex II that the producer makes available on the territory of the Member State for the first time",
+    ],
+    text: "Reported to the register of producers by 1 June for the preceding year.",
   },
   {
     dataPoint: "quantities",
@@ -648,49 +850,64 @@ export const REQUIREMENTS: Requirement[] = [
     legislation: "espr",
     groups: BOTH,
     ref: "Annex III(i)",
-    text: "Unique facility identifiers of the sites involved in the product's value chain.",
+    quotes: ["unique facility identifiers;"],
+    text: ESPR_DELEGATED,
   },
   {
     dataPoint: "production-site",
     legislation: "cbam",
     groups: AL,
-    ref: "Art. 6, Annex IV",
-    text: "Country of origin and the installation where each good was produced: name, address, UN/LOCODE and coordinates.",
+    ref: "Annex V, points 1.2(b) and 2(a)",
+    quotes: ["country of origin;", "identification of the installation where the goods were produced;"],
+    text: "Records kept by the declarant; the installation is needed whenever actual emissions are used.",
   },
   {
     dataPoint: "production-site",
-    legislation: "flr",
-    groups: BOTH,
-    ref: "Information requests in investigations",
-    text: "Place of production and manufacture of the product, as requested by the competent authority.",
+    legislation: "cbam",
+    groups: AL,
+    ref: "Art. 10(2)(b)",
+    quotes: [
+      "the location of each installation including the complete address and geographical coordinates expressed in longitude and latitude, including six decimals;",
+    ],
+    text: "When the third-country operator registers its installation in the CBAM registry.",
   },
   {
     dataPoint: "supply-chain-operators",
     legislation: "espr",
     groups: BOTH,
     ref: "Annex III(h)",
-    text: "Unique operator identifiers of economic operators other than the manufacturer.",
+    quotes: ["unique operator identifiers other than that of the manufacturer;"],
+    text: ESPR_DELEGATED,
   },
   {
     dataPoint: "supply-chain-operators",
     legislation: "cbam",
     groups: AL,
-    ref: "Art. 10, Annex IV",
-    text: "Operator of the producing installation, registered in the CBAM registry, communicating embedded emissions to the declarant.",
+    ref: "Art. 10(2)(a) as amended",
+    source: "32025R2083",
+    quotes: [
+      "the name, address, corporate or activity registration number and contact information of the operator, and, if applicable, of its controlling entities including the parent company of that operator, together with the supporting documents;",
+    ],
+    text: "Third-country installation operators register in the CBAM registry and can share verified emissions with declarants (Art. 10(7)).",
   },
   {
     dataPoint: "supply-chain-operators",
     legislation: "flr",
     groups: BOTH,
-    ref: "Information requests in investigations",
-    text: "Manufacturers, producers and suppliers of the product and its components, as requested by the competent authority.",
+    ref: "Art. 27(2)",
+    quotes: ["information about the product suppliers"],
+    text: "Given to customs for products or product groups named in a delegated act under Art. 27(1).",
   },
   {
     dataPoint: "forced-labour",
     legislation: "flr",
     groups: BOTH,
-    ref: "Arts. 3, 17",
-    text: "Products made with forced labour may not be placed on or exported from the EU market; operators show their due diligence and mitigation measures on request.",
+    ref: "Arts. 3, 17(1)–(2)",
+    quotes: [
+      "Economic operators shall not place or make available on the Union market products that are made with forced labour, nor shall they export such products.",
+      "the relevant actions they have taken in order to identify, prevent, mitigate, bring to an end or remediate risks of forced labour in their operations and supply chains with respect to the products under assessment",
+    ],
+    text: "Applies from 14 December 2027. When assessed, operators answer within 30 working days on their due diligence.",
   },
 
   // ---------- Compliance & information ----------
@@ -699,21 +916,31 @@ export const REQUIREMENTS: Requirement[] = [
     legislation: "espr",
     groups: BOTH,
     ref: "Annex III(e)",
-    text: "Compliance documentation such as the EU declaration of conformity, technical documentation and conformity certificates.",
+    quotes: [
+      "compliance documentation and information required under this Regulation or other Union law applicable to the product, such as the declaration of conformity, technical documentation or conformity certificates;",
+    ],
+    text: ESPR_DELEGATED,
   },
   {
     dataPoint: "conformity",
     legislation: "cpr",
     groups: AL,
-    ref: "Arts. 15–16",
-    text: "Declaration of performance and conformity (DoPC) covering essential characteristics and product requirements; CE marking.",
+    ref: "Art. 15(1)",
+    quotes: [
+      "The declaration of performance and conformity shall express the performance of products in relation to the essential characteristics of those products in accordance with the relevant harmonised technical specifications or European assessment document.",
+    ],
+    text: "Declaration of performance and conformity (DoPC), drawn up on the Annex V model.",
   },
   {
     dataPoint: "conformity",
     legislation: "ppwr",
     groups: AL,
-    ref: "Art. 15",
-    text: "EU declaration of conformity and technical documentation for the packaging, kept up to date.",
+    ref: "Arts. 15(2), 39(1)",
+    quotes: [
+      "Before placing packaging on the market, manufacturers shall carry out the conformity assessment procedure referred to in Article 38 or have it carried out on their behalf, and shall draw up the technical documentation referred to in Annex VII.",
+      "The EU declaration of conformity shall state that the fulfilment of the requirements laid down in or pursuant to Articles 5 to 12 has been demonstrated.",
+    ],
+    text: "Technical documentation and EU declaration of conformity, kept 5 years (single-use) or 10 years (reusable).",
   },
   {
     dataPoint: "conformity",
@@ -726,64 +953,78 @@ export const REQUIREMENTS: Requirement[] = [
     dataPoint: "verification",
     legislation: "cbam",
     groups: AL,
-    ref: "Art. 8, Annex VI",
-    text: "Embedded emissions verified by an accredited verifier; verification report kept with the declaration.",
+    ref: "Art. 8(1) as amended",
+    source: "32025R2083",
+    quotes: [
+      "Where the embedded emissions are determined on the basis of actual emissions, the authorised CBAM declarant shall ensure that the total embedded emissions declared in the CBAM declaration submitted pursuant to Article 6 are verified by a verifier accredited pursuant to Article 18, based on the verification principles set out in Annex VI.",
+    ],
+    text: "Not needed when default values are used. The verification report goes with the declaration (Art. 6(2)(d)).",
   },
   {
     dataPoint: "verification",
     legislation: "cpr",
     groups: AL,
-    ref: "AVCP systems",
-    text: "Assessment and verification of constancy of performance, with notified-body involvement depending on the system.",
+    ref: "Art. 10(1)",
+    quotes: ["shall be carried out in accordance with one or more of the systems set out in Annex IX."],
+    text: "Assessment and verification system set per product family; may involve a notified body.",
   },
   {
     dataPoint: "performance",
     legislation: "espr",
     groups: BOTH,
     ref: "Annex I(s)",
-    text: "Functional performance and conditions for use.",
+    quotes: ["functional performance and conditions for use"],
+    text: ESPR_DELEGATED,
   },
   {
     dataPoint: "performance",
     legislation: "cpr",
     groups: AL,
-    ref: "Arts. 15–16",
-    text: "Declared performance of essential characteristics (e.g. mechanical resistance, reaction to fire, thermal transmittance) per harmonised standard.",
+    ref: "Art. 22(1)",
+    quotes: [
+      "The manufacturer shall ensure that the product’s performance is assessed in relation to both mandatory essential characteristics and those essential characteristics intended to be declared.",
+    ],
+    text: "Essential characteristics come from the harmonised technical specification for the product family.",
   },
   {
     dataPoint: "dpp",
     legislation: "espr",
     groups: BOTH,
-    ref: "Arts. 9–13",
-    text: "Digital product passport reachable via a data carrier (e.g. QR code), with a backup copy kept by a service provider and the identifier in the EU registry.",
+    ref: "Arts. 9(1), 10(4), 13(4)",
+    quotes: [
+      "products can only be placed on the market or put into service if a digital product passport is available in accordance with the applicable delegated acts adopted pursuant to Article 4 and with Articles 10 and 11.",
+      "The economic operator, when placing the product on the market, shall make available a back-up copy of the digital product passport through a digital product passport service provider.",
+      "The economic operator placing the product on the market or putting it into service shall upload, in the registry, the data referred to in paragraphs 1 and 2.",
+    ],
+    text: ESPR_DELEGATED,
   },
   {
     dataPoint: "dpp",
     legislation: "cpr",
     groups: AL,
-    ref: "Art. 75",
-    text: "Construction product passport, set up by delegated act, carrying the DoPC, technical documentation and instructions.",
-  },
-  {
-    dataPoint: "dpp",
-    legislation: "ppwr",
-    groups: AL,
-    ref: "Art. 12",
-    text: "Data carrier (e.g. QR code) on the packaging giving access to labelling and conformity information.",
+    ref: "Art. 22(7); Art. 76(2)",
+    quotes: [
+      "By 18 months after the entry into force of the delegated act referred to in Article 75(1) the manufacturer shall make available a digital product passport referred to in Article 76, through the construction digital product passport system referred to in Article 75, connected to a data carrier referred to in Article 18(2), point (g).",
+    ],
+    text: "The passport carries the DoPC, general product information and instructions, technical documentation, label and unique identifiers.",
   },
   {
     dataPoint: "instructions",
     legislation: "espr",
     groups: BOTH,
     ref: "Annex III(f)",
-    text: "User manuals, instructions, warnings or safety information.",
+    quotes: ["user manuals, instructions, warnings or safety information, as required by other Union law applicable to the product;"],
+    text: ESPR_DELEGATED,
   },
   {
     dataPoint: "instructions",
     legislation: "cpr",
     groups: AL,
-    ref: "Manufacturer obligations",
-    text: "Instructions for use and safety information accompanying the product.",
+    ref: "Art. 22(6); Annex IV",
+    quotes: [
+      "When making a product available on the market, the manufacturer shall ensure that it is accompanied by general product information, instructions for use and safety information, as set out in Annex IV in a language to be determined by the Member State concerned or, in absence of such determination, in a language which can be easily understood by users.",
+    ],
+    text: "Covers safety in transport, installation, maintenance and demolition, compatibility, maintenance needs and safe use.",
   },
   {
     dataPoint: "instructions",
@@ -817,15 +1058,21 @@ export const REQUIREMENTS: Requirement[] = [
     dataPoint: "label",
     legislation: "cpr",
     groups: AL,
-    ref: "CE marking",
-    text: "CE marking affixed to the product, its label or accompanying documents together with the DoPC reference.",
+    ref: "Art. 18(1)–(2)",
+    quotes: [
+      "The CE marking shall be affixed visibly, legibly and indelibly to the product.",
+      "the unique identification code of the product-type;",
+      "the declaration code of the declaration of performance and conformity;",
+    ],
+    text: "The CE marking is followed by the year, manufacturer, product-type code, DoPC code, notified body number and a data carrier.",
   },
   {
     dataPoint: "label",
     legislation: "ppwr",
     groups: AL,
-    ref: "Art. 12",
-    text: "Harmonised packaging label with pictograms, visible, legible and indelible.",
+    ref: "Art. 12(1)",
+    quotes: ["The label shall be based on pictograms and be easily understandable, including for persons with disabilities."],
+    text: "Harmonised packaging label from 12 August 2028, or 24 months after the implementing acts.",
   },
 ];
 

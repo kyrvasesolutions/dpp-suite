@@ -19,9 +19,11 @@ import {
   DATA_POINTS,
   LEGISLATIONS,
   PRODUCT_GROUPS,
+  SOURCE_ACTS,
   THEMES,
   appliesTo,
   dataPointsFor,
+  eurLex,
   legislationById,
   legislationCount,
   requirementsByDataPoint,
@@ -283,15 +285,32 @@ export function RequirementsExplorer({ nav }: RequirementsExplorerProps) {
                             <ul className="dp-reqs">
                               {reqs.map((r) => {
                                 const law = legislationById[r.legislation];
+                                const act = r.source ? SOURCE_ACTS[r.source] : undefined;
                                 return (
                                   <li key={`${r.legislation}-${r.ref}`}>
                                     <div className="req-head">
                                       <span className="law-chip strong">{law.short}</span>
-                                      <Link className="req-ref" href={law.url} target="_blank" rel="noreferrer">
-                                        {law.ref} · {r.ref}
+                                      <Link
+                                        className="req-ref"
+                                        href={eurLex(r.source ?? law.celex)}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        aria-label={`${act?.ref ?? law.ref}, ${r.ref} (opens EUR-Lex)`}
+                                      >
+                                        {act?.ref ?? law.ref} · {r.ref}
                                       </Link>
                                     </div>
-                                    <p>{r.text}</p>
+                                    {r.quotes && (
+                                      <blockquote className="req-quote" cite={eurLex(r.source ?? law.celex)}>
+                                        {r.quotes.map((q, i) => (
+                                          <p key={i}>
+                                            {i > 0 && <span aria-hidden="true">… </span>}
+                                            {q}
+                                          </p>
+                                        ))}
+                                      </blockquote>
+                                    )}
+                                    <p className={r.quotes ? "req-note" : undefined}>{r.text}</p>
                                   </li>
                                 );
                               })}
@@ -309,8 +328,8 @@ export function RequirementsExplorer({ nav }: RequirementsExplorerProps) {
       </main>
 
       <p className="hint small">
-        Summaries for orientation, not legal advice. Check the act on EUR-Lex and the delegated and implementing acts
-        for your product before relying on them.
+        Quoted passages are taken word for word from the Official Journal; the notes beside them are plain-language
+        readings, not legal advice.
       </p>
     </div>
   );
