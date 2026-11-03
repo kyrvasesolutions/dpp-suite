@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 import {
   Button,
   Disclosure,
@@ -32,11 +32,6 @@ import {
 } from "../model/legislation";
 import { useMediaQuery } from "../useMediaQuery";
 
-interface RequirementsExplorerProps {
-  /** View switcher shown next to the title. */
-  nav: ReactNode;
-}
-
 const NO_REQUIREMENTS: Requirement[] = [];
 
 /**
@@ -44,7 +39,7 @@ const NO_REQUIREMENTS: Requirement[] = [];
  * data points they require are the union of all selected legislations, with
  * one row per generic data point and a count of the legislations behind it.
  */
-export function RequirementsExplorer({ nav }: RequirementsExplorerProps) {
+export function RequirementsExplorer() {
   const wide = useMediaQuery("(min-width: 768px)");
   const [group, setGroup] = useState<ProductGroup | null>(null);
   const [selected, setSelected] = useState<Set<Key>>(new Set());
@@ -78,7 +73,6 @@ export function RequirementsExplorer({ nav }: RequirementsExplorerProps) {
       <header className="topbar">
         <div className="brand">
           <h1>DPP requirements</h1>
-          {nav}
         </div>
         <div className="brand">
           <span className="stat">

@@ -17,9 +17,10 @@ import { ImportDialog } from "./components/ImportDialog";
 import { ItemWindow, WINDOW_WIDTH, type WindowState } from "./components/ItemWindow";
 import { RequirementsExplorer } from "./components/RequirementsExplorer";
 import { TraceTree } from "./components/TraceTree";
+import { ValidationView } from "./components/ValidationView";
 import { loadApiKey, saveApiKey } from "./llm/apiKey";
 import { LlmError, suggestMappings } from "./llm/suggest";
-import { openDatabase, persist, readProject, resetDatabase, writeProject } from "./db/database";
+import { persist, readProject, resetDatabase, writeProject } from "./db/database";
 import { download, exportProject, type Project } from "./model/project";
 import {
   ancestorsOf,
@@ -592,24 +593,21 @@ export function Workspace({ database, nav }: WorkspaceProps) {
   );
 }
 
-type View = "requirements" | "mapping";
+type View = "requirements" | "validation";
 
-const viewFromHash = (): View => (window.location.hash === "#mapping" ? "mapping" : "requirements");
+const LANES: Array<{ id: View; label: string }> = [
+  { id: "requirements", label: "Requirements" },
+  { id: "validation", label: "Validation" },
+];
+
+const viewFromHash = (): View => (window.location.hash === "#validation" ? "validation" : "requirements");
 
 /**
- * Switches between the requirements explorer and the traceability workspace.
- * The workspace needs the SQLite database (from this browser, or seeded); the explorer doesn't wait for it.
+ * Two horizontal lanes share the height of a rail down the left edge, each with
+ * its label turned to run along the lane; the chosen lane's view fills the rest.
  */
 export default function App() {
   const [view, setView] = useState<View>(viewFromHash);
-  const [state, setState] = useState<{ db?: Database; error?: string }>({});
-
-  useEffect(() => {
-    openDatabase().then(
-      (db) => setState({ db }),
-      (error) => setState({ error: error instanceof Error ? error.message : String(error) }),
-    );
-  }, []);
 
   useEffect(() => {
     const onHash = () => setView(viewFromHash());
@@ -617,26 +615,28 @@ export default function App() {
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
-  const nav = (
-    <ToggleButtonGroup
-      aria-label="View"
-      className="view-switch"
-      selectionMode="single"
-      disallowEmptySelection
-      selectedKeys={[view]}
-      onSelectionChange={(keys) => {
-        const next = [...keys][0] as View;
-        history.replaceState(null, "", `#${next}`);
-        setView(next);
-      }}
-    >
-      <ToggleButton id="requirements">Requirements</ToggleButton>
-      <ToggleButton id="mapping">Traceability</ToggleButton>
-    </ToggleButtonGroup>
+  return (
+    <div className="shell">
+      <ToggleButtonGroup
+        aria-label="View"
+        className="lanes"
+        orientation="vertical"
+        selectionMode="single"
+        disallowEmptySelection
+        selectedKeys={[view]}
+        onSelectionChange={(keys) => {
+          const next = [...keys][0] as View;
+          history.replaceState(null, "", `#${next}`);
+          setView(next);
+        }}
+      >
+        {LANES.map((lane) => (
+          <ToggleButton key={lane.id} id={lane.id} className="lane">
+            <span className="lane-label">{lane.label}</span>
+          </ToggleButton>
+        ))}
+      </ToggleButtonGroup>
+      {view === "requirements" ? <RequirementsExplorer /> : <ValidationView />}
+    </div>
   );
-
-  if (view === "requirements") return <RequirementsExplorer nav={nav} />;
-  if (state.error) return <p className="loading error">Couldn't open the database: {state.error}</p>;
-  if (!state.db) return <p className="loading">Loading database…</p>;
-  return <Workspace database={state.db} nav={nav} />;
 }
