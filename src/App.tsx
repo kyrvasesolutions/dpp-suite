@@ -1,11 +1,21 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button, Menu, MenuItem, MenuTrigger, Popover, ToggleButton, type Key } from "react-aria-components";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  Button,
+  Menu,
+  MenuItem,
+  MenuTrigger,
+  Popover,
+  ToggleButton,
+  ToggleButtonGroup,
+  type Key,
+} from "react-aria-components";
 import type { Database } from "sql.js";
 import { ClaudeSettings } from "./components/ClaudeSettings";
 import { ConnectorLayer } from "./components/ConnectorLayer";
 import { HoverPreview } from "./components/HoverPreview";
 import { ImportDialog } from "./components/ImportDialog";
 import { ItemWindow, WINDOW_WIDTH, type WindowState } from "./components/ItemWindow";
+import { RequirementsExplorer } from "./components/RequirementsExplorer";
 import { TraceTree } from "./components/TraceTree";
 import { loadApiKey, saveApiKey } from "./llm/apiKey";
 import { LlmError, suggestMappings } from "./llm/suggest";
@@ -38,9 +48,11 @@ const SAVE_DELAY = 300;
 
 interface WorkspaceProps {
   database: Database;
+  /** View switcher shown next to the title. */
+  nav?: ReactNode;
 }
 
-export function Workspace({ database }: WorkspaceProps) {
+export function Workspace({ database, nav }: WorkspaceProps) {
   const wide = useMediaQuery("(min-width: 768px)");
   const boardRef = useRef<HTMLDivElement>(null);
   const installPrompt = useInstallPrompt();
@@ -352,6 +364,7 @@ export function Workspace({ database }: WorkspaceProps) {
       <header className="topbar">
         <div className="brand">
           <h1>DPP traceability</h1>
+          {nav}
           <span className="stat">
             <strong>{mappings.length}</strong> mappings
           </span>
@@ -579,8 +592,16 @@ export function Workspace({ database }: WorkspaceProps) {
   );
 }
 
-/** Opens the SQLite database (from this browser, or seeded) before showing the workspace. */
+type View = "requirements" | "mapping";
+
+const viewFromHash = (): View => (window.location.hash === "#mapping" ? "mapping" : "requirements");
+
+/**
+ * Switches between the requirements explorer and the traceability workspace.
+ * The workspace needs the SQLite database (from this browser, or seeded); the explorer doesn't wait for it.
+ */
 export default function App() {
+  const [view, setView] = useState<View>(viewFromHash);
   const [state, setState] = useState<{ db?: Database; error?: string }>({});
 
   useEffect(() => {
@@ -590,7 +611,32 @@ export default function App() {
     );
   }, []);
 
+  useEffect(() => {
+    const onHash = () => setView(viewFromHash());
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+
+  const nav = (
+    <ToggleButtonGroup
+      aria-label="View"
+      className="view-switch"
+      selectionMode="single"
+      disallowEmptySelection
+      selectedKeys={[view]}
+      onSelectionChange={(keys) => {
+        const next = [...keys][0] as View;
+        history.replaceState(null, "", `#${next}`);
+        setView(next);
+      }}
+    >
+      <ToggleButton id="requirements">Requirements</ToggleButton>
+      <ToggleButton id="mapping">Traceability</ToggleButton>
+    </ToggleButtonGroup>
+  );
+
+  if (view === "requirements") return <RequirementsExplorer nav={nav} />;
   if (state.error) return <p className="loading error">Couldn't open the database: {state.error}</p>;
   if (!state.db) return <p className="loading">Loading database…</p>;
-  return <Workspace database={state.db} />;
+  return <Workspace database={state.db} nav={nav} />;
 }
