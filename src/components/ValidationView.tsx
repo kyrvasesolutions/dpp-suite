@@ -81,6 +81,9 @@ export function ValidationView() {
     [group, selectedIds],
   );
 
+  const activeLaws = LEGISLATIONS.filter((l) => selectedIds.has(l.id));
+  const standards = [...new Map(activeLaws.flatMap((l) => l.standards ?? []).map((st) => [st.ref, st])).values()];
+
   const groupName = PRODUCT_GROUPS.find((g) => g.id === group)?.name;
 
   const chooseGroup = (next: ProductGroup | null) => {
@@ -139,7 +142,7 @@ export function ValidationView() {
             : "Add your data with + to check it against this schema."}
       </p>
 
-      <main className="req-board">
+      <main className="req-board val-board">
         <section className="panel req-groups" aria-labelledby="v-group-title">
           <header className="panel-head">
             <div>
@@ -273,51 +276,102 @@ export function ValidationView() {
                 </ul>
               </div>
             ))}
+          </div>
+        </section>
 
-            <div className="dp-section" role="group" aria-label="Your data">
-              <div className="section-head">Your data</div>
-              <DropZone
-                className="upload-zone"
-                onDrop={async (e) => {
-                  const dropped = await Promise.all(
-                    e.items.filter(isFileDropItem).map((item) => item.getFile()),
-                  );
-                  addFiles(dropped);
-                }}
-              >
-                <FileTrigger acceptedFileTypes={ACCEPT} allowsMultiple onSelect={(list) => addFiles(list ? [...list] : [])}>
-                  <Button className="upload-add" aria-label="Add data files">
-                    <span aria-hidden="true">+</span>
-                  </Button>
-                </FileTrigger>
-                <span className="upload-text">
-                  Add or drop your data
-                  <small>{UPLOAD_KINDS.map((k) => k.label).join(" · ")}</small>
-                </span>
-              </DropZone>
-              {error && (
-                <p className="upload-error" role="alert">
-                  {error}
-                </p>
-              )}
-              {files.length > 0 && (
-                <ul className="upload-list">
-                  {files.map((f) => (
-                    <li key={f.id}>
-                      <span className="law-chip strong">{f.kind}</span>
-                      <span className="upload-name">{f.file.name}</span>
-                      <span className="muted small">{formatSize(f.file.size)}</span>
-                      <Button
-                        className="ghost icon"
-                        aria-label={`Remove ${f.file.name}`}
-                        onPress={() => setFiles((all) => all.filter((x) => x.id !== f.id))}
-                      >
-                        ×
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
-              )}
+        <section className="panel val-data" aria-labelledby="v-data-title">
+          <header className="panel-head">
+            <div>
+              <h2 id="v-data-title">Your data</h2>
+              <p>Upload the data to validate</p>
+            </div>
+          </header>
+          <div className="list">
+            <DropZone
+              className="upload-zone"
+              onDrop={async (e) => {
+                const dropped = await Promise.all(
+                  e.items.filter(isFileDropItem).map((item) => item.getFile()),
+                );
+                addFiles(dropped);
+              }}
+            >
+              <FileTrigger acceptedFileTypes={ACCEPT} allowsMultiple onSelect={(list) => addFiles(list ? [...list] : [])}>
+                <Button className="upload-add" aria-label="Add data files">
+                  <span aria-hidden="true">+</span>
+                </Button>
+              </FileTrigger>
+              <span className="upload-text">
+                Add or drop your data
+                <small>{UPLOAD_KINDS.map((k) => k.label).join(" · ")}</small>
+              </span>
+            </DropZone>
+            {error && (
+              <p className="upload-error" role="alert">
+                {error}
+              </p>
+            )}
+            {files.length > 0 && (
+              <ul className="upload-list">
+                {files.map((f) => (
+                  <li key={f.id}>
+                    <span className="law-chip strong">{f.kind}</span>
+                    <span className="upload-name">{f.file.name}</span>
+                    <span className="muted small">{formatSize(f.file.size)}</span>
+                    <Button
+                      className="ghost icon"
+                      aria-label={`Remove ${f.file.name}`}
+                      onPress={() => setFiles((all) => all.filter((x) => x.id !== f.id))}
+                    >
+                      ×
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <div className="dp-section" role="group" aria-label="Validation scope">
+              <div className="section-head">Validation scope</div>
+              <dl className="val-stats">
+                <div>
+                  <dt>Required data points</dt>
+                  <dd className="val-big">{required.size}</dd>
+                </div>
+                <div>
+                  <dt>Active legislations</dt>
+                  <dd>
+                    {activeLaws.length ? (
+                      <ul className="val-list">
+                        {activeLaws.map((l) => (
+                          <li key={l.id}>
+                            <span className="law-chip strong">{l.short}</span>
+                            <span className="val-ref">{l.ref}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <span className="muted">None selected</span>
+                    )}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Standards</dt>
+                  <dd>
+                    {standards.length ? (
+                      <ul className="val-list">
+                        {standards.map((st) => (
+                          <li key={st.ref}>
+                            <span className="law-chip strong">{st.ref}</span>
+                            <span className="val-ref">{st.title}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <span className="muted">None recorded for the selected legislations</span>
+                    )}
+                  </dd>
+                </div>
+              </dl>
             </div>
           </div>
         </section>

@@ -46,6 +46,8 @@ export interface Legislation {
   category: LegislationCategory;
   /** Why and from when it applies, per product group it covers. */
   scope: Partial<Record<ProductGroup, string>>;
+  /** Technical standards the act relies on, when recorded. */
+  standards?: Array<{ ref: string; title: string }>;
 }
 
 export const eurLex = (celex: string) => `https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:${celex}`;

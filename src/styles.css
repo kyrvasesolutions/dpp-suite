@@ -1911,3 +1911,55 @@ code {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Validation: the user's data always sits in its own column on the right. */
+.wide .val-board {
+  grid-template-columns: minmax(150px, 0.6fr) minmax(0, 1.1fr) minmax(0, 1.4fr) minmax(220px, 0.9fr);
+}
+
+.val-stats {
+  margin: 0;
+  padding: 0 12px 12px;
+}
+
+.val-stats > div {
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+
+.val-stats dt {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.val-stats dd {
+  margin: 4px 0 0;
+}
+
+.val-big {
+  font-size: 28px;
+  font-weight: 650;
+  line-height: 1.1;
+}
+
+.val-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.val-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.val-ref {
+  min-width: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
