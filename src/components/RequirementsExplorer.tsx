@@ -42,6 +42,8 @@ import {
   type ProductGroup,
   type Provision,
 } from "../model/legislation";
+import { download } from "../model/project";
+import { buildSpec, saveSpec, specFilename, toYaml } from "../model/spec";
 import type { Citation } from "../model/standards";
 import { useMediaQuery } from "../useMediaQuery";
 import { ChainArrows, type ChainRelation } from "./ChainArrows";
@@ -277,6 +279,7 @@ export function RequirementsExplorer({ chain }: { chain: Chain }) {
   const [selected, setSelected] = useState<Set<Key>>(new Set());
   const [expanded, setExpanded] = useState<Set<Key>>(new Set());
   const [onlyRequired, setOnlyRequired] = useState(false);
+  const [savedKey, setSavedKey] = useState<string | null>(null);
 
   const selectedIds = useMemo(() => new Set([...selected].map(String)), [selected]);
   const disabled = useMemo(
@@ -374,6 +377,18 @@ export function RequirementsExplorer({ chain }: { chain: Chain }) {
 
   const groupName = productGroups.find((g) => g.id === group)?.name;
 
+  const specKey = `${group}|${[...selectedIds].sort().join()}`;
+  const saved = savedKey === specKey;
+
+  /** Writes the data requirements and their sources to a YAML file, and keeps the specification for the Mapping tab. */
+  const exportSpec = () => {
+    if (!group) return;
+    const spec = buildSpec(chain, group, selectedIds, required);
+    saveSpec(spec);
+    download(new Blob([toYaml(spec)], { type: "application/yaml" }), specFilename(spec));
+    setSavedKey(specKey);
+  };
+
   return (
     <div className={wide ? "app wide" : "app narrow"}>
       <header className="topbar">
@@ -393,6 +408,19 @@ export function RequirementsExplorer({ chain }: { chain: Chain }) {
           <span className="stat">
             <strong>{standardCount}</strong> standard{standardCount === 1 ? "" : "s"}
           </span>
+          <Button
+            className="ghost"
+            isDisabled={!group || required.size === 0}
+            onPress={exportSpec}
+            aria-describedby="export-note"
+          >
+            Export
+          </Button>
+          {saved && (
+            <span id="export-note" className="stat" role="status">
+              Saved for Mapping
+            </span>
+          )}
         </div>
       </header>
 

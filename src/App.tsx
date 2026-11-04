@@ -15,7 +15,9 @@ import { ConnectorLayer } from "./components/ConnectorLayer";
 import { HoverPreview } from "./components/HoverPreview";
 import { ImportDialog } from "./components/ImportDialog";
 import { ItemWindow, WINDOW_WIDTH, type WindowState } from "./components/ItemWindow";
+import { MappingView } from "./components/MappingView";
 import { RequirementsExplorer } from "./components/RequirementsExplorer";
+import { SamplesSidebar } from "./components/SamplesSidebar";
 import { TraceTree } from "./components/TraceTree";
 import { ValidationView } from "./components/ValidationView";
 import { loadApiKey, saveApiKey } from "./llm/apiKey";
@@ -594,17 +596,21 @@ export function Workspace({ database, nav }: WorkspaceProps) {
   );
 }
 
-type View = "requirements" | "validation";
+type View = "requirements" | "validation" | "mapping";
 
 const LANES: Array<{ id: View; label: string }> = [
   { id: "requirements", label: "Requirements" },
   { id: "validation", label: "Validation" },
+  { id: "mapping", label: "Mapping" },
 ];
 
-const viewFromHash = (): View => (window.location.hash === "#validation" ? "validation" : "requirements");
+const viewFromHash = (): View => {
+  const hash = window.location.hash.slice(1);
+  return LANES.some((l) => l.id === hash) ? (hash as View) : "requirements";
+};
 
 /**
- * Two horizontal lanes share the height of a rail down the left edge, each with
+ * Horizontal lanes share the height of a rail down the left edge, each with
  * its label turned to run along the lane; the chosen lane's view fills the rest.
  */
 export default function App() {
@@ -650,7 +656,10 @@ export default function App() {
           </ToggleButton>
         ))}
       </ToggleButtonGroup>
-      {chain ? (
+      <SamplesSidebar />
+      {view === "mapping" ? (
+        <MappingView />
+      ) : chain ? (
         view === "requirements" ? (
           <RequirementsExplorer chain={chain} />
         ) : (
