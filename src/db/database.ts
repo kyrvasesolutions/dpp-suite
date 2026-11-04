@@ -1,16 +1,19 @@
 import initSqlJs, { type Database, type SqlJsStatic } from "sql.js";
 import wasmUrl from "sql.js/dist/sql-wasm.wasm?url";
 import schemaSql from "../../db/schema.sql?raw";
+import type { Chain } from "../model/chain";
+import type { DataRequirement, Legislation, Provision } from "../model/legislation";
 import type { Project } from "../model/project";
+import type { Citation, Standard, StandardLink, StandardTarget } from "../model/standards";
 import type { Mapping, Side, SourceDoc, TreeData, TreeNode } from "../model/types";
 import { idbGet, idbSet } from "./idb";
 
-// Seed files run in name order: product sample, ESPR Annex I, sample mappings.
-const seeds = Object.entries(
+// Seed files run in name order: product sample, ESPR Annex I, sample mappings, regulatory chain.
+const seedFiles = Object.entries(
   import.meta.glob<string>("../../db/seed/*.sql", { query: "?raw", import: "default", eager: true }),
-)
-  .sort(([a], [b]) => a.localeCompare(b))
-  .map(([, sql]) => sql);
+).sort(([a], [b]) => a.localeCompare(b));
+const seeds = seedFiles.map(([, sql]) => sql);
+const chainSeed = seedFiles.find(([path]) => path.endsWith("04-regulatory-chain.sql"))![1];
 
 const STORE_KEY = "dpp-trace.sqlite";
 const FALLBACK_TREE_ID: Record<Side, string> = { left: "left", right: "right" };
@@ -25,6 +28,12 @@ function seeded(SQL: SqlJsStatic): Database {
   return db;
 }
 
+/** A database saved before the regulatory chain existed gets its tables and rows here. */
+function ensureChain(db: Database) {
+  db.exec(schemaSql);
+  if (rows(db, "SELECT count(*) AS n FROM legislation")[0].n === 0) db.exec(chainSeed);
+}
+
 /** Opens the database saved in this browser, or creates one from the seed files. */
 export async function openDatabase(): Promise<Database> {
   const SQL = await sqlJs();
@@ -33,6 +42,7 @@ export async function openDatabase(): Promise<Database> {
     if (bytes) {
       const db = new SQL.Database(bytes);
       db.exec("PRAGMA foreign_keys = ON;");
+      ensureChain(db);
       return db;
     }
   } catch {
@@ -128,6 +138,149 @@ export function readProject(db: Database): Project {
     sources[String(r.id)] = { title: String(r.title), url: opt(r.url) };
   }
   return { left, right, mappings, sources };
+}
+
+/** The regulatory chain the Requirements and Validation views show. */
+export async function loadChain(): Promise<Chain> {
+  const db = await openDatabase();
+  try {
+    return readChain(db);
+  } finally {
+    db.close();
+  }
+}
+
+export function readChain(db: Database): Chain {
+  const text = (v: string | number | null) => String(v);
+
+  const scope = rows(db, "SELECT legislation_id, product_group_id, note FROM legislation_scope");
+  const legislations = rows(db, "SELECT * FROM legislation ORDER BY position").map(
+    (r): Legislation => ({
+      id: text(r.id),
+      short: text(r.short),
+      title: text(r.title),
+      ref: text(r.ref),
+      celex: text(r.celex),
+      category: text(r.category) as Legislation["category"],
+      standardsNote: opt(r.standards_note),
+      scope: Object.fromEntries(
+        scope.filter((s) => s.legislation_id === r.id).map((s) => [text(s.product_group_id), text(s.note)]),
+      ),
+    }),
+  );
+
+  const standards: Record<string, Standard> = {};
+  for (const r of rows(db, "SELECT * FROM standard ORDER BY position")) {
+    standards[text(r.id)] = {
+      id: text(r.id),
+      ref: text(r.ref),
+      title: opt(r.title),
+      body: text(r.body),
+      kind: text(r.kind) as Standard["kind"],
+    };
+  }
+
+  const citations = rows(db, "SELECT * FROM standard_citation ORDER BY position").map(
+    (r): Citation => ({
+      legislation: text(r.legislation_id),
+      standard: text(r.standard_id),
+      provision: text(r.provision),
+      force: text(r.force) as Citation["force"],
+      excerpt: text(r.excerpt),
+      citedAs: opt(r.cited_as),
+      source: opt(r.source_celex),
+    }),
+  );
+
+  const links = rows(
+    db,
+    `SELECT l.* FROM standard_requirement l JOIN standard s ON s.id = l.standard_id ORDER BY s.position`,
+  ).map(
+    (r): StandardLink => ({
+      legislation: text(r.legislation_id),
+      standard: text(r.standard_id),
+      dataRequirement: text(r.data_requirement_id),
+      basis: text(r.basis) as StandardLink["basis"],
+      note: text(r.note),
+      provisions: r.provisions === null ? undefined : (JSON.parse(text(r.provisions)) as string[]),
+    }),
+  );
+  const targetRows = new Map<string, StandardTarget>();
+  for (const r of rows(db, "SELECT t.* FROM standard_target t JOIN standard s ON s.id = t.standard_id ORDER BY s.position")) {
+    const key = `${r.standard_id}|${r.data_requirement_id}`;
+    const seen = targetRows.get(key);
+    const group = text(r.product_group_id) as StandardTarget["groups"][number];
+    if (seen) seen.groups.push(group);
+    else {
+      targetRows.set(key, {
+        standard: text(r.standard_id),
+        dataRequirement: text(r.data_requirement_id),
+        groups: [group],
+        note: text(r.note),
+        source: text(r.source_url),
+      });
+    }
+  }
+
+  const linksBehind = new Map<string, StandardLink[]>();
+  for (const l of links) {
+    const key = `${l.legislation}|${l.dataRequirement}`;
+    linksBehind.set(key, [...(linksBehind.get(key) ?? []), l]);
+  }
+
+  const groupsOf = new Map<number, Provision["groups"]>();
+  for (const r of rows(db, "SELECT provision_id, product_group_id FROM provision_group")) {
+    const id = Number(r.provision_id);
+    groupsOf.set(id, [...(groupsOf.get(id) ?? []), text(r.product_group_id) as Provision["groups"][number]]);
+  }
+
+  return {
+    productGroups: rows(db, "SELECT id, name, description FROM product_group ORDER BY position").map((r) => ({
+      id: text(r.id) as Chain["productGroups"][number]["id"],
+      name: text(r.name),
+      description: text(r.description),
+    })),
+    legislations,
+    legislationById: Object.fromEntries(legislations.map((l) => [l.id, l])),
+    standards,
+    citations,
+    links,
+    targets: [...targetRows.values()],
+    linksBehind,
+    dataRequirements: rows(db, "SELECT id, name, theme FROM data_requirement ORDER BY position").map(
+      (r): DataRequirement => ({ id: text(r.id), name: text(r.name), theme: text(r.theme) as DataRequirement["theme"] }),
+    ),
+    provisions: rows(db, "SELECT * FROM requirement_provision ORDER BY id").map(
+      (r): Provision => ({
+        dataRequirement: text(r.data_requirement_id),
+        legislation: text(r.legislation_id),
+        groups: groupsOf.get(Number(r.id)) ?? [],
+        ref: text(r.ref),
+        text: text(r.text),
+        quotes: r.quotes === null ? undefined : (JSON.parse(text(r.quotes)) as string[]),
+        source: opt(r.source_celex),
+      }),
+    ),
+    ontologies: rows(db, "SELECT id, name, uri, description FROM ontology ORDER BY position").map((r) => ({
+      id: text(r.id),
+      name: text(r.name),
+      uri: opt(r.uri),
+      description: opt(r.description),
+    })),
+    requirementOntologies: rows(db, "SELECT data_requirement_id, ontology_id FROM data_requirement_ontology").map((r) => ({
+      dataRequirement: text(r.data_requirement_id),
+      ontology: text(r.ontology_id),
+    })),
+    dataPoints: rows(db, "SELECT id, name, description FROM data_point ORDER BY position").map((r) => ({
+      id: text(r.id),
+      name: text(r.name),
+      description: opt(r.description),
+    })),
+    ontologyDataPoints: rows(db, "SELECT ontology_id, data_point_id FROM ontology_data_point").map((r) => ({
+      ontology: text(r.ontology_id),
+      dataPoint: text(r.data_point_id),
+    })),
+  };
 }
 
 /** Replaces the trees and mappings in the database with the project's. Sources are upserted. */

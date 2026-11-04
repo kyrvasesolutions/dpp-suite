@@ -1,6 +1,8 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Button,
+  Dialog,
+  DialogTrigger,
   Disclosure,
   DisclosureGroup,
   DisclosurePanel,
@@ -10,37 +12,267 @@ import {
   ListBox,
   ListBoxItem,
   ListBoxSection,
+  Popover,
   ToggleButton,
   ToggleButtonGroup,
+  Tooltip,
+  TooltipTrigger,
   type Key,
 } from "react-aria-components";
 import {
+  appliesTo,
+  citationGroups,
+  citedOnlyGroups,
+  dataPointsFor,
+  legislationCount,
+  ontologiesFor,
+  provisionsByRequirement,
+  requirementsFor,
+  targetedStandards,
+  type Chain,
+  type CitationGroup,
+  type TargetedStandard,
+} from "../model/chain";
+import {
   CATEGORIES,
-  DATA_POINTS,
-  LEGISLATIONS,
-  PRODUCT_GROUPS,
   SOURCE_ACTS,
   THEMES,
-  appliesTo,
-  dataPointsFor,
   eurLex,
-  legislationById,
-  legislationCount,
-  requirementsByDataPoint,
+  type Legislation,
   type ProductGroup,
-  type Requirement,
+  type Provision,
 } from "../model/legislation";
+import type { Citation } from "../model/standards";
 import { useMediaQuery } from "../useMediaQuery";
+import { ChainArrows, type ChainRelation } from "./ChainArrows";
 
-const NO_REQUIREMENTS: Requirement[] = [];
+const NO_PROVISIONS: Provision[] = [];
+
+/** What arrows attach to: a citation group is one element of the Standards column. */
+const groupAnchor = (group: CitationGroup) => `std:${group.legislation}|${group.standards.map((st) => st.id).join()}`;
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/** Where the act names the standard, led by the implementing act's name when it is not the legislation's own text. */
+const whereCited = (citations: Citation[], ownCelex: string) => {
+  const provisions = [...new Set(citations.map((c) => c.provision))].join("; ");
+  const source = citations[0]?.source;
+  const act = source && source !== ownCelex ? SOURCE_ACTS[source]?.ref : undefined;
+  return act ? `${act}, ${provisions}` : provisions;
+};
+
+/** The leading part of the titles standards in a series share, e.g. everything before "Part 1". */
+const sharedTitle = (titles: string[]) => {
+  let shared = "";
+  if (titles.length < 2) return shared;
+  for (const separator of titles[0].matchAll(/ [—–] /g)) {
+    const head = titles[0].slice(0, separator.index);
+    if (titles.every((t) => t.startsWith(head + separator[0]))) shared = head;
+  }
+  return shared;
+};
+
+function GroupContext({ group, law }: { group: CitationGroup; law: Legislation }) {
+  const shared = sharedTitle(group.standards.map((st) => st.title ?? ""));
+  return (
+    <div className="std-context-body">
+      <div className="std-context-standards">
+        {shared && <span className="leg-ref">{shared}</span>}
+        {group.standards.map((st) => (
+          <span key={st.id} className="std-context-standard">
+            <strong>{st.ref}</strong>
+            {st.title && <span className="leg-ref">{st.title.slice(shared.length).replace(/^ [—–] /, "")}</span>}
+          </span>
+        ))}
+      </div>
+      {group.citations.map((c) => (
+        <div key={c.provision} className="std-context-passage">
+          <span className="std-context-where">
+            <span className="law-chip strong">{law.short}</span>
+            <span className="leg-ref">{whereCited([c], law.celex)}</span>
+          </span>
+          <blockquote className="req-quote">
+            <p>{c.excerpt}</p>
+          </blockquote>
+        </div>
+      ))}
+      {group.reasons.length > 0 && (
+        <ul className="std-context-why">
+          {group.reasons.map((r) => (
+            <li key={r.note}>
+              <strong>{r.requirements.map((d) => d.name).join(", ")}:</strong> {r.basis === "inferred" && "Our reading: "}
+              {r.note}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 /**
- * Three columns: pick a product group, then the legislations to check; the
- * data points they require are the union of all selected legislations, with
- * one row per generic data point and a count of the legislations behind it.
+ * One element of the Standards column, by reference only. Descriptions wait in the
+ * context, so no two rows repeat each other's wording. A mouse hover shows the
+ * context as a tooltip; a click or tap opens the same context as a popover, which
+ * is how it reaches touch screens, where nothing hovers, and lets it be copied.
  */
-export function RequirementsExplorer() {
+function ReferenceRow({
+  anchor,
+  names,
+  where,
+  requirements,
+  label,
+  context,
+}: {
+  anchor: string;
+  names: string[];
+  where?: string;
+  requirements: Array<{ id: string; name: string }>;
+  label: string;
+  /** `pinned` is true in the popover, where links can be reached. */
+  context: (pinned: boolean) => ReactNode;
+}) {
+  // An element can fill a phone screen, so the popover hangs off its icon rather than squeezing around all of it.
+  const icon = useRef<SVGSVGElement>(null);
+  return (
+    <DialogTrigger>
+      <TooltipTrigger delay={200} closeDelay={80}>
+        <Button className="std-ref" data-chain={anchor}>
+          <svg ref={icon} className="std-ref-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+            <circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" strokeWidth="1.3" />
+            <path d="M8 7.2v3.6M8 5v.6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+          {names.map((name) => (
+            <strong key={name} className="std-ref-name">
+              {name}
+            </strong>
+          ))}
+          {where && <span className="std-ref-where">{where}</span>}
+          {requirements.length > 0 && (
+            <span className="std-ref-reqs">
+              {requirements.map((d) => (
+                <span key={d.id} className="law-chip">
+                  {d.name}
+                </span>
+              ))}
+            </span>
+          )}
+        </Button>
+        <Tooltip className="std-context" placement="right top" offset={8}>
+          {context(false)}
+        </Tooltip>
+      </TooltipTrigger>
+      <Popover className="std-context" triggerRef={icon} placement="bottom end" offset={4}>
+        <Dialog aria-label={label}>{context(true)}</Dialog>
+      </Popover>
+    </DialogTrigger>
+  );
+}
+
+function CitationGroupRow({ group, law, showWhere = true }: { group: CitationGroup; law: Legislation; showWhere?: boolean }) {
+  return (
+    <ReferenceRow
+      anchor={groupAnchor(group)}
+      names={group.standards.map((st) => st.ref)}
+      where={showWhere ? whereCited(group.citations, law.celex) : undefined}
+      requirements={group.requirements}
+      label={`Where ${law.short} names ${group.standards.map((st) => st.ref).join(", ")}`}
+      context={() => <GroupContext group={group} law={law} />}
+    />
+  );
+}
+
+function TargetedRow({ target }: { target: TargetedStandard }) {
+  const { standard, reasons, requirements, source } = target;
+  return (
+    <ReferenceRow
+      anchor={`target:${standard.id}`}
+      names={[standard.ref]}
+      where={standard.body}
+      requirements={requirements}
+      label={`Why ${standard.ref} targets these data requirements`}
+      context={(pinned) => (
+        <div className="std-context-body">
+          <span className="std-context-standard">
+            <strong>{standard.ref}</strong>
+            {standard.title && <span className="leg-ref">{standard.title}</span>}
+          </span>
+          <span className="std-tag">Named by no act; our reading of its scope</span>
+          <ul className="std-context-why">
+            {reasons.map((r) => (
+              <li key={r.note}>
+                <strong>{r.requirements.map((d) => d.name).join(", ")}:</strong> {r.note}
+              </li>
+            ))}
+          </ul>
+          <span className="leg-ref">
+            Source:{" "}
+            {pinned ? (
+              <Link href={source} target="_blank" rel="noreferrer" className="req-ref">
+                {new URL(source).hostname}
+              </Link>
+            ) : (
+              new URL(source).hostname
+            )}
+          </span>
+        </div>
+      )}
+    />
+  );
+}
+
+function ChainColumn({
+  id,
+  anchor,
+  title,
+  subtitle,
+  items,
+  empty,
+}: {
+  id: string;
+  /** Prefix of the items' `data-chain` attributes. */
+  anchor: string;
+  title: string;
+  subtitle: string;
+  items: Array<{ id: string; name: string; description?: string }>;
+  empty: string;
+}) {
+  return (
+    <section className="panel" aria-labelledby={`${id}-title`}>
+      <header className="panel-head">
+        <div>
+          <h2 id={`${id}-title`}>{title}</h2>
+          <p>{subtitle}</p>
+        </div>
+      </header>
+      <div className="list">
+        {items.length ? (
+          <ul className="chain-items">
+            {items.map((item) => (
+              <li key={item.id} data-chain={`${anchor}:${item.id}`}>
+                <span className="schema-name">{item.name}</span>
+                {item.description && <span className="leg-ref">{item.description}</span>}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="empty">{empty}</p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * One column per step, scrolling sideways: product group, then legislation, the
+ * data requirements it sets, the standards behind those, and the ontologies and
+ * data points. Opening data requirements narrows what follows to them; with none
+ * open, it follows every data requirement of the selected legislations.
+ */
+export function RequirementsExplorer({ chain }: { chain: Chain }) {
+  const { legislations, legislationById, productGroups, dataRequirements } = chain;
   const wide = useMediaQuery("(min-width: 768px)");
+  const boardRef = useRef<HTMLElement>(null);
   const [group, setGroup] = useState<ProductGroup | null>(null);
   const [selected, setSelected] = useState<Set<Key>>(new Set());
   const [expanded, setExpanded] = useState<Set<Key>>(new Set());
@@ -48,16 +280,90 @@ export function RequirementsExplorer() {
 
   const selectedIds = useMemo(() => new Set([...selected].map(String)), [selected]);
   const disabled = useMemo(
-    () => LEGISLATIONS.filter((l) => !group || !appliesTo(l, group)).map((l) => l.id),
-    [group],
+    () => legislations.filter((l) => !group || !appliesTo(l, group)).map((l) => l.id),
+    [group, legislations],
   );
-  const inScope = useMemo(() => dataPointsFor(group), [group]);
+  const inScope = useMemo(() => requirementsFor(chain, group), [chain, group]);
   const required = useMemo(
-    () => (group ? requirementsByDataPoint(group, selectedIds) : new Map<string, Requirement[]>()),
-    [group, selectedIds],
+    () => (group ? provisionsByRequirement(chain, group, selectedIds) : new Map<string, Provision[]>()),
+    [chain, group, selectedIds],
   );
 
-  const shared = [...required.values()].filter((rs) => legislationCount(rs) > 1).length;
+  // Open rows that are still required; a row closes by itself when its legislation is deselected.
+  const opened = useMemo(() => [...expanded].map(String).filter((id) => required.has(id)), [expanded, required]);
+  const inView = useMemo(() => new Set(opened.length ? opened : required.keys()), [opened, required]);
+
+  const inViewRows = useMemo(
+    () =>
+      dataRequirements
+        .filter((d) => inView.has(d.id))
+        .map((d) => ({ id: d.id, name: d.name, provisions: required.get(d.id) ?? NO_PROVISIONS })),
+    [dataRequirements, inView, required],
+  );
+  const groups = useMemo(() => citationGroups(chain, inViewRows), [chain, inViewRows]);
+  const groupsByLaw = legislations
+    .map((law) => ({ law, groups: groups.filter((g) => g.legislation === law.id) }))
+    .filter((entry) => entry.groups.length > 0);
+
+  const targeted = useMemo(() => (group ? targetedStandards(chain, group, inViewRows) : []), [chain, group, inViewRows]);
+  const standardCount = new Set([
+    ...groups.flatMap((g) => g.standards.map((st) => st.id)),
+    ...targeted.map((t) => t.standard.id),
+  ]).size;
+
+  const withoutStandard = useMemo(() => {
+    const covered = new Set([
+      ...groups.flatMap((g) => g.requirements.map((d) => d.id)),
+      ...targeted.flatMap((t) => t.requirements.map((d) => d.id)),
+    ]);
+    return inViewRows
+      .filter((r) => !covered.has(r.id))
+      .map((r) => ({ ...r, laws: [...new Set(r.provisions.map((p) => p.legislation))] }));
+  }, [groups, inViewRows, targeted]);
+  const notes = legislations.filter((l) => selectedIds.has(l.id) && l.standardsNote);
+
+  const citedOnlyByLaw = useMemo(
+    () =>
+      group
+        ? legislations
+            .filter((l) => selectedIds.has(l.id))
+            .map((law) => ({ law, groups: citedOnlyGroups(chain, group, law.id) }))
+            .filter((entry) => entry.groups.length > 0)
+        : [],
+    [chain, group, legislations, selectedIds],
+  );
+  const citedOnlyCount = citedOnlyByLaw.reduce((n, g) => n + g.groups.reduce((m, x) => m + x.standards.length, 0), 0);
+
+  const ontologies = useMemo(() => ontologiesFor(chain, inView), [chain, inView]);
+  const dataPoints = useMemo(() => dataPointsFor(chain, ontologies), [chain, ontologies]);
+
+  const shared = [...required.values()].filter((ps) => legislationCount(ps) > 1).length;
+
+  const relations = useMemo<ChainRelation[]>(() => {
+    if (!group) return [];
+    const shownOntologies = new Set(ontologies.map((o) => o.id));
+    return [
+      ...legislations
+        .filter((l) => appliesTo(l, group))
+        .map((l) => ({ from: `group:${group}`, to: `law:${l.id}`, faint: selectedIds.size > 0 && !selectedIds.has(l.id) })),
+      ...[...required].flatMap(([id, provisions]) =>
+        [...new Set(provisions.map((p) => p.legislation))].map((law) => ({ from: `law:${law}`, to: `req:${id}` })),
+      ),
+      ...groups.flatMap((g) => g.requirements.map((d) => ({ from: `req:${d.id}`, to: groupAnchor(g) }))),
+      ...targeted.flatMap((t) => t.requirements.map((d) => ({ from: `req:${d.id}`, to: `target:${t.standard.id}` }))),
+      ...withoutStandard.map((r) => ({ from: `req:${r.id}`, to: `none:${r.id}` })),
+      // These skip the Data requirements column and cross its text, so they stay faint.
+      ...citedOnlyByLaw.flatMap(({ law, groups: lawGroups }) =>
+        lawGroups.map((g) => ({ from: `law:${law.id}`, to: groupAnchor(g), faint: true })),
+      ),
+      ...chain.requirementOntologies
+        .filter((l) => inView.has(l.dataRequirement) && shownOntologies.has(l.ontology))
+        .map((l) => ({ from: `req:${l.dataRequirement}`, to: `ontology:${l.ontology}` })),
+      ...chain.ontologyDataPoints
+        .filter((l) => shownOntologies.has(l.ontology))
+        .map((l) => ({ from: `ontology:${l.ontology}`, to: `point:${l.dataPoint}` })),
+    ];
+  }, [chain, citedOnlyByLaw, group, groups, inView, legislations, ontologies, required, selectedIds, targeted, withoutStandard]);
 
   const chooseGroup = (next: ProductGroup | null) => {
     setGroup(next);
@@ -66,7 +372,7 @@ export function RequirementsExplorer() {
     setExpanded(new Set());
   };
 
-  const groupName = PRODUCT_GROUPS.find((g) => g.id === group)?.name;
+  const groupName = productGroups.find((g) => g.id === group)?.name;
 
   return (
     <div className={wide ? "app wide" : "app narrow"}>
@@ -79,10 +385,13 @@ export function RequirementsExplorer() {
             <strong>{selectedIds.size}</strong> legislation{selectedIds.size === 1 ? "" : "s"}
           </span>
           <span className="stat">
-            <strong>{required.size}</strong> data points
+            <strong>{required.size}</strong> data requirement{required.size === 1 ? "" : "s"}
           </span>
-          <span className="stat" title="Data points required by more than one selected legislation">
+          <span className="stat" title="Data requirements set by more than one selected legislation">
             <strong>{shared}</strong> shared
+          </span>
+          <span className="stat">
+            <strong>{standardCount}</strong> standard{standardCount === 1 ? "" : "s"}
           </span>
         </div>
       </header>
@@ -92,11 +401,11 @@ export function RequirementsExplorer() {
           ? "Choose a product group to see which legislations apply to it."
           : selectedIds.size === 0
             ? `Select one or more legislations for ${groupName} to see the data they require.`
-            : "Open a data point to see each legislation's requirement behind it."}
+            : "Open a data requirement to see its legal basis and narrow the standards to it. Hover or tap a standard for its context."}
       </p>
 
-      <main className="req-board">
-        <section className="panel req-groups" aria-labelledby="group-title">
+      <main ref={boardRef} className="chain-board" tabIndex={0} aria-label="Legislation to data points, scrolls sideways">
+        <section className="panel" aria-labelledby="group-title">
           <header className="panel-head">
             <div>
               <h2 id="group-title">Product Group</h2>
@@ -112,12 +421,12 @@ export function RequirementsExplorer() {
               selectedKeys={group ? [group] : []}
               onSelectionChange={(keys) => chooseGroup(([...keys][0] as ProductGroup | undefined) ?? null)}
             >
-              {PRODUCT_GROUPS.map((g) => (
-                <ToggleButton key={g.id} id={g.id} className="group-option">
+              {productGroups.map((g) => (
+                <ToggleButton key={g.id} id={g.id} className="group-option" data-chain={`group:${g.id}`}>
                   <span className="group-name">{g.name}</span>
                   <span className="group-desc">{g.description}</span>
                   <span className="group-count">
-                    {LEGISLATIONS.filter((l) => appliesTo(l, g.id)).length} legislations
+                    {legislations.filter((l) => appliesTo(l, g.id)).length} legislations
                   </span>
                 </ToggleButton>
               ))}
@@ -125,13 +434,13 @@ export function RequirementsExplorer() {
           </div>
         </section>
 
-        <section className="panel req-legislation" aria-labelledby="legislation-title">
+        <section className="panel" aria-labelledby="legislation-title">
           <header className="panel-head">
             <div>
               <h2 id="legislation-title">Legislation</h2>
               <p>
                 {group
-                  ? `${LEGISLATIONS.length - disabled.length} of ${LEGISLATIONS.length} apply to ${groupName}`
+                  ? `${legislations.length - disabled.length} of ${legislations.length} apply to ${groupName}`
                   : "Pick a product group first"}
               </p>
             </div>
@@ -150,7 +459,7 @@ export function RequirementsExplorer() {
               selectionMode="multiple"
               selectedKeys={selected}
               onSelectionChange={(keys) =>
-                setSelected(keys === "all" ? new Set(LEGISLATIONS.map((l) => l.id).filter((id) => !disabled.includes(id))) : keys)
+                setSelected(keys === "all" ? new Set(legislations.map((l) => l.id).filter((id) => !disabled.includes(id))) : keys)
               }
               disabledKeys={disabled}
               dependencies={[group]}
@@ -158,59 +467,62 @@ export function RequirementsExplorer() {
               {CATEGORIES.map((c) => (
                 <ListBoxSection key={c.id} id={c.id} className="leg-section">
                   <Header className="section-head">{c.name}</Header>
-                  {LEGISLATIONS.filter((l) => l.category === c.id).map((l) => {
-                    const relevant = !!group && appliesTo(l, group);
-                    return (
-                      <ListBoxItem
-                        key={l.id}
-                        id={l.id}
-                        textValue={`${l.short} ${l.title}`}
-                        className={relevant ? "leg-item relevant" : "leg-item"}
-                      >
-                        {({ isSelected }) => (
-                          <>
-                            <span className="leg-check" aria-hidden="true">
-                              {isSelected && (
-                                <svg viewBox="0 0 16 16" width="12" height="12">
-                                  <path
-                                    d="M3.5 8.5l3 3 6-7"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="2"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                  />
-                                </svg>
-                              )}
-                            </span>
-                            <span className="leg-text">
-                              <span className="leg-name">
-                                <strong>{l.short}</strong> {l.title}
+                  {legislations
+                    .filter((l) => l.category === c.id)
+                    .map((l) => {
+                      const relevant = !!group && appliesTo(l, group);
+                      return (
+                        <ListBoxItem
+                          key={l.id}
+                          id={l.id}
+                          textValue={`${l.short} ${l.title}`}
+                          className={relevant ? "leg-item relevant" : "leg-item"}
+                          data-chain={`law:${l.id}`}
+                        >
+                          {({ isSelected }) => (
+                            <>
+                              <span className="leg-check" aria-hidden="true">
+                                {isSelected && (
+                                  <svg viewBox="0 0 16 16" width="12" height="12">
+                                    <path
+                                      d="M3.5 8.5l3 3 6-7"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      strokeWidth="2"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                    />
+                                  </svg>
+                                )}
                               </span>
-                              <span className="leg-ref">{l.ref}</span>
-                              {relevant && group && <span className="leg-scope">{l.scope[group]}</span>}
-                            </span>
-                          </>
-                        )}
-                      </ListBoxItem>
-                    );
-                  })}
+                              <span className="leg-text">
+                                <span className="leg-name">
+                                  <strong>{l.short}</strong> {l.title}
+                                </span>
+                                <span className="leg-ref">{l.ref}</span>
+                                {relevant && group && <span className="leg-scope">{l.scope[group]}</span>}
+                              </span>
+                            </>
+                          )}
+                        </ListBoxItem>
+                      );
+                    })}
                 </ListBoxSection>
               ))}
             </ListBox>
           </div>
         </section>
 
-        <section className="panel req-data" aria-labelledby="data-title">
+        <section className="panel" aria-labelledby="data-title">
           <header className="panel-head">
             <div>
               <h2 id="data-title">Data requirements</h2>
               <p>
                 {required.size
-                  ? `${required.size} of ${inScope.size} data points required`
+                  ? `${required.size} of ${inScope.size} data requirements required`
                   : group
-                    ? `${inScope.size} data points across ${groupName} legislation`
-                    : `${inScope.size} data points across all legislation`}
+                    ? `${inScope.size} data requirements across ${groupName} legislation`
+                    : `${inScope.size} data requirements across all legislation`}
               </p>
             </div>
             <div className="panel-tools">
@@ -220,40 +532,37 @@ export function RequirementsExplorer() {
             </div>
           </header>
           <div className="list">
-            <DisclosureGroup
-              allowsMultipleExpanded
-              expandedKeys={[...expanded].filter((k) => required.has(String(k)))}
-              onExpandedChange={setExpanded}
-            >
+            <DisclosureGroup allowsMultipleExpanded expandedKeys={opened} onExpandedChange={setExpanded}>
               {THEMES.map((theme) => {
-                const rows = DATA_POINTS.filter((d) => d.theme === theme.id && inScope.has(d.id))
-                  .map((d) => ({ point: d, reqs: required.get(d.id) ?? NO_REQUIREMENTS }))
-                  .filter((row) => !onlyRequired || row.reqs.length > 0)
+                const rows = dataRequirements
+                  .filter((d) => d.theme === theme.id && inScope.has(d.id))
+                  .map((d) => ({ requirement: d, provisions: required.get(d.id) ?? NO_PROVISIONS }))
+                  .filter((row) => !onlyRequired || row.provisions.length > 0)
                   // Required first, most-motivated first; the rest keep catalogue order.
-                  .sort((a, b) => legislationCount(b.reqs) - legislationCount(a.reqs));
+                  .sort((a, b) => legislationCount(b.provisions) - legislationCount(a.provisions));
                 if (rows.length === 0) return null;
                 return (
                   <div key={theme.id} className="dp-section" role="group" aria-label={theme.name}>
                     <div className="section-head">{theme.name}</div>
-                    {rows.map(({ point, reqs }) => {
-                      const count = legislationCount(reqs);
-                      const laws = [...new Set(reqs.map((r) => r.legislation))];
+                    {rows.map(({ requirement, provisions }) => {
+                      const count = legislationCount(provisions);
+                      const laws = [...new Set(provisions.map((p) => p.legislation))];
                       return (
                         <Disclosure
-                          key={point.id}
-                          id={point.id}
+                          key={requirement.id}
+                          id={requirement.id}
                           isDisabled={count === 0}
                           className={count ? `dp-item active level-${Math.min(count, 3)}` : "dp-item"}
                         >
                           <Heading className="dp-heading">
-                            <Button slot="trigger" className="dp-trigger">
+                            <Button slot="trigger" className="dp-trigger" data-chain={`req:${requirement.id}`}>
                               <span
                                 className="dp-count"
-                                aria-label={count ? `Required by ${count} legislation${count > 1 ? "s" : ""}` : "Not required"}
+                                aria-label={count ? `Required by ${plural(count, "legislation")}` : "Not required"}
                               >
                                 {count || "–"}
                               </span>
-                              <span className="dp-name">{point.name}</span>
+                              <span className="dp-name">{requirement.name}</span>
                               <span className="dp-laws" aria-hidden="true">
                                 {laws.map((id) => (
                                   <span key={id} className="law-chip">
@@ -277,34 +586,34 @@ export function RequirementsExplorer() {
                           </Heading>
                           <DisclosurePanel className="dp-panel">
                             <ul className="dp-reqs">
-                              {reqs.map((r) => {
-                                const law = legislationById[r.legislation];
-                                const act = r.source ? SOURCE_ACTS[r.source] : undefined;
+                              {provisions.map((p) => {
+                                const law = legislationById[p.legislation];
+                                const act = p.source ? SOURCE_ACTS[p.source] : undefined;
                                 return (
-                                  <li key={`${r.legislation}-${r.ref}`}>
+                                  <li key={`${p.legislation}-${p.ref}`}>
                                     <div className="req-head">
                                       <span className="law-chip strong">{law.short}</span>
                                       <Link
                                         className="req-ref"
-                                        href={eurLex(r.source ?? law.celex)}
+                                        href={eurLex(p.source ?? law.celex)}
                                         target="_blank"
                                         rel="noreferrer"
-                                        aria-label={`${act?.ref ?? law.ref}, ${r.ref} (opens EUR-Lex)`}
+                                        aria-label={`${act?.ref ?? law.ref}, ${p.ref} (opens EUR-Lex)`}
                                       >
-                                        {act?.ref ?? law.ref} · {r.ref}
+                                        {act?.ref ?? law.ref} · {p.ref}
                                       </Link>
                                     </div>
-                                    {r.quotes && (
-                                      <blockquote className="req-quote" cite={eurLex(r.source ?? law.celex)}>
-                                        {r.quotes.map((q, i) => (
-                                          <p key={i}>
-                                            {i > 0 && <span aria-hidden="true">… </span>}
+                                    {p.quotes && (
+                                      <blockquote className="req-quote" cite={eurLex(p.source ?? law.celex)}>
+                                        {p.quotes.map((q, j) => (
+                                          <p key={j}>
+                                            {j > 0 && <span aria-hidden="true">… </span>}
                                             {q}
                                           </p>
                                         ))}
                                       </blockquote>
                                     )}
-                                    <p className={r.quotes ? "req-note" : undefined}>{r.text}</p>
+                                    <p className={p.quotes ? "req-note" : undefined}>{p.text}</p>
                                   </li>
                                 );
                               })}
@@ -319,6 +628,129 @@ export function RequirementsExplorer() {
             </DisclosureGroup>
           </div>
         </section>
+
+        <section className="panel" aria-labelledby="standards-title">
+          <header className="panel-head">
+            <div>
+              <h2 id="standards-title">Standards</h2>
+              <p>
+                {inView.size
+                  ? `${plural(standardCount, "standard")} behind ${plural(inView.size, "data requirement")}${opened.length ? " opened" : ""}`
+                  : "Behind the data requirements"}
+              </p>
+            </div>
+          </header>
+          <div className="list">
+            {inView.size === 0 && <p className="empty">Select a legislation to see the standards behind its data requirements.</p>}
+            {groupsByLaw.map(({ law, groups: lawGroups }) => (
+              <div key={law.id} className="dp-section" role="group" aria-label={law.short}>
+                <div className="section-head">{law.short}</div>
+                <ul className="std-refs">
+                  {lawGroups.map((group) => (
+                    <li key={group.standards.map((st) => st.id).join()}>
+                      <CitationGroupRow group={group} law={law} />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+            {notes.map((law) => (
+              <p key={law.id} className="std-note">
+                <span className="law-chip">{law.short}</span> {law.standardsNote}
+              </p>
+            ))}
+            {targeted.length > 0 && (
+              <div className="dp-section" role="group" aria-label="Named by no act">
+                <div className="section-head">Named by no act</div>
+                <p className="std-note">These target the data requirement by their own scope, without legal weight from the acts.</p>
+                <ul className="std-refs">
+                  {targeted.map((target) => (
+                    <li key={target.standard.id}>
+                      <TargetedRow target={target} />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {withoutStandard.length > 0 && (
+              <div className="dp-section" role="group" aria-label="No standard found">
+                <div className="section-head">No standard found</div>
+                <ul className="std-none">
+                  {withoutStandard.map(({ id, name, laws }) => (
+                    <li key={id} data-chain={`none:${id}`}>
+                      <span>{name}</span>
+                      <span className="dp-laws">
+                        {laws.map((lawId) => (
+                          <span key={lawId} className="law-chip">
+                            {legislationById[lawId].short}
+                          </span>
+                        ))}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {citedOnlyCount > 0 && (
+              <Disclosure className="std-more">
+                <Heading className="dp-heading">
+                  <Button slot="trigger" className="std-more-trigger">
+                    <svg className="dp-chevron" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                      <path
+                        d="M6 4l4 4-4 4"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                    {plural(citedOnlyCount, "more standard")} named, behind no data requirement for {groupName}
+                  </Button>
+                </Heading>
+                <DisclosurePanel>
+                  {citedOnlyByLaw.map(({ law, groups: lawGroups }) => (
+                    <div key={law.id} role="group" aria-label={law.short}>
+                      <div className="section-head">{law.short}</div>
+                      {[...new Set(lawGroups.map((g) => whereCited(g.citations, law.celex)))].map((where) => (
+                        <div key={where}>
+                          <p className="std-note">{where}</p>
+                          <ul className="std-refs">
+                            {lawGroups
+                              .filter((g) => whereCited(g.citations, law.celex) === where)
+                              .map((g) => (
+                                <li key={g.standards.map((st) => st.id).join()}>
+                                  <CitationGroupRow group={g} law={law} showWhere={false} />
+                                </li>
+                              ))}
+                          </ul>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </DisclosurePanel>
+              </Disclosure>
+            )}
+          </div>
+        </section>
+
+        <ChainColumn
+          id="ontologies"
+          anchor="ontology"
+          title="Ontologies"
+          subtitle={ontologies.length ? `${ontologies.length} linked` : "Behind the data requirements"}
+          items={ontologies}
+          empty={chain.ontologies.length ? "None linked to the data requirements in view." : "No ontologies yet."}
+        />
+        <ChainColumn
+          id="data-points"
+          anchor="point"
+          title="Data points"
+          subtitle={dataPoints.length ? `${dataPoints.length} linked` : "Behind the ontologies"}
+          items={dataPoints}
+          empty={chain.dataPoints.length ? "None linked to the ontologies in view." : "No data points yet."}
+        />
+        <ChainArrows boardRef={boardRef} relations={relations} />
       </main>
 
       <p className="hint small">

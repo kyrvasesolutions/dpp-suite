@@ -1,13 +1,17 @@
 /**
  * EU legislation that asks for product data on aluminium and textile products,
- * and the data points each one requires.
+ * and the data requirements each one sets.
  *
- * Every requirement belongs to one generic data point, so when several
+ * Every provision belongs to one generic data requirement, so when several
  * legislations ask for the same kind of data (e.g. ESPR's carbon footprint and
  * CBAM's embedded emissions) they show up as one row with both behind it.
- * Where a requirement has `quotes`, they are the act's own words, taken from the
+ * Where a provision has `quotes`, they are the act's own words, taken from the
  * Official Journal text (amending and implementing acts included) and checked by
  * `npm run check-legal-text`; `text` is a plain-language reading next to them.
+ *
+ * This file and `standards.ts` are where the catalogue is written.
+ * `npm run build-seed` turns them into db/seed/04-regulatory-chain.sql, and the
+ * app reads the result from SQLite (see `chain.ts`).
  */
 
 export type ProductGroup = "aluminium" | "textile";
@@ -46,8 +50,8 @@ export interface Legislation {
   category: LegislationCategory;
   /** Why and from when it applies, per product group it covers. */
   scope: Partial<Record<ProductGroup, string>>;
-  /** Technical standards the act relies on, when recorded. */
-  standards?: Array<{ ref: string; title: string }>;
+  /** Said in the app when the act's own text names no standard. */
+  standardsNote?: string;
 }
 
 export const eurLex = (celex: string) => `https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:${celex}`;
@@ -135,6 +139,7 @@ export const LEGISLATIONS: Legislation[] = [
     scope: {
       textile: "All textile products made available on the EU market.",
     },
+    standardsNote: "The act names no standard. It refers only to the harmonised standards “to be introduced in” Annex VIII.",
   },
   {
     id: "gpsr",
@@ -146,6 +151,7 @@ export const LEGISLATIONS: Legislation[] = [
     scope: {
       textile: "Consumer textile products. Applies since 13 December 2024.",
     },
+    standardsNote: "The act names no standard. It relies on European standards whose references are published in the Official Journal.",
   },
   {
     id: "wfd",
@@ -185,13 +191,13 @@ export const THEMES: Array<{ id: Theme; name: string }> = [
   { id: "compliance", name: "Compliance & information" },
 ];
 
-export interface DataPoint {
+export interface DataRequirement {
   id: string;
   name: string;
   theme: Theme;
 }
 
-export const DATA_POINTS: DataPoint[] = [
+export const DATA_REQUIREMENTS: DataRequirement[] = [
   { id: "product-id", name: "Unique product identifier", theme: "identification" },
   { id: "commodity-code", name: "Customs commodity code", theme: "identification" },
   { id: "manufacturer", name: "Manufacturer name & contact", theme: "identification" },
@@ -232,8 +238,9 @@ export const DATA_POINTS: DataPoint[] = [
   { id: "label", name: "On-product label & marking", theme: "compliance" },
 ];
 
-export interface Requirement {
-  dataPoint: string;
+/** One legislation's provision behind a data requirement: its legal basis, for the product groups it binds. */
+export interface Provision {
+  dataRequirement: string;
   legislation: string;
   groups: ProductGroup[];
   /** Article, annex or point of the act. */
@@ -263,6 +270,14 @@ export const SOURCE_ACTS: Record<string, { ref: string; title: string }> = {
     ref: "Directive (EU) 2018/851",
     title: "amending Directive 2008/98/EC on waste",
   },
+  "32025L1892": {
+    ref: "Directive (EU) 2025/1892",
+    title: "amending Directive 2008/98/EC on waste",
+  },
+  "32026D1736": {
+    ref: "Implementing Decision (EU) 2026/1736",
+    title: "on harmonised standards for digital product passports",
+  },
 };
 
 const AL: ProductGroup[] = ["aluminium"];
@@ -272,10 +287,10 @@ const BOTH: ProductGroup[] = ["aluminium", "textile"];
 /** ESPR information requirements bind a product group only once its delegated act sets them. */
 const ESPR_DELEGATED = "Applies once the ESPR delegated act for the product group requires it.";
 
-export const REQUIREMENTS: Requirement[] = [
+export const PROVISIONS: Provision[] = [
   // ---------- Identification & operators ----------
   {
-    dataPoint: "product-id",
+    dataRequirement: "product-id",
     legislation: "espr",
     groups: BOTH,
     ref: "Art. 10(1)(a)–(b)",
@@ -285,7 +300,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: `Persistent unique product identifier, reached through a data carrier on the product, packaging or documentation. ${ESPR_DELEGATED}`,
   },
   {
-    dataPoint: "product-id",
+    dataRequirement: "product-id",
     legislation: "cpr",
     groups: AL,
     ref: "Art. 22(5)",
@@ -295,7 +310,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: "Unique identification code of the product type, plus batch or serial number where available, on the product.",
   },
   {
-    dataPoint: "product-id",
+    dataRequirement: "product-id",
     legislation: "ppwr",
     groups: AL,
     ref: "Art. 15(5)",
@@ -305,14 +320,14 @@ export const REQUIREMENTS: Requirement[] = [
     text: "Type, batch or serial number on the packaging, or in a document accompanying the packaged product.",
   },
   {
-    dataPoint: "product-id",
+    dataRequirement: "product-id",
     legislation: "gpsr",
     groups: TX,
     ref: "Art. 9(5)",
     text: "Type, batch or serial number or another identifying element on the product, or on its packaging or accompanying document where the product is too small.",
   },
   {
-    dataPoint: "product-id",
+    dataRequirement: "product-id",
     legislation: "flr",
     groups: BOTH,
     ref: "Art. 27(2)",
@@ -322,7 +337,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: "At release for free circulation or export, for products or product groups named in a delegated act under Art. 27(1).",
   },
   {
-    dataPoint: "commodity-code",
+    dataRequirement: "commodity-code",
     legislation: "espr",
     groups: BOTH,
     ref: "Annex III(d)",
@@ -330,7 +345,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: `Commodity code of the product in the digital product passport; Art. 13(1) also stores it in the registry for goods released for free circulation. ${ESPR_DELEGATED}`,
   },
   {
-    dataPoint: "commodity-code",
+    dataRequirement: "commodity-code",
     legislation: "cbam",
     groups: AL,
     ref: "Annex I",
@@ -338,7 +353,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: "CBAM goods are identified by CN code: aluminium is 7601 and 7603 to 7616. The declaration reports per type of goods.",
   },
   {
-    dataPoint: "manufacturer",
+    dataRequirement: "manufacturer",
     legislation: "espr",
     groups: BOTH,
     ref: "Annex III(g)",
@@ -346,7 +361,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: `Manufacturer identity and contact details, with its unique operator identifier. ${ESPR_DELEGATED}`,
   },
   {
-    dataPoint: "manufacturer",
+    dataRequirement: "manufacturer",
     legislation: "cpr",
     groups: AL,
     ref: "Annex IV, point 1.3; Art. 18(2)(b)",
@@ -356,7 +371,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: "Part of the general product information; the CE marking is also followed by the manufacturer's name and registered address.",
   },
   {
-    dataPoint: "manufacturer",
+    dataRequirement: "manufacturer",
     legislation: "ppwr",
     groups: AL,
     ref: "Art. 15(6)",
@@ -366,14 +381,14 @@ export const REQUIREMENTS: Requirement[] = [
     text: "Manufacturer name and postal address on the packaging or through its data carrier.",
   },
   {
-    dataPoint: "manufacturer",
+    dataRequirement: "manufacturer",
     legislation: "gpsr",
     groups: TX,
     ref: "Art. 9(6)",
     text: "Name, registered trade name or trade mark, and postal and electronic address of the manufacturer on the product or its packaging.",
   },
   {
-    dataPoint: "manufacturer",
+    dataRequirement: "manufacturer",
     legislation: "flr",
     groups: BOTH,
     ref: "Art. 27(2)",
@@ -381,7 +396,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: "Given to customs for products or product groups named in a delegated act under Art. 27(1).",
   },
   {
-    dataPoint: "importer",
+    dataRequirement: "importer",
     legislation: "espr",
     groups: BOTH,
     ref: "Annex III(j)–(k)",
@@ -391,7 +406,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: `Importer details with EORI number, and the EU-established operator responsible for the product. ${ESPR_DELEGATED}`,
   },
   {
-    dataPoint: "importer",
+    dataRequirement: "importer",
     legislation: "cbam",
     groups: AL,
     ref: "Art. 5(1) as amended; Annex V, point 1.1",
@@ -402,7 +417,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: "Only an authorised CBAM declarant may import CBAM goods. Records must identify the declarant by name and CBAM account number (Annex V). Importers under 50 tonnes net mass a year are exempt (Art. 2a).",
   },
   {
-    dataPoint: "importer",
+    dataRequirement: "importer",
     legislation: "cpr",
     groups: AL,
     ref: "Art. 24(6)",
@@ -412,7 +427,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: "Importer name and contact address on the product, its packaging or accompanying document.",
   },
   {
-    dataPoint: "importer",
+    dataRequirement: "importer",
     legislation: "ppwr",
     groups: AL,
     ref: "Art. 18(3)",
@@ -422,14 +437,14 @@ export const REQUIREMENTS: Requirement[] = [
     text: "Importer name and postal address on the packaging, or through its data carrier or an accompanying document.",
   },
   {
-    dataPoint: "importer",
+    dataRequirement: "importer",
     legislation: "gpsr",
     groups: TX,
     ref: "Art. 11; Art. 4 of Reg. (EU) 2019/1020",
     text: "Name and contact details of the importer on the product, and an EU-established responsible economic operator identified on the product.",
   },
   {
-    dataPoint: "producer-registration",
+    dataRequirement: "producer-registration",
     legislation: "ppwr",
     groups: AL,
     ref: "Art. 44(2)",
@@ -439,7 +454,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: "Registration in the national register of producers of each Member State where the packaging is first made available.",
   },
   {
-    dataPoint: "producer-registration",
+    dataRequirement: "producer-registration",
     legislation: "wfd",
     groups: TX,
     ref: "Art. 22b (textile EPR)",
@@ -448,7 +463,7 @@ export const REQUIREMENTS: Requirement[] = [
 
   // ---------- Composition & substances ----------
   {
-    dataPoint: "material-composition",
+    dataRequirement: "material-composition",
     legislation: "espr",
     groups: BOTH,
     ref: "Annex I(d)",
@@ -456,7 +471,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: `Material composition as a parameter of design for recycling. ${ESPR_DELEGATED}`,
   },
   {
-    dataPoint: "material-composition",
+    dataRequirement: "material-composition",
     legislation: "cpr",
     groups: AL,
     ref: "Annex IV, point 1.2(e)",
@@ -464,7 +479,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: "Main materials, as part of the product description in the general product information.",
   },
   {
-    dataPoint: "material-composition",
+    dataRequirement: "material-composition",
     legislation: "ppwr",
     groups: AL,
     ref: "Art. 12(1)",
@@ -474,21 +489,21 @@ export const REQUIREMENTS: Requirement[] = [
     text: "From 12 August 2028, or 24 months after the implementing acts, whichever is later.",
   },
   {
-    dataPoint: "material-composition",
+    dataRequirement: "material-composition",
     legislation: "tlr",
     groups: TX,
     ref: "Arts. 5, 9, 11",
     text: "Fibre composition by percentage of weight using only the fibre names in Annex I; multi-fibre and multi-component products declared per component.",
   },
   {
-    dataPoint: "animal-origin",
+    dataRequirement: "animal-origin",
     legislation: "tlr",
     groups: TX,
     ref: "Art. 12",
     text: "Products containing non-textile parts of animal origin (e.g. leather, fur) state “Contains non-textile parts of animal origin”.",
   },
   {
-    dataPoint: "substances-of-concern",
+    dataRequirement: "substances-of-concern",
     legislation: "espr",
     groups: BOTH,
     ref: "Art. 7(5)",
@@ -501,7 +516,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: `Name (IUPAC, EC, CAS), location and concentration of each substance of concern, plus safe-use and end-of-life information. ${ESPR_DELEGATED}`,
   },
   {
-    dataPoint: "substances-of-concern",
+    dataRequirement: "substances-of-concern",
     legislation: "reach",
     groups: BOTH,
     ref: "Art. 33(1)",
@@ -511,7 +526,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: "Candidate List substances above 0.1 % w/w: inform recipients; consumers on request within 45 days (Art. 33(2)).",
   },
   {
-    dataPoint: "substances-of-concern",
+    dataRequirement: "substances-of-concern",
     legislation: "reach",
     groups: BOTH,
     ref: "Art. 7(2)",
@@ -523,7 +538,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: "Notify ECHA when a Candidate List substance is in the articles above 0.1 % w/w and above 1 tonne a year.",
   },
   {
-    dataPoint: "substances-of-concern",
+    dataRequirement: "substances-of-concern",
     legislation: "wfd",
     groups: BOTH,
     ref: "Art. 9(1)(i)",
@@ -535,7 +550,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: "The REACH Art. 33(1) information goes to ECHA's SCIP database.",
   },
   {
-    dataPoint: "substances-of-concern",
+    dataRequirement: "substances-of-concern",
     legislation: "cpr",
     groups: AL,
     ref: "Art. 15(6)",
@@ -546,7 +561,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: "The REACH safety data sheet or Art. 33 information is supplied with the declaration of performance and conformity.",
   },
   {
-    dataPoint: "substances-of-concern",
+    dataRequirement: "substances-of-concern",
     legislation: "ppwr",
     groups: AL,
     ref: "Arts. 5(1), 12(1)",
@@ -557,14 +572,14 @@ export const REQUIREMENTS: Requirement[] = [
     text: "Substances of concern minimised, and packaging containing them digitally marked.",
   },
   {
-    dataPoint: "restricted-substances",
+    dataRequirement: "restricted-substances",
     legislation: "reach",
     groups: TX,
     ref: "Annex XVII",
     text: "Compliance with textile restrictions: azo dyes (entry 43), nonylphenol ethoxylates (46a), dimethylfumarate (61), CMR substances in clothing and textiles (72), PFHxA (79).",
   },
   {
-    dataPoint: "restricted-substances",
+    dataRequirement: "restricted-substances",
     legislation: "ppwr",
     groups: AL,
     ref: "Art. 5(4)–(5)",
@@ -575,7 +590,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: "Heavy-metal sum limit for all packaging; PFAS limits for food-contact packaging.",
   },
   {
-    dataPoint: "biocidal-treatment",
+    dataRequirement: "biocidal-treatment",
     legislation: "bpr",
     groups: TX,
     ref: "Art. 58(3)",
@@ -584,7 +599,7 @@ export const REQUIREMENTS: Requirement[] = [
 
   // ---------- Environmental footprint ----------
   {
-    dataPoint: "carbon-footprint",
+    dataRequirement: "carbon-footprint",
     legislation: "espr",
     groups: BOTH,
     ref: "Art. 7(2)(b)(i); Annex I(n)",
@@ -595,7 +610,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: `Carbon footprint, calculated with the method the delegated act sets. ${ESPR_DELEGATED}`,
   },
   {
-    dataPoint: "carbon-footprint",
+    dataRequirement: "carbon-footprint",
     legislation: "cbam",
     groups: AL,
     ref: "Art. 6(2)(b); Art. 7(1)",
@@ -606,7 +621,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: "Aluminium is in Annex II, so only direct embedded emissions count. They come from actual installation data or default values (Art. 7(2) as amended).",
   },
   {
-    dataPoint: "carbon-footprint",
+    dataRequirement: "carbon-footprint",
     legislation: "cpr",
     groups: AL,
     ref: "Art. 15(2)–(3)(a); Annex II(a)–(d)",
@@ -618,7 +633,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: "Life-cycle climate change effects (total, fossil, biogenic, land use) declared in the DoPC, calculated with the Commission's free software.",
   },
   {
-    dataPoint: "environmental-footprint",
+    dataRequirement: "environmental-footprint",
     legislation: "espr",
     groups: BOTH,
     ref: "Annex I(m)",
@@ -628,7 +643,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: ESPR_DELEGATED,
   },
   {
-    dataPoint: "environmental-footprint",
+    dataRequirement: "environmental-footprint",
     legislation: "cpr",
     groups: AL,
     ref: "Art. 15(3)(b)–(c); Annex II(e)–(s)",
@@ -639,7 +654,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: "Further life-cycle indicators in the DoPC: ozone depletion, acidification, eutrophication, resource depletion and water use from 2030; particulate matter, toxicity and land use from 2032.",
   },
   {
-    dataPoint: "process-emissions",
+    dataRequirement: "process-emissions",
     legislation: "espr",
     groups: BOTH,
     ref: "Annex I(q)",
@@ -649,7 +664,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: ESPR_DELEGATED,
   },
   {
-    dataPoint: "process-emissions",
+    dataRequirement: "process-emissions",
     legislation: "cbam",
     groups: AL,
     ref: "Annex I, point 3.17.2.1",
@@ -661,7 +676,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: "Primary (electrolytic) smelting: monitor CO₂ from anode consumption and PFCs (CF₄, C₂F₆) from anode effects. Secondary melting covers fuel emissions only (point 3.17.2.2).",
   },
   {
-    dataPoint: "energy-resources",
+    dataRequirement: "energy-resources",
     legislation: "espr",
     groups: BOTH,
     ref: "Annex I(g)",
@@ -669,7 +684,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: ESPR_DELEGATED,
   },
   {
-    dataPoint: "precursors",
+    dataRequirement: "precursors",
     legislation: "cbam",
     groups: AL,
     ref: "Annex VI, point 2(k)",
@@ -680,7 +695,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: "Complex goods (e.g. aluminium products made from unwrought aluminium) carry the embedded emissions of their precursors; the verification report states them.",
   },
   {
-    dataPoint: "carbon-price",
+    dataRequirement: "carbon-price",
     legislation: "cbam",
     groups: AL,
     ref: "Art. 9(1)–(2) as amended",
@@ -692,7 +707,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: "Optional reduction, backed by documentation certified by an independent person; with default values, only yearly default carbon prices can be used (Art. 9(4)).",
   },
   {
-    dataPoint: "microplastics",
+    dataRequirement: "microplastics",
     legislation: "espr",
     groups: TX,
     ref: "Annex I(p)",
@@ -701,7 +716,7 @@ export const REQUIREMENTS: Requirement[] = [
 
   // ---------- Circularity & end of life ----------
   {
-    dataPoint: "recycled-content",
+    dataRequirement: "recycled-content",
     legislation: "espr",
     groups: BOTH,
     ref: "Annex I(h)",
@@ -709,7 +724,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: ESPR_DELEGATED,
   },
   {
-    dataPoint: "recycled-content",
+    dataRequirement: "recycled-content",
     legislation: "cbam",
     groups: AL,
     ref: "Annex I, point 3.17.2.2; Annex II, section F",
@@ -721,14 +736,14 @@ export const REQUIREMENTS: Requirement[] = [
     text: "No recycled-content share is declared, but the production route (primary or secondary) must be known: scrap enters with zero embedded emissions.",
   },
   {
-    dataPoint: "durability",
+    dataRequirement: "durability",
     legislation: "espr",
     groups: TX,
     ref: "Annex I(a)",
     text: "Durability and reliability, e.g. guaranteed or technical lifetime, resistance to stresses or ageing (pilling, colour fastness, seam strength).",
   },
   {
-    dataPoint: "durability",
+    dataRequirement: "durability",
     legislation: "cpr",
     groups: AL,
     ref: "Annex IV, point 1.2(d)",
@@ -736,21 +751,21 @@ export const REQUIREMENTS: Requirement[] = [
     text: "Part of the product description in the general product information.",
   },
   {
-    dataPoint: "durability",
+    dataRequirement: "durability",
     legislation: "wfd",
     groups: TX,
     ref: "Textile EPR, fee modulation",
     text: "EPR fees modulated by ecodesign criteria such as durability and reparability, aligned with ESPR requirements.",
   },
   {
-    dataPoint: "repairability",
+    dataRequirement: "repairability",
     legislation: "espr",
     groups: TX,
     ref: "Annex I(b)",
     text: "Ease of repair and maintenance: spare parts, repair instructions, non-destructive disassembly.",
   },
   {
-    dataPoint: "recyclability",
+    dataRequirement: "recyclability",
     legislation: "espr",
     groups: BOTH,
     ref: "Annex I(d)",
@@ -760,7 +775,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: ESPR_DELEGATED,
   },
   {
-    dataPoint: "recyclability",
+    dataRequirement: "recyclability",
     legislation: "ppwr",
     groups: AL,
     ref: "Art. 6(1), (3)",
@@ -771,14 +786,14 @@ export const REQUIREMENTS: Requirement[] = [
     text: "Grades A–C required from 2030 (or 24 months after the delegated acts); only A or B from 2038.",
   },
   {
-    dataPoint: "recyclability",
+    dataRequirement: "recyclability",
     legislation: "wfd",
     groups: TX,
     ref: "Textile EPR, fee modulation",
     text: "EPR fees modulated by recyclability and recycled content of the textile products.",
   },
   {
-    dataPoint: "end-of-life-info",
+    dataRequirement: "end-of-life-info",
     legislation: "espr",
     groups: BOTH,
     ref: "Art. 7(2)(b)(iii)",
@@ -786,7 +801,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: ESPR_DELEGATED,
   },
   {
-    dataPoint: "end-of-life-info",
+    dataRequirement: "end-of-life-info",
     legislation: "cpr",
     groups: AL,
     ref: "Annex IV, point 1.4(a)",
@@ -794,7 +809,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: "Contact point for deconstruction and demolition information, where different from the manufacturer's contact details.",
   },
   {
-    dataPoint: "end-of-life-info",
+    dataRequirement: "end-of-life-info",
     legislation: "ppwr",
     groups: AL,
     ref: "Art. 12(1)",
@@ -804,14 +819,14 @@ export const REQUIREMENTS: Requirement[] = [
     text: "Optional, in addition to the mandatory harmonised sorting label.",
   },
   {
-    dataPoint: "end-of-life-info",
+    dataRequirement: "end-of-life-info",
     legislation: "wfd",
     groups: TX,
     ref: "Textile EPR",
     text: "Consumers informed about reuse, separate collection points and proper discarding of used textiles.",
   },
   {
-    dataPoint: "quantities",
+    dataRequirement: "quantities",
     legislation: "cbam",
     groups: AL,
     ref: "Art. 6(2)(a) as amended",
@@ -822,7 +837,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: "In the annual CBAM declaration, due by 30 September for the preceding year (first in 2027 for 2026).",
   },
   {
-    dataPoint: "quantities",
+    dataRequirement: "quantities",
     legislation: "ppwr",
     groups: AL,
     ref: "Art. 44(7); Annex IX, Part B, point 1(c)",
@@ -832,14 +847,14 @@ export const REQUIREMENTS: Requirement[] = [
     text: "Reported to the register of producers by 1 June for the preceding year.",
   },
   {
-    dataPoint: "quantities",
+    dataRequirement: "quantities",
     legislation: "wfd",
     groups: TX,
     ref: "Textile EPR",
     text: "Quantities of textile, textile-related and footwear products made available on the market, reported per Member State.",
   },
   {
-    dataPoint: "unsold-products",
+    dataRequirement: "unsold-products",
     legislation: "espr",
     groups: TX,
     ref: "Arts. 24–25, Annex VII",
@@ -848,7 +863,7 @@ export const REQUIREMENTS: Requirement[] = [
 
   // ---------- Supply chain & origin ----------
   {
-    dataPoint: "production-site",
+    dataRequirement: "production-site",
     legislation: "espr",
     groups: BOTH,
     ref: "Annex III(i)",
@@ -856,7 +871,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: ESPR_DELEGATED,
   },
   {
-    dataPoint: "production-site",
+    dataRequirement: "production-site",
     legislation: "cbam",
     groups: AL,
     ref: "Annex V, points 1.2(b) and 2(a)",
@@ -864,7 +879,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: "Records kept by the declarant; the installation is needed whenever actual emissions are used.",
   },
   {
-    dataPoint: "production-site",
+    dataRequirement: "production-site",
     legislation: "cbam",
     groups: AL,
     ref: "Art. 10(2)(b)",
@@ -874,7 +889,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: "When the third-country operator registers its installation in the CBAM registry.",
   },
   {
-    dataPoint: "supply-chain-operators",
+    dataRequirement: "supply-chain-operators",
     legislation: "espr",
     groups: BOTH,
     ref: "Annex III(h)",
@@ -882,7 +897,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: ESPR_DELEGATED,
   },
   {
-    dataPoint: "supply-chain-operators",
+    dataRequirement: "supply-chain-operators",
     legislation: "cbam",
     groups: AL,
     ref: "Art. 10(2)(a) as amended",
@@ -893,7 +908,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: "Third-country installation operators register in the CBAM registry and can share verified emissions with declarants (Art. 10(7)).",
   },
   {
-    dataPoint: "supply-chain-operators",
+    dataRequirement: "supply-chain-operators",
     legislation: "flr",
     groups: BOTH,
     ref: "Art. 27(2)",
@@ -901,7 +916,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: "Given to customs for products or product groups named in a delegated act under Art. 27(1).",
   },
   {
-    dataPoint: "forced-labour",
+    dataRequirement: "forced-labour",
     legislation: "flr",
     groups: BOTH,
     ref: "Arts. 3, 17(1)–(2)",
@@ -914,7 +929,7 @@ export const REQUIREMENTS: Requirement[] = [
 
   // ---------- Compliance & information ----------
   {
-    dataPoint: "conformity",
+    dataRequirement: "conformity",
     legislation: "espr",
     groups: BOTH,
     ref: "Annex III(e)",
@@ -924,7 +939,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: ESPR_DELEGATED,
   },
   {
-    dataPoint: "conformity",
+    dataRequirement: "conformity",
     legislation: "cpr",
     groups: AL,
     ref: "Art. 15(1)",
@@ -934,7 +949,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: "Declaration of performance and conformity (DoPC), drawn up on the Annex V model.",
   },
   {
-    dataPoint: "conformity",
+    dataRequirement: "conformity",
     legislation: "ppwr",
     groups: AL,
     ref: "Arts. 15(2), 39(1)",
@@ -945,14 +960,14 @@ export const REQUIREMENTS: Requirement[] = [
     text: "Technical documentation and EU declaration of conformity, kept 5 years (single-use) or 10 years (reusable).",
   },
   {
-    dataPoint: "conformity",
+    dataRequirement: "conformity",
     legislation: "gpsr",
     groups: TX,
     ref: "Art. 9(2)–(3)",
     text: "Internal risk analysis and technical documentation, kept for 10 years after the product is placed on the market.",
   },
   {
-    dataPoint: "verification",
+    dataRequirement: "verification",
     legislation: "cbam",
     groups: AL,
     ref: "Art. 8(1) as amended",
@@ -963,7 +978,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: "Not needed when default values are used. The verification report goes with the declaration (Art. 6(2)(d)).",
   },
   {
-    dataPoint: "verification",
+    dataRequirement: "verification",
     legislation: "cpr",
     groups: AL,
     ref: "Art. 10(1)",
@@ -971,7 +986,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: "Assessment and verification system set per product family; may involve a notified body.",
   },
   {
-    dataPoint: "performance",
+    dataRequirement: "performance",
     legislation: "espr",
     groups: BOTH,
     ref: "Annex I(s)",
@@ -979,7 +994,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: ESPR_DELEGATED,
   },
   {
-    dataPoint: "performance",
+    dataRequirement: "performance",
     legislation: "cpr",
     groups: AL,
     ref: "Art. 22(1)",
@@ -989,7 +1004,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: "Essential characteristics come from the harmonised technical specification for the product family.",
   },
   {
-    dataPoint: "dpp",
+    dataRequirement: "dpp",
     legislation: "espr",
     groups: BOTH,
     ref: "Arts. 9(1), 10(4), 13(4)",
@@ -1001,7 +1016,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: ESPR_DELEGATED,
   },
   {
-    dataPoint: "dpp",
+    dataRequirement: "dpp",
     legislation: "cpr",
     groups: AL,
     ref: "Art. 22(7); Art. 76(2)",
@@ -1011,7 +1026,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: "The passport carries the DoPC, general product information and instructions, technical documentation, label and unique identifiers.",
   },
   {
-    dataPoint: "instructions",
+    dataRequirement: "instructions",
     legislation: "espr",
     groups: BOTH,
     ref: "Annex III(f)",
@@ -1019,7 +1034,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: ESPR_DELEGATED,
   },
   {
-    dataPoint: "instructions",
+    dataRequirement: "instructions",
     legislation: "cpr",
     groups: AL,
     ref: "Art. 22(6); Annex IV",
@@ -1029,35 +1044,35 @@ export const REQUIREMENTS: Requirement[] = [
     text: "Covers safety in transport, installation, maintenance and demolition, compatibility, maintenance needs and safe use.",
   },
   {
-    dataPoint: "instructions",
+    dataRequirement: "instructions",
     legislation: "gpsr",
     groups: TX,
     ref: "Art. 9(7)",
     text: "Clear instructions and safety information in a language consumers easily understand.",
   },
   {
-    dataPoint: "instructions",
+    dataRequirement: "instructions",
     legislation: "bpr",
     groups: TX,
     ref: "Art. 58(3)",
     text: "Instructions for use and precautions for the treated article where needed to protect people or the environment.",
   },
   {
-    dataPoint: "label",
+    dataRequirement: "label",
     legislation: "tlr",
     groups: TX,
     ref: "Arts. 14–16",
     text: "Durable, legible and accessible label or marking in the language of the Member State where sold, visible before purchase including online.",
   },
   {
-    dataPoint: "label",
+    dataRequirement: "label",
     legislation: "bpr",
     groups: TX,
     ref: "Art. 58(3)",
     text: "Label on the treated article itself, or its packaging, in the official language of the Member State.",
   },
   {
-    dataPoint: "label",
+    dataRequirement: "label",
     legislation: "cpr",
     groups: AL,
     ref: "Art. 18(1)–(2)",
@@ -1069,7 +1084,7 @@ export const REQUIREMENTS: Requirement[] = [
     text: "The CE marking is followed by the year, manufacturer, product-type code, DoPC code, notified body number and a data carrier.",
   },
   {
-    dataPoint: "label",
+    dataRequirement: "label",
     legislation: "ppwr",
     groups: AL,
     ref: "Art. 12(1)",
@@ -1077,27 +1092,3 @@ export const REQUIREMENTS: Requirement[] = [
     text: "Harmonised packaging label from 12 August 2028, or 24 months after the implementing acts.",
   },
 ];
-
-export const legislationById = Object.fromEntries(LEGISLATIONS.map((l) => [l.id, l])) as Record<string, Legislation>;
-
-export const appliesTo = (legislation: Legislation, group: ProductGroup) => !!legislation.scope[group];
-
-/** Data points any legislation asks for this product group (or every group when none is chosen). */
-export function dataPointsFor(group: ProductGroup | null): Set<string> {
-  return new Set(REQUIREMENTS.filter((r) => !group || r.groups.includes(group)).map((r) => r.dataPoint));
-}
-
-/** Requirements behind each data point for the chosen group and legislations: the union over legislations. */
-export function requirementsByDataPoint(group: ProductGroup, legislations: Set<string>): Map<string, Requirement[]> {
-  const out = new Map<string, Requirement[]>();
-  for (const r of REQUIREMENTS) {
-    if (!r.groups.includes(group) || !legislations.has(r.legislation)) continue;
-    const list = out.get(r.dataPoint) ?? [];
-    list.push(r);
-    out.set(r.dataPoint, list);
-  }
-  return out;
-}
-
-/** Distinct legislations motivating a data point. */
-export const legislationCount = (requirements: Requirement[]) => new Set(requirements.map((r) => r.legislation)).size;

@@ -12,19 +12,8 @@ import {
   isFileDropItem,
   type Key,
 } from "react-aria-components";
-import {
-  CATEGORIES,
-  DATA_POINTS,
-  LEGISLATIONS,
-  PRODUCT_GROUPS,
-  THEMES,
-  appliesTo,
-  legislationById,
-  legislationCount,
-  requirementsByDataPoint,
-  type ProductGroup,
-  type Requirement,
-} from "../model/legislation";
+import { appliesTo, legislationCount, provisionsByRequirement, standardsNamedBy, type Chain } from "../model/chain";
+import { CATEGORIES, THEMES, type ProductGroup, type Provision } from "../model/legislation";
 import { useMediaQuery } from "../useMediaQuery";
 
 /** File kinds a user can bring their product data in. */
@@ -57,14 +46,15 @@ const kindOf = (name: string): string | null => {
 const formatSize = (bytes: number) =>
   bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 
-const NO_REQUIREMENTS: Requirement[] = [];
+const NO_PROVISIONS: Provision[] = [];
 
 /**
  * Pick a product group and the legislations to validate against; the data
- * points they require form the data schema. The user's own data is added
+ * requirements they set form the data schema. The user's own data is added
  * below the schema with the "+" tile.
  */
-export function ValidationView() {
+export function ValidationView({ chain }: { chain: Chain }) {
+  const { legislations, legislationById, productGroups, dataRequirements } = chain;
   const wide = useMediaQuery("(min-width: 768px)");
   const [group, setGroup] = useState<ProductGroup | null>(null);
   const [selected, setSelected] = useState<Set<Key>>(new Set());
@@ -73,18 +63,25 @@ export function ValidationView() {
 
   const selectedIds = useMemo(() => new Set([...selected].map(String)), [selected]);
   const disabled = useMemo(
-    () => LEGISLATIONS.filter((l) => !group || !appliesTo(l, group)).map((l) => l.id),
-    [group],
+    () => legislations.filter((l) => !group || !appliesTo(l, group)).map((l) => l.id),
+    [group, legislations],
   );
   const required = useMemo(
-    () => (group ? requirementsByDataPoint(group, selectedIds) : new Map<string, Requirement[]>()),
-    [group, selectedIds],
+    () => (group ? provisionsByRequirement(chain, group, selectedIds) : new Map<string, Provision[]>()),
+    [chain, group, selectedIds],
   );
 
-  const activeLaws = LEGISLATIONS.filter((l) => selectedIds.has(l.id));
-  const standards = [...new Map(activeLaws.flatMap((l) => l.standards ?? []).map((st) => [st.ref, st])).values()];
+  const activeLaws = legislations.filter((l) => selectedIds.has(l.id));
+  const named = group ? activeLaws.map((l) => standardsNamedBy(chain, group, l.id)) : [];
+  const standards = [...new Map(named.flatMap((n) => n.linked).map(({ standard }) => [standard.id, standard])).values()];
+  const citedElsewhere = new Set(
+    named
+      .flatMap((n) => n.citedOnly)
+      .map(({ standard }) => standard.id)
+      .filter((id) => !standards.some((s) => s.id === id)),
+  ).size;
 
-  const groupName = PRODUCT_GROUPS.find((g) => g.id === group)?.name;
+  const groupName = productGroups.find((g) => g.id === group)?.name;
 
   const chooseGroup = (next: ProductGroup | null) => {
     setGroup(next);
@@ -109,10 +106,12 @@ export function ValidationView() {
 
   const rows = THEMES.map((theme) => ({
     theme,
-    fields: DATA_POINTS.filter((d) => d.theme === theme.id && required.has(d.id)).map((d) => ({
-      point: d,
-      reqs: required.get(d.id) ?? NO_REQUIREMENTS,
-    })),
+    fields: dataRequirements
+      .filter((d) => d.theme === theme.id && required.has(d.id))
+      .map((d) => ({
+        requirement: d,
+        provisions: required.get(d.id) ?? NO_PROVISIONS,
+      })),
   })).filter((section) => section.fields.length > 0);
 
   return (
@@ -159,7 +158,7 @@ export function ValidationView() {
               selectedKeys={group ? [group] : []}
               onSelectionChange={(keys) => chooseGroup(([...keys][0] as ProductGroup | undefined) ?? null)}
             >
-              {PRODUCT_GROUPS.map((g) => (
+              {productGroups.map((g) => (
                 <ToggleButton key={g.id} id={g.id} className="group-option">
                   <span className="group-name">{g.name}</span>
                   <span className="group-desc">{g.description}</span>
@@ -175,7 +174,7 @@ export function ValidationView() {
               <h2 id="v-legislation-title">Legislation</h2>
               <p>
                 {group
-                  ? `${LEGISLATIONS.length - disabled.length} of ${LEGISLATIONS.length} apply to ${groupName}`
+                  ? `${legislations.length - disabled.length} of ${legislations.length} apply to ${groupName}`
                   : "Pick a product group first"}
               </p>
             </div>
@@ -195,7 +194,7 @@ export function ValidationView() {
               selectedKeys={selected}
               onSelectionChange={(keys) =>
                 setSelected(
-                  keys === "all" ? new Set(LEGISLATIONS.map((l) => l.id).filter((id) => !disabled.includes(id))) : keys,
+                  keys === "all" ? new Set(legislations.map((l) => l.id).filter((id) => !disabled.includes(id))) : keys,
                 )
               }
               disabledKeys={disabled}
@@ -204,7 +203,7 @@ export function ValidationView() {
               {CATEGORIES.map((c) => (
                 <ListBoxSection key={c.id} id={c.id} className="leg-section">
                   <Header className="section-head">{c.name}</Header>
-                  {LEGISLATIONS.filter((l) => l.category === c.id).map((l) => (
+                  {legislations.filter((l) => l.category === c.id).map((l) => (
                     <ListBoxItem
                       key={l.id}
                       id={l.id}
@@ -259,18 +258,18 @@ export function ValidationView() {
               <div key={theme.id} className="dp-section" role="group" aria-label={theme.name}>
                 <div className="section-head">{theme.name}</div>
                 <ul className="schema-fields">
-                  {fields.map(({ point, reqs }) => (
-                    <li key={point.id} className="schema-field">
-                      <span className="schema-name">{point.name}</span>
-                      <code className="schema-key">{point.id}</code>
+                  {fields.map(({ requirement, provisions }) => (
+                    <li key={requirement.id} className="schema-field">
+                      <span className="schema-name">{requirement.name}</span>
+                      <code className="schema-key">{requirement.id}</code>
                       <span className="dp-laws" aria-label="Required by">
-                        {[...new Set(reqs.map((r) => r.legislation))].map((id) => (
+                        {[...new Set(provisions.map((p) => p.legislation))].map((id) => (
                           <span key={id} className="law-chip">
                             {legislationById[id].short}
                           </span>
                         ))}
                       </span>
-                      {legislationCount(reqs) > 1 && <span className="schema-shared">shared</span>}
+                      {legislationCount(provisions) > 1 && <span className="schema-shared">shared</span>}
                     </li>
                   ))}
                 </ul>
@@ -334,7 +333,7 @@ export function ValidationView() {
               <div className="section-head">Validation scope</div>
               <dl className="val-stats">
                 <div>
-                  <dt>Required data points</dt>
+                  <dt>Required data requirements</dt>
                   <dd className="val-big">{required.size}</dd>
                 </div>
                 <div>
@@ -357,17 +356,22 @@ export function ValidationView() {
                 <div>
                   <dt>Standards</dt>
                   <dd>
-                    {standards.length ? (
+                    {standards.length > 0 && (
                       <ul className="val-list">
                         {standards.map((st) => (
-                          <li key={st.ref}>
+                          <li key={st.id}>
                             <span className="law-chip strong">{st.ref}</span>
-                            <span className="val-ref">{st.title}</span>
                           </li>
                         ))}
                       </ul>
-                    ) : (
-                      <span className="muted">None recorded for the selected legislations</span>
+                    )}
+                    {standards.length === 0 && citedElsewhere === 0 && (
+                      <span className="muted">The selected legislations name none</span>
+                    )}
+                    {citedElsewhere > 0 && (
+                      <span className="muted small">
+                        {citedElsewhere} more cited, with no data requirement linked for this product group
+                      </span>
                     )}
                   </dd>
                 </div>

@@ -9,6 +9,7 @@
   --accent-soft: #e5eefc;
   --accent-ring: rgba(47, 111, 222, 0.35);
   --link: #8a95a5;
+  --trace: #e8710a;
   --ok: #1f8a5b;
   --ok-soft: #dff3e9;
   --warn: #b5541c;
@@ -44,6 +45,7 @@
     --accent-soft: #1f2d47;
     --accent-ring: rgba(107, 156, 245, 0.4);
     --link: #5d6774;
+    --trace: #f59a55;
     --ok: #4cc28d;
     --ok-soft: #173327;
     --warn: #ee9a63;
@@ -1738,6 +1740,280 @@ code {
 
 .narrow .dp-laws {
   display: none;
+}
+
+/* ---------- Chain: one column per step, scrolling sideways ---------- */
+
+.app:has(.chain-board) {
+  max-width: none;
+}
+
+.chain-board {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-auto-flow: column;
+  /* The gutters are where the arrows between columns curve. */
+  column-gap: 48px;
+  padding-bottom: 4px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+}
+
+.wide .chain-board {
+  grid-template-columns:
+    minmax(190px, 0.7fr) minmax(300px, 1.1fr) minmax(400px, 1.5fr) minmax(320px, 1.2fr)
+    minmax(260px, 1fr) minmax(260px, 1fr);
+}
+
+/* Phones: one column at a time, with the edge of the next one showing. */
+.narrow .chain-board {
+  column-gap: 28px;
+  grid-auto-columns: min(calc(100vw - 120px), 340px);
+}
+
+.chain-arrows {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.chain-arrow,
+.chain-arrowhead {
+  fill: none;
+  stroke: var(--trace);
+  stroke-width: 1.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.chain-arrow.faint {
+  opacity: 0.3;
+}
+
+.chain-board > .panel {
+  scroll-snap-align: start;
+}
+
+.chain-board:focus-visible {
+  outline: 2px solid var(--accent-ring);
+  outline-offset: 2px;
+}
+
+.std-refs,
+.std-none {
+  list-style: none;
+  margin: 0;
+  padding: 0 8px;
+}
+
+.std-refs li + li {
+  border-top: 1px solid var(--border);
+}
+
+.std-ref {
+  position: relative;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 28px 8px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  text-align: start;
+  outline: none;
+}
+
+.std-ref[data-hovered],
+.std-ref[data-pressed] {
+  background: var(--surface-2);
+}
+
+.std-ref[data-focus-visible] {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.std-ref-icon {
+  position: absolute;
+  top: 10px;
+  right: 8px;
+  color: var(--muted);
+}
+
+.std-ref-name {
+  font-size: 13px;
+  font-weight: 550;
+}
+
+.std-ref-where {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.std-ref-reqs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.std-ref-reqs .law-chip {
+  white-space: normal;
+}
+
+.std-note {
+  padding: 2px 16px 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.std-none li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* The context of a standard reference: a tooltip on hover, a popover on click or tap. */
+.std-context {
+  width: min(380px, calc(100vw - 24px));
+  padding: 10px 12px;
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  font-size: 13px;
+}
+
+/* A tooltip can't be scrolled, since it leaves with the pointer, so it gets the width to stay short. */
+.std-context[role="tooltip"] {
+  width: min(600px, calc(100vw - 24px));
+}
+
+.std-context[data-entering] {
+  animation: pop-in 0.12s ease-out;
+}
+
+.std-context-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.std-context .react-aria-Dialog {
+  outline: none;
+}
+
+.std-context-standards {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.std-context-standard .leg-ref {
+  margin-left: 6px;
+}
+
+.std-context-passage {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.std-context-where {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.std-context .req-quote {
+  margin: 0;
+}
+
+.std-tag {
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--trace);
+}
+
+.std-context-why {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.std-context-why strong {
+  font-weight: 550;
+  color: var(--text);
+}
+
+.std-more {
+  margin: 4px 8px 8px;
+  border-top: 1px solid var(--border);
+}
+
+.std-more-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--row-h);
+  padding: 6px 4px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: start;
+  outline: none;
+}
+
+.std-more-trigger[data-hovered] {
+  color: var(--text);
+}
+
+.std-more-trigger[data-focus-visible] {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.std-more[data-expanded] .dp-chevron {
+  transform: rotate(90deg);
+}
+
+.chain-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.chain-items li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 8px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.chain-items .leg-ref {
+  flex-basis: 100%;
 }
 
 /* ---------- Lanes ---------- */

@@ -20,7 +20,8 @@ import { TraceTree } from "./components/TraceTree";
 import { ValidationView } from "./components/ValidationView";
 import { loadApiKey, saveApiKey } from "./llm/apiKey";
 import { LlmError, suggestMappings } from "./llm/suggest";
-import { persist, readProject, resetDatabase, writeProject } from "./db/database";
+import { loadChain, persist, readProject, resetDatabase, writeProject } from "./db/database";
+import type { Chain } from "./model/chain";
 import { download, exportProject, type Project } from "./model/project";
 import {
   ancestorsOf,
@@ -608,6 +609,19 @@ const viewFromHash = (): View => (window.location.hash === "#validation" ? "vali
  */
 export default function App() {
   const [view, setView] = useState<View>(viewFromHash);
+  const [chain, setChain] = useState<Chain | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    loadChain().then(
+      (loaded) => live && setChain(loaded),
+      (error: unknown) => live && setLoadError(error instanceof Error ? error.message : String(error)),
+    );
+    return () => {
+      live = false;
+    };
+  }, []);
 
   useEffect(() => {
     const onHash = () => setView(viewFromHash());
@@ -636,7 +650,25 @@ export default function App() {
           </ToggleButton>
         ))}
       </ToggleButtonGroup>
-      {view === "requirements" ? <RequirementsExplorer /> : <ValidationView />}
+      {chain ? (
+        view === "requirements" ? (
+          <RequirementsExplorer chain={chain} />
+        ) : (
+          <ValidationView chain={chain} />
+        )
+      ) : (
+        <div className="app">
+          {loadError ? (
+            <div className="banner warn" role="alert">
+              <span>Couldn't open the database: {loadError}</span>
+            </div>
+          ) : (
+            <p className="hint" role="status">
+              Loading…
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
