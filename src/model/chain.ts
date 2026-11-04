@@ -5,23 +5,17 @@
  *
  * A legislation sets data requirements through its provisions. Behind a data
  * requirement are the standards that legislation names for it, and standards no
- * act names whose own scope targets it. Some have neither. Ontologies link to the
- * data requirement rather than the standard, so those without a standard reach them too.
+ * act names whose own scope targets it. Some have neither. Ontology terms link to
+ * the data requirement rather than the standard, so those without a standard reach them too.
  */
 import type { DataRequirement, Legislation, ProductGroup, Provision } from "./legislation";
+import type { Ontology, OntologyTerm, RequirementTerm, TermMatch } from "./ontologies";
 import type { Citation, Standard, StandardLink, StandardTarget } from "./standards";
 
 export interface ProductGroupInfo {
   id: ProductGroup;
   name: string;
   description: string;
-}
-
-export interface Ontology {
-  id: string;
-  name: string;
-  uri?: string;
-  description?: string;
 }
 
 export interface DataPoint {
@@ -44,7 +38,8 @@ export interface Chain {
   dataRequirements: DataRequirement[];
   provisions: Provision[];
   ontologies: Ontology[];
-  requirementOntologies: Array<{ dataRequirement: string; ontology: string }>;
+  ontologyTerms: OntologyTerm[];
+  requirementTerms: RequirementTerm[];
   dataPoints: DataPoint[];
   ontologyDataPoints: Array<{ ontology: string; dataPoint: string }>;
 }
@@ -219,10 +214,31 @@ export function provisionsByRequirement(chain: Chain, group: ProductGroup, legis
   return out;
 }
 
-export const ontologiesFor = (chain: Chain, requirements: Set<string>): Ontology[] => {
-  const ids = new Set(chain.requirementOntologies.filter((l) => requirements.has(l.dataRequirement)).map((l) => l.ontology));
-  return chain.ontologies.filter((o) => ids.has(o.id));
-};
+/** A term defining data requirements in view, and how closely it matches each. */
+export interface TermInView {
+  term: OntologyTerm;
+  requirements: Array<DataRequirement & { match: TermMatch; note?: string }>;
+}
+
+/** The terms that define these data requirements, by ontology. */
+export function termsByOntology(chain: Chain, requirements: Set<string>): Array<{ ontology: Ontology; terms: TermInView[] }> {
+  const links = chain.requirementTerms.filter((l) => requirements.has(l.dataRequirement));
+  return chain.ontologies
+    .map((ontology) => ({
+      ontology,
+      terms: chain.ontologyTerms
+        .filter((term) => term.ontology === ontology.id)
+        .map((term) => ({
+          term,
+          requirements: chain.dataRequirements.flatMap((d) => {
+            const link = links.find((l) => l.term === term.id && l.dataRequirement === d.id);
+            return link ? [{ ...d, match: link.match, note: link.note }] : [];
+          }),
+        }))
+        .filter((t) => t.requirements.length > 0),
+    }))
+    .filter((entry) => entry.terms.length > 0);
+}
 
 export const dataPointsFor = (chain: Chain, ontologies: Ontology[]): DataPoint[] => {
   const from = new Set(ontologies.map((o) => o.id));

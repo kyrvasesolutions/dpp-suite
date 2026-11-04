@@ -1851,9 +1851,25 @@ code {
   font-weight: 550;
 }
 
+.std-ref-definition {
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
 .std-ref-where {
   font-size: 12px;
   color: var(--muted);
+}
+
+.term-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.term-head .law-chip {
+  text-transform: none;
 }
 
 .std-ref-reqs {

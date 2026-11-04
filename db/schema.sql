@@ -170,13 +170,30 @@ CREATE TABLE IF NOT EXISTS ontology (
   name        TEXT NOT NULL,
   uri         TEXT,
   description TEXT,
+  position    INTEGER NOT NULL DEFAULT 0,
+  license     TEXT,
+  license_url TEXT,
+  -- When the definitions of its terms were copied.
+  retrieved   TEXT
+);
+
+-- A term of an ontology, with its definition copied word for word.
+CREATE TABLE IF NOT EXISTS ontology_term (
+  id          TEXT PRIMARY KEY,
+  ontology_id TEXT NOT NULL REFERENCES ontology (id) ON DELETE CASCADE,
+  label       TEXT NOT NULL,
+  uri         TEXT NOT NULL UNIQUE,
+  definition  TEXT NOT NULL,
   position    INTEGER NOT NULL DEFAULT 0
 );
 
-CREATE TABLE IF NOT EXISTS data_requirement_ontology (
+-- A term that defines a data requirement; `match` says how closely, after SKOS mapping properties.
+CREATE TABLE IF NOT EXISTS data_requirement_term (
   data_requirement_id TEXT NOT NULL REFERENCES data_requirement (id) ON DELETE CASCADE,
-  ontology_id         TEXT NOT NULL REFERENCES ontology (id) ON DELETE CASCADE,
-  PRIMARY KEY (data_requirement_id, ontology_id)
+  term_id             TEXT NOT NULL REFERENCES ontology_term (id) ON DELETE CASCADE,
+  match               TEXT NOT NULL CHECK (match IN ('exact', 'close', 'broad', 'narrow')),
+  note                TEXT,
+  PRIMARY KEY (data_requirement_id, term_id)
 );
 
 CREATE TABLE IF NOT EXISTS data_point (

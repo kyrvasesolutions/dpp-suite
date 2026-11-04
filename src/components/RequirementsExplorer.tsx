@@ -25,13 +25,14 @@ import {
   citedOnlyGroups,
   dataPointsFor,
   legislationCount,
-  ontologiesFor,
   provisionsByRequirement,
   requirementsFor,
   targetedStandards,
+  termsByOntology,
   type Chain,
   type CitationGroup,
   type TargetedStandard,
+  type TermInView,
 } from "../model/chain";
 import {
   CATEGORIES,
@@ -42,6 +43,7 @@ import {
   type ProductGroup,
   type Provision,
 } from "../model/legislation";
+import type { Ontology, TermMatch } from "../model/ontologies";
 import { download } from "../model/project";
 import { buildSpec, saveSpec, specFilename, toYaml } from "../model/spec";
 import type { Citation } from "../model/standards";
@@ -121,6 +123,7 @@ function GroupContext({ group, law }: { group: CitationGroup; law: Legislation }
 function ReferenceRow({
   anchor,
   names,
+  definition,
   where,
   requirements,
   label,
@@ -128,6 +131,7 @@ function ReferenceRow({
 }: {
   anchor: string;
   names: string[];
+  definition?: string;
   where?: string;
   requirements: Array<{ id: string; name: string }>;
   label: string;
@@ -149,6 +153,7 @@ function ReferenceRow({
               {name}
             </strong>
           ))}
+          {definition && <span className="std-ref-definition">{definition}</span>}
           {where && <span className="std-ref-where">{where}</span>}
           {requirements.length > 0 && (
             <span className="std-ref-reqs">
@@ -216,6 +221,56 @@ function TargetedRow({ target }: { target: TargetedStandard }) {
             ) : (
               new URL(source).hostname
             )}
+          </span>
+        </div>
+      )}
+    />
+  );
+}
+
+const MATCH_LABEL: Record<TermMatch, string> = {
+  exact: "Exact match",
+  close: "Close match",
+  broad: "Broader term",
+  narrow: "Narrower term",
+};
+
+/** A term and its definition, which is what the row is for. The context says how it fits and where it comes from. */
+function TermRow({ term, requirements, ontology }: TermInView & { ontology: Ontology }) {
+  const external = (href: string, text: string, pinned: boolean) =>
+    pinned ? (
+      <Link href={href} target="_blank" rel="noreferrer" className="req-ref">
+        {text}
+      </Link>
+    ) : (
+      text
+    );
+  return (
+    <ReferenceRow
+      anchor={`term:${term.id}`}
+      names={[term.label]}
+      definition={term.definition}
+      where={[...new Set(requirements.map((r) => MATCH_LABEL[r.match]))].join(", ")}
+      requirements={requirements}
+      label={`How ${term.label} in ${ontology.name} defines these data requirements`}
+      context={(pinned) => (
+        <div className="std-context-body">
+          <span className="std-context-standard">
+            <strong>{term.label}</strong>
+            <span className="leg-ref">{ontology.name}</span>
+          </span>
+          <ul className="std-context-why">
+            {requirements.map((r) => (
+              <li key={r.id}>
+                <strong>{r.name}:</strong> {MATCH_LABEL[r.match]}.{r.note && ` Our reading: ${r.note}`}
+              </li>
+            ))}
+          </ul>
+          <span className="leg-ref">{ontology.description}</span>
+          <span className="leg-ref">
+            Term: {external(term.uri, term.uri, pinned)}
+            <br />
+            Licence: {external(ontology.licenseUrl, ontology.license, pinned)}. Copied {ontology.retrieved}.
           </span>
         </div>
       )}
@@ -337,7 +392,9 @@ export function RequirementsExplorer({ chain }: { chain: Chain }) {
   );
   const citedOnlyCount = citedOnlyByLaw.reduce((n, g) => n + g.groups.reduce((m, x) => m + x.standards.length, 0), 0);
 
-  const ontologies = useMemo(() => ontologiesFor(chain, inView), [chain, inView]);
+  const termGroups = useMemo(() => termsByOntology(chain, inView), [chain, inView]);
+  const termCount = termGroups.reduce((n, g) => n + g.terms.length, 0);
+  const ontologies = useMemo(() => termGroups.map((g) => g.ontology), [termGroups]);
   const dataPoints = useMemo(() => dataPointsFor(chain, ontologies), [chain, ontologies]);
 
   const shared = [...required.values()].filter((ps) => legislationCount(ps) > 1).length;
@@ -359,14 +416,17 @@ export function RequirementsExplorer({ chain }: { chain: Chain }) {
       ...citedOnlyByLaw.flatMap(({ law, groups: lawGroups }) =>
         lawGroups.map((g) => ({ from: `law:${law.id}`, to: groupAnchor(g), faint: true })),
       ),
-      ...chain.requirementOntologies
-        .filter((l) => inView.has(l.dataRequirement) && shownOntologies.has(l.ontology))
-        .map((l) => ({ from: `req:${l.dataRequirement}`, to: `ontology:${l.ontology}` })),
+      // These skip the Standards column in the same way.
+      ...termGroups.flatMap((g) =>
+        g.terms.flatMap(({ term, requirements }) =>
+          requirements.map((r) => ({ from: `req:${r.id}`, to: `term:${term.id}`, faint: true })),
+        ),
+      ),
       ...chain.ontologyDataPoints
         .filter((l) => shownOntologies.has(l.ontology))
         .map((l) => ({ from: `ontology:${l.ontology}`, to: `point:${l.dataPoint}` })),
     ];
-  }, [chain, citedOnlyByLaw, group, groups, inView, legislations, ontologies, required, selectedIds, targeted, withoutStandard]);
+  }, [chain, citedOnlyByLaw, group, groups, legislations, ontologies, required, selectedIds, targeted, termGroups, withoutStandard]);
 
   const chooseGroup = (next: ProductGroup | null) => {
     setGroup(next);
@@ -429,7 +489,7 @@ export function RequirementsExplorer({ chain }: { chain: Chain }) {
           ? "Choose a product group to see which legislations apply to it."
           : selectedIds.size === 0
             ? `Select one or more legislations for ${groupName} to see the data they require.`
-            : "Open a data requirement to see its legal basis and narrow the standards to it. Hover or tap a standard for its context."}
+            : "Open a data requirement to see its legal basis and narrow the standards and definitions to it. Hover or tap a standard or ontology term for its context."}
       </p>
 
       <main ref={boardRef} className="chain-board" tabIndex={0} aria-label="Legislation to data points, scrolls sideways">
@@ -762,14 +822,36 @@ export function RequirementsExplorer({ chain }: { chain: Chain }) {
           </div>
         </section>
 
-        <ChainColumn
-          id="ontologies"
-          anchor="ontology"
-          title="Ontologies"
-          subtitle={ontologies.length ? `${ontologies.length} linked` : "Behind the data requirements"}
-          items={ontologies}
-          empty={chain.ontologies.length ? "None linked to the data requirements in view." : "No ontologies yet."}
-        />
+        <section className="panel" aria-labelledby="ontologies-title">
+          <header className="panel-head">
+            <div>
+              <h2 id="ontologies-title">Ontologies</h2>
+              <p>
+                {inView.size
+                  ? `${plural(termCount, "open definition")} of ${plural(inView.size, "data requirement")}${opened.length ? " opened" : ""}`
+                  : "Open definitions of the data requirements"}
+              </p>
+            </div>
+          </header>
+          <div className="list">
+            {inView.size === 0 && <p className="empty">Select a legislation to see what defines its data requirements.</p>}
+            {termGroups.map(({ ontology, terms }) => (
+              <div key={ontology.id} className="dp-section" role="group" aria-label={ontology.name} data-chain={`ontology:${ontology.id}`}>
+                <div className="section-head term-head">
+                  {ontology.name}
+                  <span className="law-chip">{ontology.license}</span>
+                </div>
+                <ul className="std-refs">
+                  {terms.map((entry) => (
+                    <li key={entry.term.id}>
+                      <TermRow {...entry} ontology={ontology} />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </section>
         <ChainColumn
           id="data-points"
           anchor="point"

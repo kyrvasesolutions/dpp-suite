@@ -3,17 +3,20 @@ import wasmUrl from "sql.js/dist/sql-wasm.wasm?url";
 import schemaSql from "../../db/schema.sql?raw";
 import type { Chain } from "../model/chain";
 import type { DataRequirement, Legislation, Provision } from "../model/legislation";
+import type { Ontology, OntologyTerm, RequirementTerm } from "../model/ontologies";
 import type { Project } from "../model/project";
 import type { Citation, Standard, StandardLink, StandardTarget } from "../model/standards";
 import type { Mapping, Side, SourceDoc, TreeData, TreeNode } from "../model/types";
 import { idbGet, idbSet } from "./idb";
 
-// Seed files run in name order: product sample, ESPR Annex I, sample mappings, regulatory chain.
+// Seed files run in name order: product sample, ESPR Annex I, sample mappings, regulatory chain, ontology terms.
 const seedFiles = Object.entries(
   import.meta.glob<string>("../../db/seed/*.sql", { query: "?raw", import: "default", eager: true }),
 ).sort(([a], [b]) => a.localeCompare(b));
 const seeds = seedFiles.map(([, sql]) => sql);
-const chainSeed = seedFiles.find(([path]) => path.endsWith("04-regulatory-chain.sql"))![1];
+const seedNamed = (name: string) => seedFiles.find(([path]) => path.endsWith(name))![1];
+const chainSeed = seedNamed("04-regulatory-chain.sql");
+const ontologySeed = seedNamed("05-ontology-terms.sql");
 
 const STORE_KEY = "dpp-trace.sqlite";
 const FALLBACK_TREE_ID: Record<Side, string> = { left: "left", right: "right" };
@@ -28,10 +31,16 @@ function seeded(SQL: SqlJsStatic): Database {
   return db;
 }
 
-/** A database saved before the regulatory chain existed gets its tables and rows here. */
+/** A database saved before the regulatory chain or the ontology terms existed gets their tables and rows here. */
 function ensureChain(db: Database) {
   db.exec(schemaSql);
   if (rows(db, "SELECT count(*) AS n FROM legislation")[0].n === 0) db.exec(chainSeed);
+
+  const columns = new Set(rows(db, "PRAGMA table_info(ontology)").map((r) => r.name));
+  for (const column of ["license", "license_url", "retrieved"]) {
+    if (!columns.has(column)) db.exec(`ALTER TABLE ontology ADD COLUMN ${column} TEXT`);
+  }
+  if (rows(db, "SELECT count(*) AS n FROM ontology_term")[0].n === 0) db.exec(ontologySeed);
 }
 
 /** Opens the database saved in this browser, or creates one from the seed files. */
@@ -261,16 +270,34 @@ export function readChain(db: Database): Chain {
         source: opt(r.source_celex),
       }),
     ),
-    ontologies: rows(db, "SELECT id, name, uri, description FROM ontology ORDER BY position").map((r) => ({
-      id: text(r.id),
-      name: text(r.name),
-      uri: opt(r.uri),
-      description: opt(r.description),
-    })),
-    requirementOntologies: rows(db, "SELECT data_requirement_id, ontology_id FROM data_requirement_ontology").map((r) => ({
-      dataRequirement: text(r.data_requirement_id),
-      ontology: text(r.ontology_id),
-    })),
+    ontologies: rows(db, "SELECT * FROM ontology ORDER BY position").map(
+      (r): Ontology => ({
+        id: text(r.id),
+        name: text(r.name),
+        uri: text(r.uri),
+        description: text(r.description),
+        license: text(r.license),
+        licenseUrl: text(r.license_url),
+        retrieved: text(r.retrieved),
+      }),
+    ),
+    ontologyTerms: rows(db, "SELECT * FROM ontology_term ORDER BY position").map(
+      (r): OntologyTerm => ({
+        id: text(r.id),
+        ontology: text(r.ontology_id),
+        label: text(r.label),
+        uri: text(r.uri),
+        definition: text(r.definition),
+      }),
+    ),
+    requirementTerms: rows(db, "SELECT * FROM data_requirement_term").map(
+      (r): RequirementTerm => ({
+        dataRequirement: text(r.data_requirement_id),
+        term: text(r.term_id),
+        match: text(r.match) as RequirementTerm["match"],
+        note: opt(r.note),
+      }),
+    ),
     dataPoints: rows(db, "SELECT id, name, description FROM data_point ORDER BY position").map((r) => ({
       id: text(r.id),
       name: text(r.name),

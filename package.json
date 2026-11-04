@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "generate-icons": "pwa-assets-generator",
     "build-seed": "node scripts/build-seed.mjs",
-    "check-legal-text": "node scripts/check-legal-text.mjs"
+    "check-legal-text": "node scripts/check-legal-text.mjs",
+    "check-ontology-terms": "node scripts/check-ontology-terms.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.4.0",
