@@ -16,6 +16,7 @@ import { HoverPreview } from "./components/HoverPreview";
 import { ImportDialog } from "./components/ImportDialog";
 import { ItemWindow, WINDOW_WIDTH, type WindowState } from "./components/ItemWindow";
 import { MappingView } from "./components/MappingView";
+import { PrepareView } from "./components/PrepareView";
 import { RequirementsExplorer } from "./components/RequirementsExplorer";
 import { SamplesSidebar } from "./components/SamplesSidebar";
 import { TraceTree } from "./components/TraceTree";
@@ -596,10 +597,11 @@ export function Workspace({ database, nav }: WorkspaceProps) {
   );
 }
 
-type View = "requirements" | "validation" | "mapping";
+type View = "requirements" | "prepare" | "validation" | "mapping";
 
 const LANES: Array<{ id: View; label: string }> = [
   { id: "requirements", label: "Requirements" },
+  { id: "prepare", label: "Prepare" },
   { id: "validation", label: "Validation" },
   { id: "mapping", label: "Mapping" },
 ];
@@ -662,6 +664,8 @@ export default function App() {
       ) : chain ? (
         view === "requirements" ? (
           <RequirementsExplorer chain={chain} />
+        ) : view === "prepare" ? (
+          <PrepareView chain={chain} />
         ) : (
           <ValidationView chain={chain} />
         )

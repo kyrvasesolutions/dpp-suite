@@ -29,24 +29,73 @@ export const PRODUCT_GROUPS: Array<{ id: ProductGroup; name: string; description
   },
 ];
 
-export type LegislationCategory = "product" | "climate" | "chemicals" | "consumer" | "waste" | "dueDiligence";
+/**
+ * What a company can be asked to comply with, and by whom. Legislation is one type,
+ * which is why the tables and code still say "legislation" for any compliance target.
+ */
+export type TargetType = "b2g" | "b2b" | "b2c";
 
-export const CATEGORIES: Array<{ id: LegislationCategory; name: string }> = [
-  { id: "product", name: "Product sustainability & passports" },
-  { id: "climate", name: "Climate & trade" },
-  { id: "chemicals", name: "Chemicals" },
-  { id: "consumer", name: "Labelling & consumer safety" },
-  { id: "waste", name: "Waste & producer responsibility" },
-  { id: "dueDiligence", name: "Supply-chain due diligence" },
+export const TARGET_TYPES: Array<{
+  id: TargetType;
+  audience: string;
+  name: string;
+  /** The type's colour, and text that reads on it. */
+  color: string;
+  onColor: string;
+  /** The colour as text or an outline on the page, readable in light and dark. */
+  ink: string;
+}> = [
+  { id: "b2g", audience: "B2G", name: "Legislation", color: "#1e3a8a", onColor: "#ffffff", ink: "light-dark(#1e3a8a, #93b4ff)" },
+  { id: "b2b", audience: "B2B", name: "Data spaces", color: "#c2410c", onColor: "#ffffff", ink: "light-dark(#c2410c, #fb923c)" },
+  { id: "b2c", audience: "B2C", name: "Consumer branding", color: "#00e676", onColor: "#04260f", ink: "light-dark(#04703a, #00e676)" },
 ];
 
+export type LegislationCategory =
+  | "product"
+  | "climate"
+  | "chemicals"
+  | "consumer"
+  | "waste"
+  | "dueDiligence"
+  | "automotive"
+  | "organic"
+  | "fairTrade"
+  | "cotton"
+  | "recycled"
+  | "animal"
+  | "chemicalSafety"
+  | "ecolabel"
+  | "forest";
+
+export const CATEGORIES: Array<{ id: LegislationCategory; name: string; type: TargetType }> = [
+  { id: "product", name: "Product sustainability & passports", type: "b2g" },
+  { id: "climate", name: "Climate & trade", type: "b2g" },
+  { id: "chemicals", name: "Chemicals", type: "b2g" },
+  { id: "consumer", name: "Labelling & consumer safety", type: "b2g" },
+  { id: "waste", name: "Waste & producer responsibility", type: "b2g" },
+  { id: "dueDiligence", name: "Supply-chain due diligence", type: "b2g" },
+  { id: "automotive", name: "Automotive", type: "b2b" },
+  { id: "organic", name: "Organic content", type: "b2c" },
+  { id: "fairTrade", name: "Fair trade & working conditions", type: "b2c" },
+  { id: "cotton", name: "Responsible cotton", type: "b2c" },
+  { id: "recycled", name: "Recycled content", type: "b2c" },
+  { id: "animal", name: "Animal welfare & vegan", type: "b2c" },
+  { id: "chemicalSafety", name: "Chemical safety", type: "b2c" },
+  { id: "ecolabel", name: "Ecolabels & multi-issue", type: "b2c" },
+  { id: "forest", name: "Forest fibres", type: "b2c" },
+];
+
+/** A compliance target: an act of law or, despite the name, a data space or consumer brand. */
 export interface Legislation {
   id: string;
   short: string;
   title: string;
   ref: string;
-  /** CELEX number of the act on EUR-Lex. */
-  celex: string;
+  type: TargetType;
+  /** CELEX number, for an act on EUR-Lex. */
+  celex?: string;
+  /** Where to read it, for anything not on EUR-Lex. */
+  url?: string;
   category: LegislationCategory;
   /** Why and from when it applies, per product group it covers. */
   scope: Partial<Record<ProductGroup, string>>;
@@ -56,6 +105,13 @@ export interface Legislation {
 
 export const eurLex = (celex: string) => `https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:${celex}`;
 
+/** Where to read a compliance target. */
+export const targetUrl = (target: Legislation) => target.url ?? eurLex(target.celex ?? "");
+
+/** Where to read a provision of a compliance target. */
+export const provisionUrl = (provision: Provision, target: Legislation) =>
+  provision.url ?? (provision.source ? eurLex(provision.source) : targetUrl(target));
+
 export const LEGISLATIONS: Legislation[] = [
   {
     id: "espr",
@@ -64,6 +120,7 @@ export const LEGISLATIONS: Legislation[] = [
     ref: "Regulation (EU) 2024/1781",
     celex: "32024R1781",
     category: "product",
+    type: "b2g",
     scope: {
       aluminium:
         "Aluminium is a priority intermediate product in the 2025–2030 working plan; delegated act with DPP expected around 2027.",
@@ -78,6 +135,7 @@ export const LEGISLATIONS: Legislation[] = [
     ref: "Regulation (EU) 2024/3110",
     celex: "32024R3110",
     category: "product",
+    type: "b2g",
     scope: {
       aluminium:
         "Aluminium construction products (profiles, windows, curtain walling, cladding). Applies from 8 January 2026, product family by product family.",
@@ -90,6 +148,7 @@ export const LEGISLATIONS: Legislation[] = [
     ref: "Regulation (EU) 2025/40",
     celex: "32025R0040",
     category: "product",
+    type: "b2g",
     scope: {
       aluminium: "Aluminium packaging (cans, foil, trays, tubes, aerosols). Applies from 12 August 2026.",
     },
@@ -101,6 +160,7 @@ export const LEGISLATIONS: Legislation[] = [
     ref: "Regulation (EU) 2023/956",
     celex: "32023R0956",
     category: "climate",
+    type: "b2g",
     scope: {
       aluminium:
         "Unwrought aluminium and aluminium products (CN 7601, 7603–7616) imported into the EU. Definitive period since 1 January 2026; importers under 50 tonnes net mass a year are exempt.",
@@ -113,6 +173,7 @@ export const LEGISLATIONS: Legislation[] = [
     ref: "Regulation (EC) No 1907/2006",
     celex: "32006R1907",
     category: "chemicals",
+    type: "b2g",
     scope: {
       aluminium: "Substances of very high concern in articles; Annex XVII restrictions that apply to metal articles.",
       textile: "Substances of very high concern in articles; textile-specific restrictions in Annex XVII.",
@@ -125,6 +186,7 @@ export const LEGISLATIONS: Legislation[] = [
     ref: "Regulation (EU) No 528/2012",
     celex: "32012R0528",
     category: "chemicals",
+    type: "b2g",
     scope: {
       textile: "Treated articles, e.g. antibacterial, anti-odour or anti-mould textiles.",
     },
@@ -136,6 +198,7 @@ export const LEGISLATIONS: Legislation[] = [
     ref: "Regulation (EU) No 1007/2011",
     celex: "32011R1007",
     category: "consumer",
+    type: "b2g",
     scope: {
       textile: "All textile products made available on the EU market.",
     },
@@ -148,6 +211,7 @@ export const LEGISLATIONS: Legislation[] = [
     ref: "Regulation (EU) 2023/988",
     celex: "32023R0988",
     category: "consumer",
+    type: "b2g",
     scope: {
       textile: "Consumer textile products. Applies since 13 December 2024.",
     },
@@ -160,6 +224,7 @@ export const LEGISLATIONS: Legislation[] = [
     ref: "Directive 2008/98/EC, as amended by Directive (EU) 2025/1892",
     celex: "32008L0098",
     category: "waste",
+    type: "b2g",
     scope: {
       aluminium: "SCIP notification of articles containing substances of very high concern.",
       textile:
@@ -173,6 +238,7 @@ export const LEGISLATIONS: Legislation[] = [
     ref: "Regulation (EU) 2024/3015",
     celex: "32024R3015",
     category: "dueDiligence",
+    type: "b2g",
     scope: {
       aluminium: "Ban on products made with forced labour, e.g. in bauxite mining or smelting. Applies from 14 December 2027.",
       textile: "Ban on products made with forced labour, e.g. in cotton farming or garment making. Applies from 14 December 2027.",
@@ -205,6 +271,8 @@ export const DATA_REQUIREMENTS: DataRequirement[] = [
   { id: "producer-registration", name: "Producer registration number", theme: "identification" },
 
   { id: "material-composition", name: "Material / fibre composition", theme: "composition" },
+  { id: "organic-content", name: "Organic fibre content", theme: "composition" },
+  { id: "animal-welfare", name: "Animal welfare in fibre sourcing", theme: "composition" },
   { id: "animal-origin", name: "Non-textile parts of animal origin", theme: "composition" },
   { id: "substances-of-concern", name: "Substances of concern", theme: "composition" },
   { id: "restricted-substances", name: "Restricted substances compliance", theme: "composition" },
@@ -229,6 +297,9 @@ export const DATA_REQUIREMENTS: DataRequirement[] = [
   { id: "production-site", name: "Country of origin & production site", theme: "supplyChain" },
   { id: "supply-chain-operators", name: "Supply-chain operators", theme: "supplyChain" },
   { id: "forced-labour", name: "Forced-labour risk & due diligence", theme: "supplyChain" },
+  { id: "working-conditions", name: "Working conditions & wages", theme: "supplyChain" },
+  { id: "fair-trade-terms", name: "Fair trade prices & premiums", theme: "supplyChain" },
+  { id: "chain-of-custody", name: "Chain of custody", theme: "supplyChain" },
 
   { id: "conformity", name: "Declaration of conformity / performance", theme: "compliance" },
   { id: "verification", name: "Third-party verification", theme: "compliance" },
@@ -254,6 +325,8 @@ export interface Provision {
   quotes?: string[];
   /** CELEX number of the act quoted, when it is an amending or implementing act rather than the legislation itself. */
   source?: string;
+  /** Where to read it, for a provision not on EUR-Lex. */
+  url?: string;
 }
 
 /** Amending and implementing acts some requirements are quoted from. */

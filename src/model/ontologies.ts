@@ -216,6 +216,7 @@ export const ONTOLOGY_TERMS: OntologyTerm[] = [
     "Free text containing the usage instructions of a product, which are normally held on the label or accompanying the product.",
   ),
   gs1("consumerSafetyInformation", "Consumer Safety Information", "Information on consumer safety regarding the product."),
+  gs1("organicPercentClaim", "Organic Percent Claim", "The percent of actual organic materials per weight of the product."),
 
   untp(
     "registeredId",
@@ -294,6 +295,18 @@ export const ONTOLOGY_TERMS: OntologyTerm[] = [
   ),
   wikidata("Q30748592", "repairability", "the degree to which something can be repaired, including the ease of doing so"),
   wikidata("Q705818", "forced labor", "work people are employed in, but against their will"),
+  wikidata("Q459426", "animal welfare", "well-being of non-human animals"),
+  wikidata(
+    "Q2992308",
+    "working conditions",
+    "The environment and all existing circumstances affecting labor in the workplace, including working hours, legal rights, physical aspects, safety scales, workload, and organizational benefits.",
+  ),
+  wikidata("Q188485", "fair trade", "trade arrangement prioritizing the well-being of workers"),
+  wikidata(
+    "Q738898",
+    "chain of custody",
+    "chronological documentation showing the custody, control, transfer, analysis, and disposition of physical or electronic evidence",
+  ),
 ];
 
 export const REQUIREMENT_TERMS: RequirementTerm[] = [
@@ -334,6 +347,18 @@ export const REQUIREMENT_TERMS: RequirementTerm[] = [
     term: "untp:massFraction",
     match: "close",
     note: "The share of the product that material makes up.",
+  },
+  {
+    dataRequirement: "organic-content",
+    term: "gs1:organicPercentClaim",
+    match: "close",
+    note: "A share claimed on the product; schemes also verify the farm behind it.",
+  },
+  {
+    dataRequirement: "animal-welfare",
+    term: "wikidata:Q459426",
+    match: "broad",
+    note: "Animal well-being in general, not fibre sourcing in particular.",
   },
   {
     dataRequirement: "animal-origin",
@@ -446,6 +471,25 @@ export const REQUIREMENT_TERMS: RequirementTerm[] = [
     term: "gs1:RegulatoryIdentifierType-DUE_DILIGENCE_STATEMENT",
     match: "close",
     note: "The due diligence part.",
+  },
+
+  {
+    dataRequirement: "working-conditions",
+    term: "wikidata:Q2992308",
+    match: "close",
+    note: "Conditions in general; schemes add living wages and freedom of association.",
+  },
+  {
+    dataRequirement: "fair-trade-terms",
+    term: "wikidata:Q188485",
+    match: "broad",
+    note: "The trade arrangement as a whole, not its prices and premiums.",
+  },
+  {
+    dataRequirement: "chain-of-custody",
+    term: "wikidata:Q738898",
+    match: "close",
+    note: "A legal-evidence sense; schemes apply it to materials moving through a supply chain.",
   },
 
   {

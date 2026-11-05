@@ -63,12 +63,25 @@ CREATE TABLE IF NOT EXISTS product_group (
   position    INTEGER NOT NULL DEFAULT 0
 );
 
+-- What a company can be asked to comply with, and by whom.
+CREATE TABLE IF NOT EXISTS target_type (
+  id       TEXT PRIMARY KEY,
+  audience TEXT NOT NULL,
+  name     TEXT NOT NULL,
+  color    TEXT NOT NULL,
+  position INTEGER NOT NULL DEFAULT 0
+);
+
+-- A compliance target of any type. It says legislation because that came first.
 CREATE TABLE IF NOT EXISTS legislation (
   id             TEXT PRIMARY KEY,
   short          TEXT NOT NULL,
   title          TEXT NOT NULL,
   ref            TEXT NOT NULL,
-  celex          TEXT NOT NULL,
+  type           TEXT NOT NULL REFERENCES target_type (id),
+  -- CELEX number, for an act on EUR-Lex; otherwise `url`.
+  celex          TEXT,
+  url            TEXT,
   category       TEXT NOT NULL,
   -- Said in the app when the act's own text names no standard.
   standards_note TEXT,
@@ -89,7 +102,8 @@ CREATE TABLE IF NOT EXISTS standard (
   title         TEXT,
   body          TEXT NOT NULL,
   kind          TEXT NOT NULL CHECK (kind IN ('technical', 'test-guideline', 'guideline', 'convention', 'scheme')),
-  position      INTEGER NOT NULL DEFAULT 0
+  position      INTEGER NOT NULL DEFAULT 0,
+  url           TEXT
 );
 
 -- Which legislation references which standard.
@@ -129,6 +143,8 @@ CREATE TABLE IF NOT EXISTS standard_requirement (
   note                TEXT NOT NULL,
   -- JSON array of the standard_citation provisions this rests on; all of them when NULL.
   provisions          TEXT,
+  -- JSON array of the product groups it applies to; all of them when NULL.
+  groups              TEXT,
   PRIMARY KEY (legislation_id, standard_id, data_requirement_id),
   FOREIGN KEY (legislation_id, standard_id) REFERENCES legislation_standard (legislation_id, standard_id) ON DELETE CASCADE
 );
@@ -153,7 +169,9 @@ CREATE TABLE IF NOT EXISTS requirement_provision (
   -- JSON array of excerpts copied word for word from the act.
   quotes              TEXT,
   -- CELEX number of the act quoted, when not the legislation itself.
-  source_celex        TEXT
+  source_celex        TEXT,
+  -- Where to read it, when not on EUR-Lex.
+  url                 TEXT
 );
 
 CREATE INDEX IF NOT EXISTS requirement_provision_path ON requirement_provision (legislation_id, data_requirement_id);
@@ -163,6 +181,18 @@ CREATE TABLE IF NOT EXISTS provision_group (
   provision_id     INTEGER NOT NULL REFERENCES requirement_provision (id) ON DELETE CASCADE,
   product_group_id TEXT NOT NULL REFERENCES product_group (id) ON DELETE CASCADE,
   PRIMARY KEY (provision_id, product_group_id)
+);
+
+-- What a company does to join a data space. No product group means every one.
+CREATE TABLE IF NOT EXISTS join_step (
+  id               TEXT PRIMARY KEY,
+  legislation_id   TEXT NOT NULL REFERENCES legislation (id) ON DELETE CASCADE,
+  product_group_id TEXT REFERENCES product_group (id) ON DELETE CASCADE,
+  title            TEXT NOT NULL,
+  detail           TEXT NOT NULL,
+  source           TEXT NOT NULL,
+  url              TEXT NOT NULL,
+  position         INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS ontology (
@@ -196,15 +226,30 @@ CREATE TABLE IF NOT EXISTS data_requirement_term (
   PRIMARY KEY (data_requirement_id, term_id)
 );
 
+-- A field that holds a value. The columns after `position` describe it in a data model such as an IDTA template.
 CREATE TABLE IF NOT EXISTS data_point (
   id          TEXT PRIMARY KEY,
   name        TEXT NOT NULL,
   description TEXT,
-  position    INTEGER NOT NULL DEFAULT 0
+  position    INTEGER NOT NULL DEFAULT 0,
+  -- Where it sits in the model, e.g. an idShort path.
+  path        TEXT,
+  kind        TEXT,
+  value_type  TEXT,
+  cardinality TEXT,
+  unit        TEXT,
+  semantic_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS ontology_data_point (
   ontology_id   TEXT NOT NULL REFERENCES ontology (id) ON DELETE CASCADE,
   data_point_id TEXT NOT NULL REFERENCES data_point (id) ON DELETE CASCADE,
   PRIMARY KEY (ontology_id, data_point_id)
+);
+
+-- The data points a term covers: an element's own value, or those of the elements it contains.
+CREATE TABLE IF NOT EXISTS term_data_point (
+  term_id       TEXT NOT NULL REFERENCES ontology_term (id) ON DELETE CASCADE,
+  data_point_id TEXT NOT NULL REFERENCES data_point (id) ON DELETE CASCADE,
+  PRIMARY KEY (term_id, data_point_id)
 );

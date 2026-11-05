@@ -13,8 +13,9 @@ import {
   type Key,
 } from "react-aria-components";
 import { appliesTo, legislationCount, provisionsByRequirement, standardsNamedBy, type Chain } from "../model/chain";
-import { CATEGORIES, THEMES, type ProductGroup, type Provision } from "../model/legislation";
+import { THEMES, type ProductGroup, type Provision } from "../model/legislation";
 import { useMediaQuery } from "../useMediaQuery";
+import { TARGET_SECTIONS, TargetChip, TargetSectionHead, TargetTypesAfterList, targetStyle } from "./TargetChip";
 
 /** File kinds a user can bring their product data in. */
 const UPLOAD_KINDS = [
@@ -49,7 +50,7 @@ const formatSize = (bytes: number) =>
 const NO_PROVISIONS: Provision[] = [];
 
 /**
- * Pick a product group and the legislations to validate against; the data
+ * Pick a product group and the compliance targets to validate against; the data
  * requirements they set form the data schema. The user's own data is added
  * below the schema with the "+" tile.
  */
@@ -122,7 +123,7 @@ export function ValidationView({ chain }: { chain: Chain }) {
         </div>
         <div className="brand">
           <span className="stat">
-            <strong>{selectedIds.size}</strong> legislation{selectedIds.size === 1 ? "" : "s"}
+            <strong>{selectedIds.size}</strong> target{selectedIds.size === 1 ? "" : "s"}
           </span>
           <span className="stat">
             <strong>{required.size}</strong> schema fields
@@ -135,9 +136,9 @@ export function ValidationView({ chain }: { chain: Chain }) {
 
       <p className="hint">
         {!group
-          ? "Choose a product group, then the legislations to validate against."
+          ? "Choose a product group, then the compliance targets to validate against."
           : selectedIds.size === 0
-            ? `Select one or more legislations for ${groupName}; their data requirements become your data schema.`
+            ? `Select one or more compliance targets for ${groupName}; their data requirements become your data schema.`
             : "Add your data with + to check it against this schema."}
       </p>
 
@@ -171,7 +172,7 @@ export function ValidationView({ chain }: { chain: Chain }) {
         <section className="panel req-legislation" aria-labelledby="v-legislation-title">
           <header className="panel-head">
             <div>
-              <h2 id="v-legislation-title">Legislation</h2>
+              <h2 id="v-legislation-title">Compliance targets</h2>
               <p>
                 {group
                   ? `${legislations.length - disabled.length} of ${legislations.length} apply to ${groupName}`
@@ -200,15 +201,18 @@ export function ValidationView({ chain }: { chain: Chain }) {
               disabledKeys={disabled}
               dependencies={[group]}
             >
-              {CATEGORIES.map((c) => (
+              {TARGET_SECTIONS.map(({ category: c, first }) => (
                 <ListBoxSection key={c.id} id={c.id} className="leg-section">
-                  <Header className="section-head">{c.name}</Header>
+                  <Header className="section-head">
+                    <TargetSectionHead type={c.type} first={first} name={c.name} />
+                  </Header>
                   {legislations.filter((l) => l.category === c.id).map((l) => (
                     <ListBoxItem
                       key={l.id}
                       id={l.id}
                       textValue={`${l.short} ${l.title}`}
                       className={group && appliesTo(l, group) ? "leg-item relevant" : "leg-item"}
+                      style={targetStyle(l.type)}
                     >
                       {({ isSelected }) => (
                         <>
@@ -239,6 +243,7 @@ export function ValidationView({ chain }: { chain: Chain }) {
                 </ListBoxSection>
               ))}
             </ListBox>
+            <TargetTypesAfterList />
           </div>
         </section>
 
@@ -248,8 +253,8 @@ export function ValidationView({ chain }: { chain: Chain }) {
               <h2 id="v-schema-title">Data schema</h2>
               <p>
                 {required.size
-                  ? `${required.size} fields from ${selectedIds.size} legislation${selectedIds.size === 1 ? "" : "s"}`
-                  : "Fields appear once you select legislations"}
+                  ? `${required.size} fields from ${selectedIds.size} target${selectedIds.size === 1 ? "" : "s"}`
+                  : "Fields appear once you select compliance targets"}
               </p>
             </div>
           </header>
@@ -264,9 +269,9 @@ export function ValidationView({ chain }: { chain: Chain }) {
                       <code className="schema-key">{requirement.id}</code>
                       <span className="dp-laws" aria-label="Required by">
                         {[...new Set(provisions.map((p) => p.legislation))].map((id) => (
-                          <span key={id} className="law-chip">
+                          <TargetChip key={id} type={legislationById[id].type}>
                             {legislationById[id].short}
-                          </span>
+                          </TargetChip>
                         ))}
                       </span>
                       {legislationCount(provisions) > 1 && <span className="schema-shared">shared</span>}
@@ -337,13 +342,13 @@ export function ValidationView({ chain }: { chain: Chain }) {
                   <dd className="val-big">{required.size}</dd>
                 </div>
                 <div>
-                  <dt>Active legislations</dt>
+                  <dt>Active targets</dt>
                   <dd>
                     {activeLaws.length ? (
                       <ul className="val-list">
                         {activeLaws.map((l) => (
                           <li key={l.id}>
-                            <span className="law-chip strong">{l.short}</span>
+                            <TargetChip type={l.type}>{l.short}</TargetChip>
                             <span className="val-ref">{l.ref}</span>
                           </li>
                         ))}
@@ -366,7 +371,7 @@ export function ValidationView({ chain }: { chain: Chain }) {
                       </ul>
                     )}
                     {standards.length === 0 && citedElsewhere === 0 && (
-                      <span className="muted">The selected legislations name none</span>
+                      <span className="muted">The selected targets name none</span>
                     )}
                     {citedElsewhere > 0 && (
                       <span className="muted small">

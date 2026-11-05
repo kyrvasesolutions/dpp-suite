@@ -7,7 +7,7 @@
 import { parse } from "yaml";
 import { z } from "zod";
 import { linksBehind, type Chain } from "./chain";
-import { THEMES, eurLex, SOURCE_ACTS, type ProductGroup, type Provision } from "./legislation";
+import { THEMES, SOURCE_ACTS, provisionUrl, targetUrl, type ProductGroup, type Provision, type TargetType } from "./legislation";
 
 export interface SpecSource {
   legislation: string;
@@ -34,7 +34,7 @@ export interface Spec {
   savedAt: string;
   productGroup: ProductGroup;
   productGroupName: string;
-  legislations: Array<{ id: string; short: string; title: string; ref: string; url: string }>;
+  legislations: Array<{ id: string; short: string; title: string; ref: string; url: string; type?: TargetType }>;
   dataRequirements: SpecRequirement[];
 }
 
@@ -54,7 +54,7 @@ export function buildSpec(
       const provisions = required.get(d.id) ?? [];
       const standards = new Set<string>();
       for (const law of new Set(provisions.map((p) => p.legislation))) {
-        for (const link of linksBehind(chain, law, d.id)) {
+        for (const link of linksBehind(chain, law, d.id, group)) {
           const standard = chain.standards[link.standard];
           if (standard) standards.add(standard.ref);
         }
@@ -69,7 +69,7 @@ export function buildSpec(
             legislation: law.short,
             act: (p.source && SOURCE_ACTS[p.source]?.ref) || law.ref,
             provision: p.ref,
-            url: eurLex(p.source ?? law.celex),
+            url: provisionUrl(p, law),
             summary: p.text,
             ...(p.quotes?.length ? { quotes: p.quotes } : {}),
           };
@@ -84,7 +84,7 @@ export function buildSpec(
     savedAt: new Date().toISOString(),
     productGroup: group,
     productGroupName: groupName,
-    legislations: laws.map((l) => ({ id: l.id, short: l.short, title: l.title, ref: l.ref, url: eurLex(l.celex) })),
+    legislations: laws.map((l) => ({ id: l.id, short: l.short, title: l.title, ref: l.ref, url: targetUrl(l), type: l.type })),
     dataRequirements: requirements,
   };
 }
@@ -150,6 +150,7 @@ const SpecSchema = z.object({
         title: z.string().default(""),
         ref: z.string().default(""),
         url: z.string().default(""),
+        type: z.enum(["b2g", "b2b", "b2c"]).optional(),
       }),
     )
     .default([]),

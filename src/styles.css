@@ -1471,28 +1471,28 @@ code {
   cursor: default;
 }
 
-/* Applies to the chosen product group: the stronger blue. */
+/* Applies to the chosen product group: its type's colour shows through. */
 .leg-item.relevant {
-  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--target-ink) 12%, var(--surface));
+  border-color: color-mix(in srgb, var(--target-ink) 45%, transparent);
 }
 
 .leg-item.relevant[data-hovered] {
-  background: color-mix(in srgb, var(--accent) 18%, var(--surface));
+  background: color-mix(in srgb, var(--target-ink) 18%, var(--surface));
 }
 
 .leg-item.relevant .leg-name strong {
-  color: var(--accent);
+  color: var(--target-ink);
 }
 
 .leg-item[data-selected] {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
+  background: var(--target-color);
+  border-color: var(--target-color);
+  color: var(--target-on);
 }
 
 .leg-item[data-selected][data-hovered] {
-  background: color-mix(in srgb, var(--accent) 88%, #000);
+  background: color-mix(in srgb, var(--target-color) 88%, #000);
 }
 
 .leg-item[data-selected] .leg-name strong,
@@ -1518,13 +1518,13 @@ code {
 }
 
 .leg-item.relevant .leg-check {
-  border-color: var(--accent);
+  border-color: var(--target-ink);
 }
 
 .leg-item[data-selected] .leg-check {
-  border-color: #fff;
-  background: #fff;
-  color: var(--accent);
+  border-color: var(--target-on);
+  background: var(--target-on);
+  color: var(--target-color);
 }
 
 .leg-text {
@@ -1661,6 +1661,42 @@ code {
 .law-chip.strong {
   background: var(--accent);
   color: #fff;
+}
+
+/* A compliance target's chip, in its type's colour. */
+.law-chip.target {
+  background: var(--target-color);
+  color: var(--target-on);
+}
+
+/* The band that opens a type of compliance target in the list. */
+.target-band {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 4px 0 8px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--target-color);
+  color: var(--target-on);
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 12px;
+}
+
+.target-band strong {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.target-band-empty {
+  padding: 2px 8px 10px;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .dp-chevron {
@@ -1859,6 +1895,7 @@ code {
 .std-ref-where {
   font-size: 12px;
   color: var(--muted);
+  overflow-wrap: anywhere;
 }
 
 .term-head {
@@ -1939,6 +1976,11 @@ code {
   margin-left: 6px;
 }
 
+.std-context-link {
+  margin-left: 6px;
+  font-size: 12px;
+}
+
 .std-context-passage {
   display: flex;
   flex-direction: column;
@@ -2010,26 +2052,6 @@ code {
 
 .std-more[data-expanded] .dp-chevron {
   transform: rotate(90deg);
-}
-
-.chain-items {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.chain-items li {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0 8px;
-  padding: 6px 12px;
-  border-top: 1px solid var(--border);
-  font-size: 13px;
-}
-
-.chain-items .leg-ref {
-  flex-basis: 100%;
 }
 
 /* ---------- Lanes ---------- */
@@ -2207,6 +2229,142 @@ code {
 /* Validation: the user's data always sits in its own column on the right. */
 .wide .val-board {
   grid-template-columns: minmax(150px, 0.6fr) minmax(0, 1.1fr) minmax(0, 1.4fr) minmax(220px, 0.9fr);
+}
+
+/* Prepare: choices, then the steps, then the data, each with room to read. */
+.wide .prep-board {
+  grid-template-columns: minmax(180px, 0.7fr) minmax(0, 1.4fr) minmax(0, 1.2fr);
+}
+
+.prep-scope {
+  margin: 0;
+  padding: 2px 16px 12px;
+  font-size: 13px;
+}
+
+.prep-progress {
+  height: 6px;
+  margin: 4px 12px 8px;
+  border-radius: 3px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.prep-progress > span {
+  display: block;
+  height: 100%;
+  background: var(--target-ink);
+  transition: width 0.15s;
+}
+
+.prep-steps,
+.prep-data {
+  list-style: none;
+  margin: 0;
+  padding: 0 8px 8px;
+}
+
+.prep-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 8px;
+  border-top: 1px solid var(--border);
+}
+
+.prep-steps li:first-child .prep-step {
+  border-top: 0;
+}
+
+.prep-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.prep-check .leg-check {
+  border-color: var(--target-ink);
+}
+
+.prep-check[data-selected] .leg-check {
+  border-color: var(--target-color);
+  background: var(--target-color);
+  color: var(--target-on);
+}
+
+.prep-check[data-focus-visible] .leg-check {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.prep-check[data-selected] .prep-step-title {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+
+.prep-step-title {
+  display: block;
+  font-size: 13px;
+  font-weight: 550;
+}
+
+.prep-step-detail {
+  display: block;
+  margin-top: 2px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.prep-step-source {
+  flex: none;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* On a phone the source goes under the step, so it doesn't narrow the text. */
+.narrow .prep-step {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+
+.narrow .prep-check {
+  flex-basis: 100%;
+}
+
+.narrow .prep-step-source {
+  margin-left: 26px;
+}
+
+.prep-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.prep-data li:first-child.prep-item {
+  border-top: 0;
+}
+
+.prep-item-reading {
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.prep-item-also {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .val-stats {

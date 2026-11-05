@@ -7,7 +7,9 @@
  * requirement are the standards that legislation names for it, and standards no
  * act names whose own scope targets it. Some have neither. Ontology terms link to
  * the data requirement rather than the standard, so those without a standard reach them too.
+ * Data points link to the terms that cover them, and to the ontology whose model they belong to.
  */
+import type { JoinStep } from "./dataSpaces";
 import type { DataRequirement, Legislation, ProductGroup, Provision } from "./legislation";
 import type { Ontology, OntologyTerm, RequirementTerm, TermMatch } from "./ontologies";
 import type { Citation, Standard, StandardLink, StandardTarget } from "./standards";
@@ -22,6 +24,13 @@ export interface DataPoint {
   id: string;
   name: string;
   description?: string;
+  /** Where it sits in its data model, e.g. an idShort path. */
+  path?: string;
+  kind?: string;
+  valueType?: string;
+  cardinality?: string;
+  unit?: string;
+  semanticId?: string;
 }
 
 export interface Chain {
@@ -37,11 +46,15 @@ export interface Chain {
   linksBehind: Map<string, StandardLink[]>;
   dataRequirements: DataRequirement[];
   provisions: Provision[];
+  /** What a company does to join each data space. */
+  joinSteps: JoinStep[];
   ontologies: Ontology[];
   ontologyTerms: OntologyTerm[];
   requirementTerms: RequirementTerm[];
   dataPoints: DataPoint[];
   ontologyDataPoints: Array<{ ontology: string; dataPoint: string }>;
+  /** The data points a term covers. */
+  termDataPoints: Array<{ term: string; dataPoint: string }>;
 }
 
 export const appliesTo = (legislation: Legislation, group: ProductGroup) => !!legislation.scope[group];
@@ -54,8 +67,10 @@ export function requirementsFor(chain: Chain, group: ProductGroup | null): Set<s
   return new Set(chain.provisions.filter((p) => !group || p.groups.includes(group)).map((p) => p.dataRequirement));
 }
 
-export const linksBehind = (chain: Chain, legislation: string, dataRequirement: string): StandardLink[] =>
-  chain.linksBehind.get(`${legislation}|${dataRequirement}`) ?? [];
+const appliesToGroup = (link: StandardLink, group: ProductGroup) => !link.groups || link.groups.includes(group);
+
+export const linksBehind = (chain: Chain, legislation: string, dataRequirement: string, group: ProductGroup): StandardLink[] =>
+  (chain.linksBehind.get(`${legislation}|${dataRequirement}`) ?? []).filter((l) => appliesToGroup(l, group));
 
 /**
  * One element of the Standards column: the standards and the act's passages that
@@ -122,14 +137,18 @@ function groupsFrom(chain: Chain, legislation: string, entries: GroupEntry[]): C
 }
 
 /** The citation groups behind these data requirements, by legislation. */
-export function citationGroups(chain: Chain, inView: Array<{ id: string; provisions: Provision[] }>): CitationGroup[] {
+export function citationGroups(
+  chain: Chain,
+  group: ProductGroup,
+  inView: Array<{ id: string; provisions: Provision[] }>,
+): CitationGroup[] {
   return chain.legislations.flatMap((law) =>
     groupsFrom(
       chain,
       law.id,
       inView
         .filter((r) => r.provisions.some((p) => p.legislation === law.id))
-        .flatMap((r) => linksBehind(chain, law.id, r.id))
+        .flatMap((r) => linksBehind(chain, law.id, r.id, group))
         .map((link) => ({ standard: link.standard, excerpts: citationsOf(chain, link).map((c) => c.excerpt), link })),
     ),
   );
@@ -193,11 +212,18 @@ export function standardsNamedBy(
   for (const c of chain.citations) {
     if (c.legislation === legislation) cited.set(c.standard, [...(cited.get(c.standard) ?? []), c]);
   }
+  // A data space's standards have links but no citations, since its text isn't quoted.
+  for (const l of chain.links) {
+    if (l.legislation === legislation && appliesToGroup(l, group) && !cited.has(l.standard)) cited.set(l.standard, []);
+  }
   const linked: NamedStandard[] = [];
   const citedOnly: NamedStandard[] = [];
   for (const [id, citations] of cited) {
-    const bearing = chain.links.some((l) => l.legislation === legislation && l.standard === id && own.has(l.dataRequirement));
-    (bearing ? linked : citedOnly).push({ standard: chain.standards[id], citations });
+    const bearing = chain.links.some(
+      (l) => l.legislation === legislation && l.standard === id && own.has(l.dataRequirement) && appliesToGroup(l, group),
+    );
+    if (bearing) linked.push({ standard: chain.standards[id], citations });
+    else if (citations.length) citedOnly.push({ standard: chain.standards[id], citations });
   }
   return { linked, citedOnly };
 }
@@ -240,8 +266,25 @@ export function termsByOntology(chain: Chain, requirements: Set<string>): Array<
     .filter((entry) => entry.terms.length > 0);
 }
 
-export const dataPointsFor = (chain: Chain, ontologies: Ontology[]): DataPoint[] => {
-  const from = new Set(ontologies.map((o) => o.id));
-  const ids = new Set(chain.ontologyDataPoints.filter((l) => from.has(l.ontology)).map((l) => l.dataPoint));
-  return chain.dataPoints.filter((d) => ids.has(d.id));
-};
+/** An ontology's data points: those behind the terms in view, and the rest of its model. */
+export interface DataPointGroup {
+  ontology: Ontology;
+  linked: DataPoint[];
+  others: DataPoint[];
+}
+
+export function dataPointsFor(chain: Chain, termGroups: Array<{ ontology: Ontology; terms: TermInView[] }>): DataPointGroup[] {
+  return termGroups
+    .map(({ ontology, terms }) => {
+      const shown = new Set(terms.map((t) => t.term.id));
+      const linkedIds = new Set(chain.termDataPoints.filter((l) => shown.has(l.term)).map((l) => l.dataPoint));
+      const own = new Set(chain.ontologyDataPoints.filter((l) => l.ontology === ontology.id).map((l) => l.dataPoint));
+      const points = chain.dataPoints.filter((d) => own.has(d.id));
+      return {
+        ontology,
+        linked: points.filter((d) => linkedIds.has(d.id)),
+        others: points.filter((d) => !linkedIds.has(d.id)),
+      };
+    })
+    .filter((group) => group.linked.length > 0);
+}

@@ -27,6 +27,7 @@ import {
   type SpecRequirement,
 } from "../model/spec";
 import { useMediaQuery } from "../useMediaQuery";
+import { TargetChip } from "./TargetChip";
 
 /** File kinds a user can bring their product data in (same as the Validation tab). */
 const UPLOAD_KINDS = ["CSV", "Excel", "JSON", "JSON-LD", "XML", "RDF"];
@@ -272,7 +273,7 @@ export function MappingView() {
             {specs.length === 0 && (
               <p className="empty">
                 Upload or paste a specification YAML above, or export one from the Requirements tab: pick a product
-                group and legislations, then choose Export.
+                group and compliance targets, then choose Export.
               </p>
             )}
             <ul className="spec-list">
@@ -286,7 +287,7 @@ export function MappingView() {
                     <span className="group-name">{s.name}</span>
                     <span className="group-desc">
                       {plural(s.dataRequirements.length, "data requirement")} ·{" "}
-                      {plural(s.legislations.length, "legislation")}
+                      {plural(s.legislations.length, "target")}
                     </span>
                     <span className="group-count">Saved {new Date(s.savedAt).toLocaleString()}</span>
                   </Button>
@@ -297,12 +298,12 @@ export function MappingView() {
               ))}
             </ul>
             {spec && (
-              <div className="dp-section" role="group" aria-label="Legislations in this specification">
-                <div className="section-head">Legislations</div>
+              <div className="dp-section" role="group" aria-label="Compliance targets in this specification">
+                <div className="section-head">Compliance targets</div>
                 <ul className="val-list map-laws">
                   {spec.legislations.map((l) => (
                     <li key={l.id}>
-                      <span className="law-chip strong">{l.short}</span>
+                      <TargetChip type={l.type}>{l.short}</TargetChip>
                       <Link className="req-ref" href={l.url} target="_blank" rel="noreferrer">
                         {l.ref}
                       </Link>
@@ -431,9 +432,13 @@ export function MappingView() {
                         <code className="schema-key">{r.id}</code>
                         <span className="dp-laws" aria-label="Sources">
                           {r.sources.map((s) => (
-                            <span key={`${s.legislation}-${s.provision}`} className="law-chip" title={`${s.act}, ${s.provision}`}>
+                            <TargetChip
+                              key={`${s.legislation}-${s.provision}`}
+                              type={spec?.legislations.find((l) => l.short === s.legislation)?.type}
+                              title={`${s.act}, ${s.provision}`}
+                            >
                               {s.legislation} · {s.provision}
-                            </span>
+                            </TargetChip>
                           ))}
                         </span>
                         {r.standards.length > 0 && (

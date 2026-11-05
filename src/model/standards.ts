@@ -35,6 +35,8 @@ export interface Standard {
   /** Publishing body. */
   body: string;
   kind: StandardKind;
+  /** Where to read it, where it is openly published. */
+  url?: string;
 }
 
 /** Operative: in an article or annex. Recital: in the preamble, so not binding by itself. */
@@ -71,6 +73,8 @@ export interface StandardLink {
   note: string;
   /** The citations this link rests on, by provision; all of the pair's citations when absent. */
   provisions?: string[];
+  /** The product groups it applies to; all of them when absent. */
+  groups?: ProductGroup[];
 }
 
 const iso15459 = (part: number, year: number, title: string): Standard => ({

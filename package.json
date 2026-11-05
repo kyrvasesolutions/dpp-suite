@@ -11,7 +11,11 @@
     "generate-icons": "pwa-assets-generator",
     "build-seed": "node scripts/build-seed.mjs",
     "check-legal-text": "node scripts/check-legal-text.mjs",
-    "check-ontology-terms": "node scripts/check-ontology-terms.mjs"
+    "check-ontology-terms": "node scripts/check-ontology-terms.mjs",
+    "check-data-spaces": "node scripts/check-data-spaces.mjs",
+    "check-labels": "node scripts/check-labels.mjs",
+    "fetch-idta": "node scripts/fetch-idta.mjs",
+    "check-idta": "node scripts/fetch-idta.mjs --check"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.4.0",
