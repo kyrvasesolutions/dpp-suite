@@ -2171,6 +2171,61 @@ code {
   outline: 2px solid var(--accent-ring);
 }
 
+/* How far the current screen can be relied on (capability labels, assessment criteria §2.3). */
+.capability {
+  margin: 0 0 0 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.capability-label {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.capability[data-label="supported"] .capability-label {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.capability[data-label="experimental"] .capability-label {
+  background: var(--suggest-soft);
+  color: var(--suggest);
+}
+
+.capability[data-label="untested"] .capability-label {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.capability[data-label="disabled"] .capability-label {
+  background: var(--surface);
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+
+.capability-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 767px) {
+  .capability-detail {
+    display: none;
+  }
+}
+
 .shell-body {
   flex: 1;
   min-height: 0;
