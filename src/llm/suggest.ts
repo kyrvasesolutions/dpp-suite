@@ -53,13 +53,22 @@ Suggest new mappings from product_structure ids to data_categories ids.`;
 
 export class LlmError extends Error {}
 
+/**
+ * Claude suggestions send product structure to an external API. The narrow demonstrator allows no
+ * network egress (LEAN-DEF-13, criterion C0-07), so they are off unless a build sets VITE_ENABLE_LLM=true.
+ * Vite replaces the flag at build time; when it is off the SDK is not bundled at all.
+ */
+export const LLM_ENABLED = import.meta.env.VITE_ENABLE_LLM === "true";
+
+// Loaded on demand so people who never use Claude don't download the SDK.
+const loadSdk = LLM_ENABLED
+  ? () => Promise.all([import("@anthropic-ai/sdk"), import("@anthropic-ai/sdk/helpers/beta/zod")])
+  : null;
+
 /** Asks Claude for new mappings. Runs in the browser with the user's own key. */
 export async function suggestMappings(apiKey: string, project: Project, signal?: AbortSignal): Promise<Suggestion[]> {
-  // Loaded on demand so people who never use Claude don't download the SDK.
-  const [{ default: Anthropic }, { betaZodOutputFormat }] = await Promise.all([
-    import("@anthropic-ai/sdk"),
-    import("@anthropic-ai/sdk/helpers/beta/zod"),
-  ]);
+  if (!loadSdk) throw new LlmError("Claude suggestions are turned off in this build.");
+  const [{ default: Anthropic }, { betaZodOutputFormat }] = await loadSdk();
   const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
 
   try {
