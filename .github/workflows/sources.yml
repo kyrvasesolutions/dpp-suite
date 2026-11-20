@@ -1,0 +1,39 @@
+# Re-checks curated content against its third-party sources (legal text, ontology terms, data spaces,
+# consumer labels, IDTA templates). Kept out of pull-request CI because the result depends on those
+# sites being reachable; some label sources refuse automated requests and are listed for a manual check
+# (baseline finding B0-08). Record the outcome and the manual checks in the cycle's evidence log.
+name: Source checks
+
+on:
+  schedule:
+    - cron: "17 5 * * 1" # Mondays 05:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sources:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        check: [check-legal-text, check-ontology-terms, check-data-spaces, check-labels, check-idta]
+    name: ${{ matrix.check }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Run ${{ matrix.check }}
+        shell: bash # explicit bash runs with -o pipefail, so tee doesn't hide a failure
+        run: npm run ${{ matrix.check }} | tee check.log
+      - name: Sources to check by hand
+        if: ${{ !cancelled() }}
+        run: |
+          if grep -q "check by hand" check.log; then
+            sed -n '/check by hand/,$p' check.log >> "$GITHUB_STEP_SUMMARY"
+          fi
