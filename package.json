@@ -11,10 +11,15 @@
     "generate-icons": "pwa-assets-generator",
     "build-seed": "node scripts/build-seed.mjs",
     "check-legal-text": "node scripts/check-legal-text.mjs",
-    "check-ontology-terms": "node scripts/check-ontology-terms.mjs"
+    "check-ontology-terms": "node scripts/check-ontology-terms.mjs",
+    "check-data-spaces": "node scripts/check-data-spaces.mjs",
+    "check-labels": "node scripts/check-labels.mjs",
+    "fetch-idta": "node scripts/fetch-idta.mjs",
+    "check-idta": "node scripts/fetch-idta.mjs --check"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.4.0",
+    "d3-force": "^3.0.1",
     "react": "^19.3.1",
     "react-aria-components": "^1.22.1",
     "react-dom": "^19.3.1",
@@ -23,6 +28,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@types/d3-force": "^3.0.10",
     "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

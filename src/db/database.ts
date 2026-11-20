@@ -1,7 +1,8 @@
 import initSqlJs, { type Database, type SqlJsStatic } from "sql.js";
 import wasmUrl from "sql.js/dist/sql-wasm.wasm?url";
 import schemaSql from "../../db/schema.sql?raw";
-import type { Chain } from "../model/chain";
+import type { Chain, DataPoint } from "../model/chain";
+import type { JoinStep } from "../model/dataSpaces";
 import type { DataRequirement, Legislation, Provision } from "../model/legislation";
 import type { Ontology, OntologyTerm, RequirementTerm } from "../model/ontologies";
 import type { Project } from "../model/project";
@@ -9,7 +10,7 @@ import type { Citation, Standard, StandardLink, StandardTarget } from "../model/
 import type { Mapping, Side, SourceDoc, TreeData, TreeNode } from "../model/types";
 import { idbGet, idbSet } from "./idb";
 
-// Seed files run in name order: product sample, ESPR Annex I, sample mappings, regulatory chain, ontology terms.
+// Seed files run in name order: product sample, ESPR Annex I, sample mappings, regulatory chain, ontology terms, IDTA templates.
 const seedFiles = Object.entries(
   import.meta.glob<string>("../../db/seed/*.sql", { query: "?raw", import: "default", eager: true }),
 ).sort(([a], [b]) => a.localeCompare(b));
@@ -17,6 +18,7 @@ const seeds = seedFiles.map(([, sql]) => sql);
 const seedNamed = (name: string) => seedFiles.find(([path]) => path.endsWith(name))![1];
 const chainSeed = seedNamed("04-regulatory-chain.sql");
 const ontologySeed = seedNamed("05-ontology-terms.sql");
+const idtaSeed = seedNamed("06-idta-submodels.sql");
 
 const STORE_KEY = "dpp-trace.sqlite";
 const FALLBACK_TREE_ID: Record<Side, string> = { left: "left", right: "right" };
@@ -28,19 +30,47 @@ function seeded(SQL: SqlJsStatic): Database {
   const db = new SQL.Database();
   db.exec(schemaSql);
   for (const sql of seeds) db.exec(sql);
+  db.exec(`PRAGMA user_version = ${CATALOGUE_VERSION};`);
   return db;
 }
 
-/** A database saved before the regulatory chain or the ontology terms existed gets their tables and rows here. */
-function ensureChain(db: Database) {
-  db.exec(schemaSql);
-  if (rows(db, "SELECT count(*) AS n FROM legislation")[0].n === 0) db.exec(chainSeed);
+/** Raise this whenever the catalogue's tables or seeds change, so saved databases pick up the new version. */
+const CATALOGUE_VERSION = 9;
 
-  const columns = new Set(rows(db, "PRAGMA table_info(ontology)").map((r) => r.name));
-  for (const column of ["license", "license_url", "retrieved"]) {
-    if (!columns.has(column)) db.exec(`ALTER TABLE ontology ADD COLUMN ${column} TEXT`);
-  }
-  if (rows(db, "SELECT count(*) AS n FROM ontology_term")[0].n === 0) db.exec(ontologySeed);
+/** Filled from the seeds, with nothing of the user's in them, so they can be rebuilt. Children first. */
+const CATALOGUE_TABLES = [
+  "join_step",
+  "provision_group",
+  "requirement_provision",
+  "standard_target",
+  "standard_requirement",
+  "standard_citation",
+  "legislation_standard",
+  "legislation_scope",
+  "data_requirement_term",
+  "data_requirement_ontology",
+  "term_data_point",
+  "ontology_data_point",
+  "data_point",
+  "ontology_term",
+  "ontology",
+  "data_requirement",
+  "standard",
+  "legislation",
+  "target_type",
+  "product_group",
+];
+
+/** Rebuilds an out-of-date catalogue in a saved database. The user's trees and mappings stay as they are. */
+function ensureCatalogue(db: Database) {
+  if (Number(rows(db, "PRAGMA user_version")[0].user_version) >= CATALOGUE_VERSION) return;
+  db.exec("PRAGMA foreign_keys = OFF;");
+  for (const table of CATALOGUE_TABLES) db.exec(`DROP TABLE IF EXISTS ${table};`);
+  db.exec(schemaSql);
+  db.exec(chainSeed);
+  db.exec(ontologySeed);
+  db.exec(idtaSeed);
+  db.exec(`PRAGMA user_version = ${CATALOGUE_VERSION};`);
 }
 
 /** Opens the database saved in this browser, or creates one from the seed files. */
@@ -51,7 +81,7 @@ export async function openDatabase(): Promise<Database> {
     if (bytes) {
       const db = new SQL.Database(bytes);
       db.exec("PRAGMA foreign_keys = ON;");
-      ensureChain(db);
+      ensureCatalogue(db);
       return db;
     }
   } catch {
@@ -169,7 +199,9 @@ export function readChain(db: Database): Chain {
       short: text(r.short),
       title: text(r.title),
       ref: text(r.ref),
-      celex: text(r.celex),
+      type: text(r.type) as Legislation["type"],
+      celex: opt(r.celex),
+      url: opt(r.url),
       category: text(r.category) as Legislation["category"],
       standardsNote: opt(r.standards_note),
       scope: Object.fromEntries(
@@ -184,8 +216,10 @@ export function readChain(db: Database): Chain {
       id: text(r.id),
       ref: text(r.ref),
       title: opt(r.title),
+      summary: opt(r.summary),
       body: text(r.body),
       kind: text(r.kind) as Standard["kind"],
+      url: opt(r.url),
     };
   }
 
@@ -212,6 +246,7 @@ export function readChain(db: Database): Chain {
       basis: text(r.basis) as StandardLink["basis"],
       note: text(r.note),
       provisions: r.provisions === null ? undefined : (JSON.parse(text(r.provisions)) as string[]),
+      groups: r.groups === null ? undefined : (JSON.parse(text(r.groups)) as StandardLink["groups"]),
     }),
   );
   const targetRows = new Map<string, StandardTarget>();
@@ -268,6 +303,18 @@ export function readChain(db: Database): Chain {
         text: text(r.text),
         quotes: r.quotes === null ? undefined : (JSON.parse(text(r.quotes)) as string[]),
         source: opt(r.source_celex),
+        url: opt(r.url),
+      }),
+    ),
+    joinSteps: rows(db, "SELECT * FROM join_step ORDER BY position").map(
+      (r): JoinStep => ({
+        id: text(r.id),
+        legislation: text(r.legislation_id),
+        group: r.product_group_id === null ? null : (text(r.product_group_id) as JoinStep["group"]),
+        title: text(r.title),
+        detail: text(r.detail),
+        source: text(r.source),
+        url: text(r.url),
       }),
     ),
     ontologies: rows(db, "SELECT * FROM ontology ORDER BY position").map(
@@ -279,6 +326,9 @@ export function readChain(db: Database): Chain {
         license: text(r.license),
         licenseUrl: text(r.license_url),
         retrieved: text(r.retrieved),
+        sourceFormat: text(r.source_format),
+        sourceUrl: text(r.source_url),
+        valueTypes: opt(r.value_types)?.split(", ") ?? [],
       }),
     ),
     ontologyTerms: rows(db, "SELECT * FROM ontology_term ORDER BY position").map(
@@ -288,6 +338,8 @@ export function readChain(db: Database): Chain {
         label: text(r.label),
         uri: text(r.uri),
         definition: text(r.definition),
+        kind: text(r.kind),
+        valueType: opt(r.value_type),
       }),
     ),
     requirementTerms: rows(db, "SELECT * FROM data_requirement_term").map(
@@ -298,13 +350,25 @@ export function readChain(db: Database): Chain {
         note: opt(r.note),
       }),
     ),
-    dataPoints: rows(db, "SELECT id, name, description FROM data_point ORDER BY position").map((r) => ({
-      id: text(r.id),
-      name: text(r.name),
-      description: opt(r.description),
-    })),
+    dataPoints: rows(db, "SELECT * FROM data_point ORDER BY position").map(
+      (r): DataPoint => ({
+        id: text(r.id),
+        name: text(r.name),
+        description: opt(r.description),
+        path: opt(r.path),
+        kind: opt(r.kind),
+        valueType: opt(r.value_type),
+        cardinality: opt(r.cardinality),
+        unit: opt(r.unit),
+        semanticId: opt(r.semantic_id),
+      }),
+    ),
     ontologyDataPoints: rows(db, "SELECT ontology_id, data_point_id FROM ontology_data_point").map((r) => ({
       ontology: text(r.ontology_id),
+      dataPoint: text(r.data_point_id),
+    })),
+    termDataPoints: rows(db, "SELECT term_id, data_point_id FROM term_data_point").map((r) => ({
+      term: text(r.term_id),
       dataPoint: text(r.data_point_id),
     })),
   };

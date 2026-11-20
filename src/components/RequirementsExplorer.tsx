@@ -31,24 +31,27 @@ import {
   termsByOntology,
   type Chain,
   type CitationGroup,
+  type DataPoint,
+  type DataPointGroup,
   type TargetedStandard,
   type TermInView,
 } from "../model/chain";
 import {
-  CATEGORIES,
   SOURCE_ACTS,
   THEMES,
-  eurLex,
+  provisionUrl,
   type Legislation,
   type ProductGroup,
   type Provision,
 } from "../model/legislation";
-import type { Ontology, TermMatch } from "../model/ontologies";
+import { isIdtaOntology } from "../model/idta";
+import { MATCH_LABEL, type Ontology, type OntologyTerm } from "../model/ontologies";
 import { download } from "../model/project";
 import { buildSpec, saveSpec, specFilename, toYaml } from "../model/spec";
 import type { Citation } from "../model/standards";
 import { useMediaQuery } from "../useMediaQuery";
 import { ChainArrows, type ChainRelation } from "./ChainArrows";
+import { TARGET_SECTIONS, TargetChip, TargetSectionHead, TargetTypesAfterList, targetStyle } from "./TargetChip";
 
 const NO_PROVISIONS: Provision[] = [];
 
@@ -57,8 +60,10 @@ const groupAnchor = (group: CitationGroup) => `std:${group.legislation}|${group.
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
+const DEAD_END = "Nothing follows from this standard: the act names it, but it stands behind no data requirement for this product group.";
+
 /** Where the act names the standard, led by the implementing act's name when it is not the legislation's own text. */
-const whereCited = (citations: Citation[], ownCelex: string) => {
+const whereCited = (citations: Citation[], ownCelex?: string) => {
   const provisions = [...new Set(citations.map((c) => c.provision))].join("; ");
   const source = citations[0]?.source;
   const act = source && source !== ownCelex ? SOURCE_ACTS[source]?.ref : undefined;
@@ -76,7 +81,7 @@ const sharedTitle = (titles: string[]) => {
   return shared;
 };
 
-function GroupContext({ group, law }: { group: CitationGroup; law: Legislation }) {
+function GroupContext({ group, law, pinned }: { group: CitationGroup; law: Legislation; pinned: boolean }) {
   const shared = sharedTitle(group.standards.map((st) => st.title ?? ""));
   return (
     <div className="std-context-body">
@@ -86,13 +91,18 @@ function GroupContext({ group, law }: { group: CitationGroup; law: Legislation }
           <span key={st.id} className="std-context-standard">
             <strong>{st.ref}</strong>
             {st.title && <span className="leg-ref">{st.title.slice(shared.length).replace(/^ [—–] /, "")}</span>}
+            {st.url && pinned && (
+              <Link href={st.url} target="_blank" rel="noreferrer" className="req-ref std-context-link">
+                Read it
+              </Link>
+            )}
           </span>
         ))}
       </div>
       {group.citations.map((c) => (
         <div key={c.provision} className="std-context-passage">
           <span className="std-context-where">
-            <span className="law-chip strong">{law.short}</span>
+            <TargetChip type={law.type}>{law.short}</TargetChip>
             <span className="leg-ref">{whereCited([c], law.celex)}</span>
           </span>
           <blockquote className="req-quote">
@@ -115,8 +125,8 @@ function GroupContext({ group, law }: { group: CitationGroup; law: Legislation }
 }
 
 /**
- * One element of the Standards column, by reference only. Descriptions wait in the
- * context, so no two rows repeat each other's wording. A mouse hover shows the
+ * One element of a column: a reference, with a standard's one-line summary under its
+ * name. Fuller descriptions wait in the context. A mouse hover shows the
  * context as a tooltip; a click or tap opens the same context as a popover, which
  * is how it reaches touch screens, where nothing hovers, and lets it be copied.
  */
@@ -128,30 +138,39 @@ function ReferenceRow({
   requirements,
   label,
   context,
+  deadEnd = false,
 }: {
   anchor: string;
-  names: string[];
+  names: Array<{ name: string; summary?: string }>;
   definition?: string;
   where?: string;
   requirements: Array<{ id: string; name: string }>;
   label: string;
   /** `pinned` is true in the popover, where links can be reached. */
   context: (pinned: boolean) => ReactNode;
+  /** Nothing further right follows from it: grayed, and its context says so. */
+  deadEnd?: boolean;
 }) {
+  const note = deadEnd && <p className="std-dead-end-note">{DEAD_END}</p>;
   // An element can fill a phone screen, so the popover hangs off its icon rather than squeezing around all of it.
   const icon = useRef<SVGSVGElement>(null);
   return (
     <DialogTrigger>
       <TooltipTrigger delay={200} closeDelay={80}>
-        <Button className="std-ref" data-chain={anchor}>
+        <Button className={deadEnd ? "std-ref is-dead-end" : "std-ref"} data-chain={anchor}>
           <svg ref={icon} className="std-ref-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
             <circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" strokeWidth="1.3" />
             <path d="M8 7.2v3.6M8 5v.6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
           </svg>
-          {names.map((name) => (
-            <strong key={name} className="std-ref-name">
-              {name}
-            </strong>
+          {names.map(({ name, summary }) => (
+            <span key={name} className="std-ref-entry">
+              <strong className="std-ref-name">{name}</strong>
+              {summary && (
+                <span className="std-ref-summary" title={summary}>
+                  {summary}
+                </span>
+              )}
+            </span>
           ))}
           {definition && <span className="std-ref-definition">{definition}</span>}
           {where && <span className="std-ref-where">{where}</span>}
@@ -166,11 +185,15 @@ function ReferenceRow({
           )}
         </Button>
         <Tooltip className="std-context" placement="right top" offset={8}>
+          {note}
           {context(false)}
         </Tooltip>
       </TooltipTrigger>
       <Popover className="std-context" triggerRef={icon} placement="bottom end" offset={4}>
-        <Dialog aria-label={label}>{context(true)}</Dialog>
+        <Dialog aria-label={label}>
+          {note}
+          {context(true)}
+        </Dialog>
       </Popover>
     </DialogTrigger>
   );
@@ -179,12 +202,13 @@ function ReferenceRow({
 function CitationGroupRow({ group, law, showWhere = true }: { group: CitationGroup; law: Legislation; showWhere?: boolean }) {
   return (
     <ReferenceRow
+      deadEnd={group.requirements.length === 0}
       anchor={groupAnchor(group)}
-      names={group.standards.map((st) => st.ref)}
+      names={group.standards.map((st) => ({ name: st.ref, summary: st.summary }))}
       where={showWhere ? whereCited(group.citations, law.celex) : undefined}
       requirements={group.requirements}
       label={`Where ${law.short} names ${group.standards.map((st) => st.ref).join(", ")}`}
-      context={() => <GroupContext group={group} law={law} />}
+      context={(pinned) => <GroupContext group={group} law={law} pinned={pinned} />}
     />
   );
 }
@@ -194,7 +218,7 @@ function TargetedRow({ target }: { target: TargetedStandard }) {
   return (
     <ReferenceRow
       anchor={`target:${standard.id}`}
-      names={[standard.ref]}
+      names={[{ name: standard.ref, summary: standard.summary }]}
       where={standard.body}
       requirements={requirements}
       label={`Why ${standard.ref} targets these data requirements`}
@@ -228,15 +252,22 @@ function TargetedRow({ target }: { target: TargetedStandard }) {
   );
 }
 
-const MATCH_LABEL: Record<TermMatch, string> = {
-  exact: "Exact match",
-  close: "Close match",
-  broad: "Broader term",
-  narrow: "Narrower term",
+
+/** What a term that takes no typed value is instead. An IDTA term's kind is its element's model type. */
+const TERM_KIND: Record<string, string> = {
+  class: "a class",
+  code: "a value in a code list",
+  concept: "a thesaurus concept",
+  item: "a knowledge base item",
 };
+
+/** The type a term's value takes, as its source states it, if it states one. */
+const termType = (term: OntologyTerm) =>
+  term.valueType ?? (term.kind === "MultiLanguageProperty" ? "language-tagged text" : undefined);
 
 /** A term and its definition, which is what the row is for. The context says how it fits and where it comes from. */
 function TermRow({ term, requirements, ontology }: TermInView & { ontology: Ontology }) {
+  const type = termType(term);
   const external = (href: string, text: string, pinned: boolean) =>
     pinned ? (
       <Link href={href} target="_blank" rel="noreferrer" className="req-ref">
@@ -248,9 +279,9 @@ function TermRow({ term, requirements, ontology }: TermInView & { ontology: Onto
   return (
     <ReferenceRow
       anchor={`term:${term.id}`}
-      names={[term.label]}
+      names={[{ name: term.label }]}
       definition={term.definition}
-      where={[...new Set(requirements.map((r) => MATCH_LABEL[r.match]))].join(", ")}
+      where={[[...new Set(requirements.map((r) => MATCH_LABEL[r.match]))].join(", "), type].filter(Boolean).join(" · ")}
       requirements={requirements}
       label={`How ${term.label} in ${ontology.name} defines these data requirements`}
       context={(pinned) => (
@@ -268,7 +299,20 @@ function TermRow({ term, requirements, ontology }: TermInView & { ontology: Onto
           </ul>
           <span className="leg-ref">{ontology.description}</span>
           <span className="leg-ref">
-            Term: {external(term.uri, term.uri, pinned)}
+            Type: {type ?? `none prescribed; this is ${TERM_KIND[term.kind] ?? `a ${term.kind}`}`}
+            <br />
+            Source format: {external(ontology.sourceUrl, ontology.sourceFormat, pinned)}
+          </span>
+          <span className="leg-ref">
+            {isIdtaOntology(ontology.id) ? (
+              <>
+                Semantic ID: {term.uri}
+                <br />
+                {external(ontology.uri, "Published template", pinned)}
+              </>
+            ) : (
+              <>Term: {external(term.uri, term.uri, pinned)}</>
+            )}
             <br />
             Licence: {external(ontology.licenseUrl, ontology.license, pinned)}. Copied {ontology.retrieved}.
           </span>
@@ -278,43 +322,156 @@ function TermRow({ term, requirements, ontology }: TermInView & { ontology: Onto
   );
 }
 
-function ChainColumn({
-  id,
-  anchor,
-  title,
-  subtitle,
-  items,
-  empty,
+/** A field's type, as its model states it. */
+const dataPointType = (point: DataPoint) => point.valueType ?? point.kind;
+
+/** Whether a value must be given, read from the model's cardinality. */
+const presence = (point: DataPoint) => {
+  if (!point.cardinality) return undefined;
+  return point.cardinality.startsWith("0") ? "Optional" : "Required";
+};
+
+function DataPointRow({ point, ontology }: { point: DataPoint; ontology: Ontology }) {
+  const stated = presence(point);
+  return (
+    <ReferenceRow
+      anchor={`point:${point.id}`}
+      names={[{ name: point.name }]}
+      definition={point.description}
+      where={point.path}
+      requirements={stated ? [{ id: "presence", name: stated }] : []}
+      label={`${point.name} in ${ontology.name}`}
+      context={(pinned) => (
+        <div className="std-context-body">
+          <span className="std-context-standard">
+            <strong>{point.name}</strong>
+            <span className="leg-ref">{ontology.name}</span>
+          </span>
+          <span className="leg-ref">
+            {point.path && (
+              <>
+                Path: {point.path}
+                <br />
+              </>
+            )}
+            {dataPointType(point) && (
+              <>
+                Type: {dataPointType(point)}
+                <br />
+              </>
+            )}
+            {point.cardinality && (
+              <>
+                Cardinality: {point.cardinality}
+                <br />
+              </>
+            )}
+            {point.unit && (
+              <>
+                Unit: {point.unit}
+                <br />
+              </>
+            )}
+            {point.semanticId && <>Semantic ID: {point.semanticId}</>}
+          </span>
+          <span className="leg-ref">
+            {pinned ? (
+              <Link href={ontology.uri} target="_blank" rel="noreferrer" className="req-ref">
+                Published template
+              </Link>
+            ) : (
+              "Published template"
+            )}
+            {" · "}Licence: {ontology.license}. Copied {ontology.retrieved}.
+          </span>
+        </div>
+      )}
+    />
+  );
+}
+
+/** One ontology's part of a column, under a heading that folds it away. */
+function OntologySection({
+  ontology,
+  count,
+  children,
+  chain,
 }: {
-  id: string;
-  /** Prefix of the items' `data-chain` attributes. */
-  anchor: string;
-  title: string;
-  subtitle: string;
-  items: Array<{ id: string; name: string; description?: string }>;
-  empty: string;
+  ontology: Ontology;
+  /** What the section holds, shown so a closed one still says, e.g. "6 terms". */
+  count: string;
+  children: ReactNode;
+  chain?: string;
 }) {
   return (
-    <section className="panel" aria-labelledby={`${id}-title`}>
+    <Disclosure className="dp-section chain-section onto-section" defaultExpanded data-chain={chain}>
+      <Heading className="dp-heading">
+        <Button slot="trigger" className="section-head onto-trigger" data-chain-head>
+          <svg className="dp-chevron" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+            <path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <span className="onto-name">{ontology.name}</span>
+          <span className="onto-count">{count}</span>
+          <span className="law-chip">{ontology.sourceFormat}</span>
+          <span className="law-chip">{ontology.license}</span>
+        </Button>
+      </Heading>
+      <DisclosurePanel>{children}</DisclosurePanel>
+    </Disclosure>
+  );
+}
+
+function DataPointsColumn({ groups, known }: { groups: DataPointGroup[]; known: boolean }) {
+  const linked = groups.reduce((n, g) => n + g.linked.length, 0);
+  return (
+    <section className="panel" aria-labelledby="data-points-title">
       <header className="panel-head">
         <div>
-          <h2 id={`${id}-title`}>{title}</h2>
-          <p>{subtitle}</p>
+          <h2 id="data-points-title">Data points</h2>
+          <p>{linked ? `${plural(linked, "field")} behind the terms in view` : "Fields behind the ontologies"}</p>
         </div>
       </header>
       <div className="list">
-        {items.length ? (
-          <ul className="chain-items">
-            {items.map((item) => (
-              <li key={item.id} data-chain={`${anchor}:${item.id}`}>
-                <span className="schema-name">{item.name}</span>
-                {item.description && <span className="leg-ref">{item.description}</span>}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="empty">{empty}</p>
-        )}
+        {!groups.length && <p className="empty">{known ? "None behind the terms in view." : "No data points yet."}</p>}
+        {groups.map(({ ontology, linked: points, others }) => (
+          <OntologySection key={ontology.id} ontology={ontology} count={plural(points.length, "field")}>
+            <ul className="std-refs">
+              {points.map((point) => (
+                <li key={point.id}>
+                  <DataPointRow point={point} ontology={ontology} />
+                </li>
+              ))}
+            </ul>
+            {others.length > 0 && (
+              <Disclosure className="std-more">
+                <Heading className="dp-heading">
+                  <Button slot="trigger" className="std-more-trigger">
+                    <svg className="dp-chevron" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                      <path
+                        d="M6 4l4 4-4 4"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                    {plural(others.length, "other field")} in this template
+                  </Button>
+                </Heading>
+                <DisclosurePanel>
+                  <ul className="std-refs">
+                    {others.map((point) => (
+                      <li key={point.id}>
+                        <DataPointRow point={point} ontology={ontology} />
+                      </li>
+                    ))}
+                  </ul>
+                </DisclosurePanel>
+              </Disclosure>
+            )}
+          </OntologySection>
+        ))}
       </div>
     </section>
   );
@@ -358,7 +515,7 @@ export function RequirementsExplorer({ chain }: { chain: Chain }) {
         .map((d) => ({ id: d.id, name: d.name, provisions: required.get(d.id) ?? NO_PROVISIONS })),
     [dataRequirements, inView, required],
   );
-  const groups = useMemo(() => citationGroups(chain, inViewRows), [chain, inViewRows]);
+  const groups = useMemo(() => (group ? citationGroups(chain, group, inViewRows) : []), [chain, group, inViewRows]);
   const groupsByLaw = legislations
     .map((law) => ({ law, groups: groups.filter((g) => g.legislation === law.id) }))
     .filter((entry) => entry.groups.length > 0);
@@ -394,14 +551,13 @@ export function RequirementsExplorer({ chain }: { chain: Chain }) {
 
   const termGroups = useMemo(() => termsByOntology(chain, inView), [chain, inView]);
   const termCount = termGroups.reduce((n, g) => n + g.terms.length, 0);
-  const ontologies = useMemo(() => termGroups.map((g) => g.ontology), [termGroups]);
-  const dataPoints = useMemo(() => dataPointsFor(chain, ontologies), [chain, ontologies]);
+  const pointGroups = useMemo(() => dataPointsFor(chain, termGroups), [chain, termGroups]);
 
   const shared = [...required.values()].filter((ps) => legislationCount(ps) > 1).length;
 
   const relations = useMemo<ChainRelation[]>(() => {
     if (!group) return [];
-    const shownOntologies = new Set(ontologies.map((o) => o.id));
+    const shownTerms = new Set(termGroups.flatMap((g) => g.terms.map((t) => t.term.id)));
     return [
       ...legislations
         .filter((l) => appliesTo(l, group))
@@ -422,11 +578,11 @@ export function RequirementsExplorer({ chain }: { chain: Chain }) {
           requirements.map((r) => ({ from: `req:${r.id}`, to: `term:${term.id}`, faint: true })),
         ),
       ),
-      ...chain.ontologyDataPoints
-        .filter((l) => shownOntologies.has(l.ontology))
-        .map((l) => ({ from: `ontology:${l.ontology}`, to: `point:${l.dataPoint}` })),
+      ...chain.termDataPoints
+        .filter((l) => shownTerms.has(l.term))
+        .map((l) => ({ from: `term:${l.term}`, to: `point:${l.dataPoint}` })),
     ];
-  }, [chain, citedOnlyByLaw, group, groups, legislations, ontologies, required, selectedIds, targeted, termGroups, withoutStandard]);
+  }, [chain, citedOnlyByLaw, group, groups, legislations, required, selectedIds, targeted, termGroups, withoutStandard]);
 
   const chooseGroup = (next: ProductGroup | null) => {
     setGroup(next);
@@ -457,12 +613,12 @@ export function RequirementsExplorer({ chain }: { chain: Chain }) {
         </div>
         <div className="brand">
           <span className="stat">
-            <strong>{selectedIds.size}</strong> legislation{selectedIds.size === 1 ? "" : "s"}
+            <strong>{selectedIds.size}</strong> target{selectedIds.size === 1 ? "" : "s"}
           </span>
           <span className="stat">
             <strong>{required.size}</strong> data requirement{required.size === 1 ? "" : "s"}
           </span>
-          <span className="stat" title="Data requirements set by more than one selected legislation">
+          <span className="stat" title="Data requirements set by more than one selected target">
             <strong>{shared}</strong> shared
           </span>
           <span className="stat">
@@ -486,13 +642,13 @@ export function RequirementsExplorer({ chain }: { chain: Chain }) {
 
       <p className="hint">
         {!group
-          ? "Choose a product group to see which legislations apply to it."
+          ? "Choose a product group to see which compliance targets apply to it."
           : selectedIds.size === 0
-            ? `Select one or more legislations for ${groupName} to see the data they require.`
+            ? `Select one or more compliance targets for ${groupName} to see the data they require.`
             : "Open a data requirement to see its legal basis and narrow the standards and definitions to it. Hover or tap a standard or ontology term for its context."}
       </p>
 
-      <main ref={boardRef} className="chain-board" tabIndex={0} aria-label="Legislation to data points, scrolls sideways">
+      <main ref={boardRef} className="chain-board" tabIndex={0} aria-label="Compliance targets to data points, scrolls sideways">
         <section className="panel" aria-labelledby="group-title">
           <header className="panel-head">
             <div>
@@ -514,7 +670,7 @@ export function RequirementsExplorer({ chain }: { chain: Chain }) {
                   <span className="group-name">{g.name}</span>
                   <span className="group-desc">{g.description}</span>
                   <span className="group-count">
-                    {legislations.filter((l) => appliesTo(l, g.id)).length} legislations
+                    {legislations.filter((l) => appliesTo(l, g.id)).length} targets
                   </span>
                 </ToggleButton>
               ))}
@@ -525,7 +681,7 @@ export function RequirementsExplorer({ chain }: { chain: Chain }) {
         <section className="panel" aria-labelledby="legislation-title">
           <header className="panel-head">
             <div>
-              <h2 id="legislation-title">Legislation</h2>
+              <h2 id="legislation-title">Compliance targets</h2>
               <p>
                 {group
                   ? `${legislations.length - disabled.length} of ${legislations.length} apply to ${groupName}`
@@ -552,9 +708,11 @@ export function RequirementsExplorer({ chain }: { chain: Chain }) {
               disabledKeys={disabled}
               dependencies={[group]}
             >
-              {CATEGORIES.map((c) => (
+              {TARGET_SECTIONS.map(({ category: c, first }) => (
                 <ListBoxSection key={c.id} id={c.id} className="leg-section">
-                  <Header className="section-head">{c.name}</Header>
+                  <Header className="section-head">
+                    <TargetSectionHead type={c.type} first={first} name={c.name} />
+                  </Header>
                   {legislations
                     .filter((l) => l.category === c.id)
                     .map((l) => {
@@ -565,6 +723,7 @@ export function RequirementsExplorer({ chain }: { chain: Chain }) {
                           id={l.id}
                           textValue={`${l.short} ${l.title}`}
                           className={relevant ? "leg-item relevant" : "leg-item"}
+                          style={targetStyle(l.type)}
                           data-chain={`law:${l.id}`}
                         >
                           {({ isSelected }) => (
@@ -598,6 +757,7 @@ export function RequirementsExplorer({ chain }: { chain: Chain }) {
                 </ListBoxSection>
               ))}
             </ListBox>
+            <TargetTypesAfterList />
           </div>
         </section>
 
@@ -609,8 +769,8 @@ export function RequirementsExplorer({ chain }: { chain: Chain }) {
                 {required.size
                   ? `${required.size} of ${inScope.size} data requirements required`
                   : group
-                    ? `${inScope.size} data requirements across ${groupName} legislation`
-                    : `${inScope.size} data requirements across all legislation`}
+                    ? `${inScope.size} data requirements across ${groupName} targets`
+                    : `${inScope.size} data requirements across all targets`}
               </p>
             </div>
             <div className="panel-tools">
@@ -646,16 +806,16 @@ export function RequirementsExplorer({ chain }: { chain: Chain }) {
                             <Button slot="trigger" className="dp-trigger" data-chain={`req:${requirement.id}`}>
                               <span
                                 className="dp-count"
-                                aria-label={count ? `Required by ${plural(count, "legislation")}` : "Not required"}
+                                aria-label={count ? `Required by ${plural(count, "target")}` : "Not required"}
                               >
                                 {count || "–"}
                               </span>
                               <span className="dp-name">{requirement.name}</span>
                               <span className="dp-laws" aria-hidden="true">
                                 {laws.map((id) => (
-                                  <span key={id} className="law-chip">
+                                  <TargetChip key={id} type={legislationById[id].type}>
                                     {legislationById[id].short}
-                                  </span>
+                                  </TargetChip>
                                 ))}
                               </span>
                               {count > 0 && (
@@ -680,19 +840,19 @@ export function RequirementsExplorer({ chain }: { chain: Chain }) {
                                 return (
                                   <li key={`${p.legislation}-${p.ref}`}>
                                     <div className="req-head">
-                                      <span className="law-chip strong">{law.short}</span>
+                                      <TargetChip type={law.type}>{law.short}</TargetChip>
                                       <Link
                                         className="req-ref"
-                                        href={eurLex(p.source ?? law.celex)}
+                                        href={provisionUrl(p, law)}
                                         target="_blank"
                                         rel="noreferrer"
-                                        aria-label={`${act?.ref ?? law.ref}, ${p.ref} (opens EUR-Lex)`}
+                                        aria-label={`${act?.ref ?? law.ref}, ${p.ref} (opens the source)`}
                                       >
                                         {act?.ref ?? law.ref} · {p.ref}
                                       </Link>
                                     </div>
                                     {p.quotes && (
-                                      <blockquote className="req-quote" cite={eurLex(p.source ?? law.celex)}>
+                                      <blockquote className="req-quote" cite={provisionUrl(p, law)}>
                                         {p.quotes.map((q, j) => (
                                           <p key={j}>
                                             {j > 0 && <span aria-hidden="true">… </span>}
@@ -744,7 +904,7 @@ export function RequirementsExplorer({ chain }: { chain: Chain }) {
             ))}
             {notes.map((law) => (
               <p key={law.id} className="std-note">
-                <span className="law-chip">{law.short}</span> {law.standardsNote}
+                <TargetChip type={law.type}>{law.short}</TargetChip> {law.standardsNote}
               </p>
             ))}
             {targeted.length > 0 && (
@@ -769,9 +929,9 @@ export function RequirementsExplorer({ chain }: { chain: Chain }) {
                       <span>{name}</span>
                       <span className="dp-laws">
                         {laws.map((lawId) => (
-                          <span key={lawId} className="law-chip">
+                          <TargetChip key={lawId} type={legislationById[lawId].type}>
                             {legislationById[lawId].short}
-                          </span>
+                          </TargetChip>
                         ))}
                       </span>
                     </li>
@@ -834,13 +994,14 @@ export function RequirementsExplorer({ chain }: { chain: Chain }) {
             </div>
           </header>
           <div className="list">
-            {inView.size === 0 && <p className="empty">Select a legislation to see what defines its data requirements.</p>}
+            {inView.size === 0 && <p className="empty">Select a compliance target to see what defines its data requirements.</p>}
             {termGroups.map(({ ontology, terms }) => (
-              <div key={ontology.id} className="dp-section" role="group" aria-label={ontology.name} data-chain={`ontology:${ontology.id}`}>
-                <div className="section-head term-head">
-                  {ontology.name}
-                  <span className="law-chip">{ontology.license}</span>
-                </div>
+              <OntologySection
+                key={ontology.id}
+                ontology={ontology}
+                count={plural(terms.length, "term")}
+                chain={`ontology:${ontology.id}`}
+              >
                 <ul className="std-refs">
                   {terms.map((entry) => (
                     <li key={entry.term.id}>
@@ -848,24 +1009,17 @@ export function RequirementsExplorer({ chain }: { chain: Chain }) {
                     </li>
                   ))}
                 </ul>
-              </div>
+              </OntologySection>
             ))}
           </div>
         </section>
-        <ChainColumn
-          id="data-points"
-          anchor="point"
-          title="Data points"
-          subtitle={dataPoints.length ? `${dataPoints.length} linked` : "Behind the ontologies"}
-          items={dataPoints}
-          empty={chain.dataPoints.length ? "None linked to the ontologies in view." : "No data points yet."}
-        />
+        <DataPointsColumn groups={pointGroups} known={chain.dataPoints.length > 0} />
         <ChainArrows boardRef={boardRef} relations={relations} />
       </main>
 
       <p className="hint small">
-        Quoted passages are taken word for word from the Official Journal; the notes beside them are plain-language
-        readings, not legal advice.
+        Quoted passages are taken word for word from the Official Journal; the notes beside them, and everything shown
+        for data spaces and consumer labels, are plain-language readings, not legal advice.
       </p>
     </div>
   );

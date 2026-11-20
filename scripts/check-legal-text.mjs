@@ -16,6 +16,9 @@ import { CITATIONS, STANDARDS } from "../src/model/standards.ts";
 /** Older versions of recorded standards that REACH also names. The catalogue keeps only the latest. */
 const OLDER_VERSIONS = ["EN ISO 17234-1:2010", "CEN ISO/TS 17234:2003", "EN 14362-1:2012", "EN 14362-3:2012", "CEN/TS 16516"];
 
+/** Standards REACH still names but their publishers have withdrawn, so the catalogue leaves them out. */
+const WITHDRAWN = ["EN ISO 17234-1:2015", "DIN 52025"];
+
 /** Acts with no XHTML original get a consolidated version instead. */
 const TEXT_VERSION = {
   "32006R1907": "02006R1907-20250623",
@@ -54,7 +57,7 @@ const normalise = (ref) =>
     .replace(/[.:,;-]+$/, "");
 
 const known = new Set();
-for (const ref of [...STANDARDS.map((s) => s.ref), ...CITATIONS.flatMap((c) => c.citedAs ?? []), ...OLDER_VERSIONS]) {
+for (const ref of [...STANDARDS.map((s) => s.ref), ...CITATIONS.flatMap((c) => c.citedAs ?? []), ...OLDER_VERSIONS, ...WITHDRAWN]) {
   known.add(normalise(ref));
   known.add(normalise(ref.split(":")[0]));
 }

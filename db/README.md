@@ -8,14 +8,17 @@ The app keeps its data in a SQLite database. In the browser it runs through
 |---|---|
 | `schema.sql` | Traceability tables (`source`, `tree`, `node`, `mapping`) and the regulatory chain below |
 | `source/espr-annex-i.json` | ESPR (EU) 2024/1781 Annex I, copied verbatim from EUR-Lex |
+| `source/idta-submodels.json` | IDTA submodel templates reduced to their elements, pinned to one commit of the publisher's repository |
 | `seed/01-product-sample.sql` | Sample product structure (left column) |
 | `seed/02-espr-annex-i.sql` | Annex I product parameters as the "Data category" tree (right column) |
 | `seed/03-mappings-sample.sql` | Sample mappings |
 | `seed/04-regulatory-chain.sql` | Legislation, its data requirements, and the standards behind them |
 | `seed/05-ontology-terms.sql` | Open vocabulary terms that define the data requirements |
+| `seed/06-idta-submodels.sql` | IDTA templates as ontologies, their terms and their data points |
 
 The seed files are generated; edit `scripts/build-seed.mjs`, the JSON source, or
-`src/model/legislation.ts`, `src/model/standards.ts` and `src/model/ontologies.ts`, then run:
+`src/model/legislation.ts`, `src/model/dataSpaces.ts`, `src/model/standards.ts`,
+`src/model/ontologies.ts` and `src/model/idta.ts`, then run:
 
 ```bash
 npm run build-seed
@@ -44,7 +47,8 @@ legislation → data_requirement → standard → ontology → data_point
 | data requirement → standard | `standard_requirement` | The standard behind the data requirement, on the path through one legislation; `basis` is `stated` by the passage or `inferred` by us |
 | | `standard_target` | A standard no act names, whose own scope targets the data requirement, per product group, with the page it rests on |
 | data requirement → ontology | `data_requirement_term` | The `ontology_term` that defines the data requirement, and how closely |
-| ontology → data point | `ontology_data_point` | No rows yet |
+| ontology → data point | `ontology_data_point` | Every field of an IDTA template |
+| | `term_data_point` | The fields an IDTA term covers, which is what the Data points column follows |
 
 `legislation_standard` records which legislation references which standard, including those behind
 no data requirement, and `standard_citation` where it does so, in the act's own words. Standards the
@@ -55,6 +59,10 @@ the `note`s are its context.
 Only the latest version of a standard is kept. Where REACH also names an older version, that
 reference is left out, and `npm run build-seed` fails if two versions of one standard are recorded.
 
+A standard its publisher has withdrawn is left out too, even where an act still names it. REACH Annex XVII
+names EN ISO 17234-1:2015 in Appendix 10 and DIN 52025 in Appendix 2, so the act requires more than the
+Standards column shows here.
+
 The CEN/CLC/JTC 24 standards for the digital product passport are in both: the six that
 Implementing Decision (EU) 2026/1736 cites go through ESPR, with excerpts checked against that
 decision, and the other two are in `standard_target`.
@@ -63,6 +71,10 @@ decision, and the other two are in `standard_target`.
 lists what we could verify, not everything that exists. Left out: standards scoped to other sectors,
 such as IEC 62474 and EN IEC 63000 (electrotechnical) and EN 18120 (plastic packaging), and those
 whose current status we could not confirm.
+
+`standard.summary` is the one line under a standard's name in the Standards column. Summaries are written
+in `src/model/standardSummaries.ts` and are our plain-language reading of its title and scope, not the
+publisher's words. `npm run build-seed` fails if a standard has none or one is too long for a single line.
 
 A data requirement in neither table is listed under "No standard found". Ontologies link to the
 data requirement rather than the standard so that these can reach them too.
@@ -78,8 +90,45 @@ npm run check-legal-text
 
 fetches each act and fails if an excerpt is not word for word in it, if the act contains a
 standard reference that `src/model/standards.ts` does not record, or if two different standard
-excerpts cover overlapping text. It knows the older versions left out on purpose and accepts those.
+excerpts cover overlapping text. It knows the older versions and withdrawn standards left out on purpose and accepts those.
 For REACH it reads the consolidated text of 23 June 2025.
+
+## Compliance targets
+
+A compliance target is what a company can be asked to comply with. `target_type` holds the three
+types and their colours: legislation (B2G, dark blue), data spaces (B2B, dark orange) and consumer
+branding (B2C, bright green).
+
+All of them are rows of the `legislation` table and follow the same chain. It says legislation because
+that came first.
+
+A data space's or label's `requirement_provision` rows are what its documents ask for, and its
+`standard_requirement` rows are marked `inferred`. Both are our plain-language reading with a link,
+because those documents are copyrighted: the Catena-X notice explicitly does not allow copying. So
+`npm run build-seed` rejects quotes in them, and they have no `standard_citation`. `join_step` lists what a company does
+to join, per product group where it differs. Data spaces are written in `src/model/dataSpaces.ts`.
+
+```bash
+npm run check-data-spaces
+```
+
+fails if a Catena-X standard is no longer published in the version recorded, is no longer on the
+current release, or if a step's source no longer opens.
+
+Consumer labels are written in `src/model/consumerLabels.ts`. A label counts if its mark or claim
+reaches the consumer; schemes that work only between businesses are left out. The list is what we
+could verify at each scheme's source, not everything that exists. A label's own scheme document is
+its `standard` row, with `kind` `scheme`, so its data requirements don't read as "No standard found".
+
+```bash
+npm run check-labels
+```
+
+fails if a label's source is gone. Some sites refuse automated requests; those are listed to check by hand.
+
+The catalogue is everything filled from `04-regulatory-chain.sql`, `05-ontology-terms.sql` and `06-idta-submodels.sql`. It holds
+nothing of the user's, so `CATALOGUE_VERSION` in `src/db/database.ts` rebuilds it in saved databases:
+raise it whenever those seeds or their tables change. Trees and mappings are left as they are.
 
 ## Ontology terms
 
@@ -105,3 +154,60 @@ npm run check-ontology-terms
 ```
 
 fetches each source and fails if a term is missing or its definition is not word for word in it.
+
+### Formats
+
+`ontology.source_format` and `source_url` say how the publisher releases the vocabulary. `check-ontology-terms`
+reads most of them from there, but takes NCIt definitions from the EBI Ontology Lookup Service and GEMET
+definitions from its own API, both as JSON, which answer one term at a time.
+
+`ontology.value_types` lists the literal types the vocabulary declares anywhere, as published.
+`ontology_term.kind` and `value_type` say what the term itself is and what type its value takes. Only properties
+and value-holding IDTA elements take a value: classes, code list values, thesaurus concepts and Wikidata items
+prescribe no type, so `value_type` is NULL for them. It is not free text to tidy up: `gs1:Organization` means the
+value is an object of that class, and alternatives such as `schema:Text | schema:URL` are all allowed.
+
+Schema.org and the UN Transparency Protocol give ranges through `schema:rangeIncludes`, which states what a value
+is expected to be rather than a formal constraint. GS1 uses `rdfs:range`.
+
+For an IDTA term, `kind` is the element's model type and `value_type` its `xs:` type. Elements that hold other
+elements have none, and neither does a `MultiLanguageProperty`, whose values are language-tagged text by definition.
+
+## IDTA submodel templates
+
+The [IDTA submodel templates](https://github.com/admin-shell-io/submodel-templates) define data models
+for the Asset Administration Shell, published in JSON under CC BY 4.0. Each template in
+`src/model/idta.ts` becomes one `ontology` row, named by its IDTA number:
+
+| In the template | In the database |
+|---|---|
+| The submodel template | `ontology`, whose `uri` is the file at the recorded commit |
+| An element that defines a data requirement | `ontology_term`, whose `uri` is the element's semantic ID |
+| An element with nothing inside it | `data_point`, with its idShort path, type, cardinality and unit |
+
+Names and definitions come from the concept description the element's semantic ID points to, or else
+the element's own English description, with only runs of whitespace collapsed. Definitions marked
+`SOURCE:` quote the standard they name, as the template publishes them. Elements such as `ArbitraryProperty` and `Section`
+are slots for the user's own elements, so they are not data points.
+
+Links from data requirements to elements are in `IDTA_REQUIREMENT_TERMS`, and they are our reading.
+`match` and `note` work as for other terms. A term covers its own value or those of the elements inside it,
+which `term_data_point` records, so opening a data requirement narrows the data points. The rest of the
+template stays available under "other fields". `npm run build-seed` fails on a path a template lacks or on a
+template that defines no data requirement. IDTA terms are additional: every data requirement still needs a term
+in `src/model/ontologies.ts`.
+
+Semantic IDs are shown as text, because IRDIs and many `admin-shell.io` addresses do not open as web pages.
+
+Only templates that can apply to the product groups here are listed. Battery passport templates (IDTA 02035)
+are left out because no compliance target covers batteries, and templates for machines and plants
+because they describe equipment rather than the product. To add one, add it to `IDTA_TEMPLATES` with at
+least one term, then run `npm run fetch-idta` and `npm run build-seed`.
+
+```bash
+npm run fetch-idta -- --latest   # move to the repository's current commit
+npm run check-idta
+```
+
+`check-idta` reads the recorded commit again and fails if `source/idta-submodels.json` no longer
+matches. It also lists files newer than that commit without failing.

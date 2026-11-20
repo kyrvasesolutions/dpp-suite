@@ -18,6 +18,12 @@ export interface Ontology {
   licenseUrl: string;
   /** When the definitions were copied. */
   retrieved: string;
+  /** The format the publisher releases it in. */
+  sourceFormat: string;
+  /** Where that release is, or the page listing it. */
+  sourceUrl: string;
+  /** The literal types it declares across the whole vocabulary, named as published. Empty if it declares none. */
+  valueTypes: string[];
 }
 
 export interface OntologyTerm {
@@ -28,6 +34,13 @@ export interface OntologyTerm {
   uri: string;
   /** Copied word for word; a leading part of the published text when the rest is only usage notes. */
   definition: string;
+  /** What it is at its source: a property, class, code, concept, item, or an IDTA element's model type. */
+  kind: string;
+  /**
+   * The type its value takes, named as published, with alternatives separated by " | ".
+   * Absent where the source prescribes none: only properties and value-holding elements have one.
+   */
+  valueType?: string;
 }
 
 /**
@@ -35,6 +48,13 @@ export interface OntologyTerm {
  * exact and close match, a term broader than the data requirement, or a narrower one.
  */
 export type TermMatch = "exact" | "close" | "broad" | "narrow";
+
+export const MATCH_LABEL: Record<TermMatch, string> = {
+  exact: "Exact match",
+  close: "Close match",
+  broad: "Broader term",
+  narrow: "Narrower term",
+};
 
 export interface RequirementTerm {
   dataRequirement: string;
@@ -55,6 +75,20 @@ export const ONTOLOGIES: Ontology[] = [
     license: "CC BY-SA 3.0",
     licenseUrl: "https://creativecommons.org/licenses/by-sa/3.0/",
     retrieved: RETRIEVED,
+    sourceFormat: "JSON-LD",
+    sourceUrl: "https://schema.org/version/latest/schemaorg-current-https.jsonld",
+    valueTypes: [
+      "schema:Text",
+      "schema:URL",
+      "schema:Number",
+      "schema:DateTime",
+      "schema:Integer",
+      "schema:Date",
+      "schema:Boolean",
+      "schema:Time",
+      "schema:CssSelectorType",
+      "schema:XPathType",
+    ],
   },
   {
     id: "gs1",
@@ -64,6 +98,9 @@ export const ONTOLOGIES: Ontology[] = [
     license: "Apache-2.0",
     licenseUrl: "https://www.apache.org/licenses/LICENSE-2.0",
     retrieved: RETRIEVED,
+    sourceFormat: "JSON-LD",
+    sourceUrl: "https://ref.gs1.org/voc/data/gs1Voc.jsonld",
+    valueTypes: ["rdf:langString", "xsd:anyURI", "xsd:string", "xsd:date", "xsd:float", "xsd:dateTime", "xsd:boolean", "xsd:integer", "xsd:gYear"],
   },
   {
     id: "untp",
@@ -73,6 +110,10 @@ export const ONTOLOGIES: Ontology[] = [
     license: "GPL-3.0",
     licenseUrl: "https://github.com/uncefact/spec-untp/blob/main/LICENSE",
     retrieved: RETRIEVED,
+    sourceFormat: "JSON-LD",
+    sourceUrl: "https://vocabulary.uncefact.org/untp/",
+    // xsd:datetime is lower case at the source, which is not the XML Schema name.
+    valueTypes: ["xsd:string", "xsd:anyURI", "xsd:date", "xsd:double", "xsd:boolean", "xsd:integer", "xsd:datetime"],
   },
   {
     id: "oeo",
@@ -82,6 +123,10 @@ export const ONTOLOGIES: Ontology[] = [
     license: "CC0 1.0",
     licenseUrl: "https://creativecommons.org/publicdomain/zero/1.0/",
     retrieved: RETRIEVED,
+    sourceFormat: "OWL in RDF/XML",
+    sourceUrl: "https://openenergyplatform.org/ontology/oeo/",
+    // xsd:integer and xsd:decimal appear only inside class restrictions, not as property ranges.
+    valueTypes: ["xsd:dateTime", "xsd:string", "rdfs:Literal", "xsd:integer", "xsd:decimal"],
   },
   {
     id: "ncit",
@@ -91,6 +136,10 @@ export const ONTOLOGIES: Ontology[] = [
     license: "CC BY 4.0",
     licenseUrl: "https://creativecommons.org/licenses/by/4.0/",
     retrieved: RETRIEVED,
+    sourceFormat: "OWL in RDF/XML",
+    sourceUrl: "http://purl.obolibrary.org/obo/ncit.owl",
+    // It declares no data properties, so these can only be the ranges of its annotation properties, not of concepts.
+    valueTypes: ["xsd:string", "xsd:anyURI", "xsd:boolean"],
   },
   {
     id: "gemet",
@@ -100,6 +149,9 @@ export const ONTOLOGIES: Ontology[] = [
     license: "CC BY",
     licenseUrl: "https://www.eea.europa.eu/en/legal-notice",
     retrieved: RETRIEVED,
+    sourceFormat: "SKOS in RDF/XML",
+    sourceUrl: "https://www.eionet.europa.eu/gemet/en/exports/rdf/latest",
+    valueTypes: [],
   },
   {
     id: "wikidata",
@@ -109,31 +161,65 @@ export const ONTOLOGIES: Ontology[] = [
     license: "CC0 1.0",
     licenseUrl: "https://creativecommons.org/publicdomain/zero/1.0/",
     retrieved: RETRIEVED,
+    sourceFormat: "JSON",
+    sourceUrl: "https://www.wikidata.org/wiki/Special:EntityData/",
+    // The types of its properties. The terms used here are items, which have none.
+    valueTypes: [
+      "wikibase:ExternalId",
+      "wikibase:WikibaseItem",
+      "wikibase:Quantity",
+      "wikibase:String",
+      "wikibase:Url",
+      "wikibase:CommonsMedia",
+      "wikibase:Time",
+      "wikibase:Monolingualtext",
+      "wikibase:Math",
+      "wikibase:WikibaseProperty",
+      "wikibase:WikibaseSense",
+      "wikibase:WikibaseLexeme",
+      "wikibase:GlobeCoordinate",
+      "wikibase:WikibaseForm",
+      "wikibase:TabularData",
+      "wikibase:MusicalNotation",
+      "wikibase:GeoShape",
+      "wikibase:WikibaseEntitySchema",
+    ],
   },
 ];
 
-const schema = (local: string, label: string, definition: string): OntologyTerm => ({
+type TermFormat = Pick<OntologyTerm, "kind" | "valueType">;
+
+/** A property and the range it declares, which `npm run check-ontology-terms` verifies. */
+const property = (...ranges: string[]): TermFormat => ({ kind: "property", valueType: ranges.join(" | ") });
+const CLASS: TermFormat = { kind: "class" };
+/** A value in a code list. */
+const CODE: TermFormat = { kind: "code" };
+
+const schema = (local: string, label: string, definition: string, format: TermFormat): OntologyTerm => ({
   id: `schema:${local}`,
   ontology: "schema",
   label,
   uri: `https://schema.org/${local}`,
   definition,
+  ...format,
 });
 
-const gs1 = (local: string, label: string, definition: string): OntologyTerm => ({
+const gs1 = (local: string, label: string, definition: string, format: TermFormat): OntologyTerm => ({
   id: `gs1:${local}`,
   ontology: "gs1",
   label,
   uri: `https://ref.gs1.org/voc/${local}`,
   definition,
+  ...format,
 });
 
-const untp = (local: string, label: string, definition: string): OntologyTerm => ({
+const untp = (local: string, label: string, definition: string, format: TermFormat): OntologyTerm => ({
   id: `untp:${local}`,
   ontology: "untp",
   label,
   uri: `https://vocabulary.uncefact.org/untp/${local}`,
   definition,
+  ...format,
 });
 
 const oeo = (local: string, label: string, definition: string): OntologyTerm => ({
@@ -142,6 +228,7 @@ const oeo = (local: string, label: string, definition: string): OntologyTerm => 
   label,
   uri: `https://openenergyplatform.org/ontology/oeo/${local}`,
   definition,
+  ...CLASS,
 });
 
 const ncit = (local: string, label: string, definition: string): OntologyTerm => ({
@@ -150,6 +237,7 @@ const ncit = (local: string, label: string, definition: string): OntologyTerm =>
   label,
   uri: `http://purl.obolibrary.org/obo/NCIT_${local}`,
   definition,
+  ...CLASS,
 });
 
 const gemet = (local: string, label: string, definition: string): OntologyTerm => ({
@@ -158,6 +246,7 @@ const gemet = (local: string, label: string, definition: string): OntologyTerm =
   label,
   uri: `http://www.eionet.europa.eu/gemet/concept/${local}`,
   definition,
+  kind: "concept",
 });
 
 const wikidata = (local: string, label: string, definition: string): OntologyTerm => ({
@@ -166,80 +255,94 @@ const wikidata = (local: string, label: string, definition: string): OntologyTer
   label,
   uri: `https://www.wikidata.org/wiki/${local}`,
   definition,
+  kind: "item",
 });
 
 export const ONTOLOGY_TERMS: OntologyTerm[] = [
-  schema("productID", "productID", "The product identifier, such as ISBN."),
-  schema("material", "material", "A material that something is made from, e.g. leather, wool, cotton, paper."),
+  schema("productID", "productID", "The product identifier, such as ISBN.", property("schema:Text")),
+  schema("material", "material", "A material that something is made from, e.g. leather, wool, cotton, paper.", property("schema:Product", "schema:Text", "schema:URL")),
   schema(
     "substanceOfConcern",
     "substanceOfConcern",
     "A substance of concern (SoC) contained within the product, typically based on regulatory lists like REACH or RoHS.",
+    property("schema:ChemicalSubstance", "schema:DefinedTerm", "schema:Text", "schema:URL"),
   ),
-  schema("recycledContentPercentage", "recycledContentPercentage", "The percentage of recycled material in the product."),
+  schema("recycledContentPercentage", "recycledContentPercentage", "The percentage of recycled material in the product.", property("schema:Number")),
   schema(
     "DeclarationOfConformity",
     "DeclarationOfConformity",
     "A Declaration of Conformity (DoC), a formal document issued by a manufacturer declaring that a product meets specific regulatory requirements.",
+    CLASS,
   ),
   schema(
     "DigitalProductPassport",
     "DigitalProductPassport",
     "A digital product passport (DPP), a record containing information about a product's lifecycle, sustainability, and compliance.",
+    CLASS,
   ),
 
-  gs1("manufacturer", "Has Manufacturer", "The organization that produces the item."),
+  gs1("manufacturer", "Has Manufacturer", "The organization that produces the item.", property("gs1:Organization")),
   gs1(
     "OrganizationRoleType-IMPORTER",
     "Importer",
     "Organization who makes - or on whose behalf a Customs clearing agent or other authorized person makes - an import declaration. This may include a person who has possession of the goods or to whom the goods are consigned.",
+    CODE,
   ),
   gs1(
     "RegulationTypeCode-TREATED_WITH_BIOCIDE_REGULATION",
     "Biocide regulation treated article",
     "Regulation (e.g., EU Reg 528/2012) harmonising the rules on making available on the market and trade items treated with biocidal products ('treated articles'), whilst ensuring a high level of protection of both human and animal health and the environment.",
+    CODE,
   ),
   gs1(
     "consumerRecyclingInstructions",
     "Consumer Recycling Instructions",
     "Expresses in text the consumer recycling instructions which are normally held on the label or accompanying the product. Instructions may refer to the 'how' the consumer is supposed to sort the product and packaging materials for recycling.",
+    property("rdf:langString"),
   ),
-  gs1("countryOfOrigin", "Has Country Of Origin", "Code indicating the country of origin of the product."),
+  gs1("countryOfOrigin", "Has Country Of Origin", "Code indicating the country of origin of the product.", property("gs1:Country")),
   gs1(
     "RegulatoryIdentifierType-DUE_DILIGENCE_STATEMENT",
     "Due Diligence Statement",
     "A document or dataset that states the due diligence activities undertaken by a person or organization to meet regulatory compliance requirements.",
+    CODE,
   ),
   gs1(
     "consumerUsageInstructions",
     "Consumer Usage Instructions",
     "Free text containing the usage instructions of a product, which are normally held on the label or accompanying the product.",
+    property("rdf:langString"),
   ),
-  gs1("consumerSafetyInformation", "Consumer Safety Information", "Information on consumer safety regarding the product."),
+  gs1("consumerSafetyInformation", "Consumer Safety Information", "Information on consumer safety regarding the product.", property("rdf:langString")),
+  gs1("organicPercentClaim", "Organic Percent Claim", "The percent of actual organic materials per weight of the product.", property("xsd:float")),
 
   untp(
     "registeredId",
     "registeredId",
     "The registration number (alphanumeric) of the Party within the register. Unique within the register.",
+    property("xsd:string"),
   ),
   untp(
     "massFraction",
     "massFraction",
     "The mass fraction as a decimal of the product (or facility reporting period) represented by this material.",
+    property("xsd:double"),
   ),
-  untp("quantity", "quantity", "The quantity of product subject to this lifecycle event."),
+  untp("quantity", "quantity", "The quantity of product subject to this lifecycle event.", property("untp:Measure")),
   untp(
     "ProductStatus#disposed",
     "Disposed",
     "Product has reached end of life and has been disposed of or destroyed without material recovery.",
+    CODE,
   ),
-  untp("Facility", "Facility", "The physical site (eg farm or factory) where the product or materials was produced."),
-  untp("Party", "Party", "An organisation. May be a supply chain actor, a certifier, a government agency."),
-  untp("AssessorLevel#3rdParty", "Independent third party assessment", "3rd party (independent) conformity assessment"),
+  untp("Facility", "Facility", "The physical site (eg farm or factory) where the product or materials was produced.", CLASS),
+  untp("Party", "Party", "An organisation. May be a supply chain actor, a certifier, a government agency.", CLASS),
+  untp("AssessorLevel#3rdParty", "Independent third party assessment", "3rd party (independent) conformity assessment", CODE),
   untp(
     "Performance",
     "Performance",
     "A claimed, assessed, or required performance level defined either by a scoring system or a numeric measure.",
+    CLASS,
   ),
 
   oeo(
@@ -294,6 +397,18 @@ export const ONTOLOGY_TERMS: OntologyTerm[] = [
   ),
   wikidata("Q30748592", "repairability", "the degree to which something can be repaired, including the ease of doing so"),
   wikidata("Q705818", "forced labor", "work people are employed in, but against their will"),
+  wikidata("Q459426", "animal welfare", "well-being of non-human animals"),
+  wikidata(
+    "Q2992308",
+    "working conditions",
+    "The environment and all existing circumstances affecting labor in the workplace, including working hours, legal rights, physical aspects, safety scales, workload, and organizational benefits.",
+  ),
+  wikidata("Q188485", "fair trade", "trade arrangement prioritizing the well-being of workers"),
+  wikidata(
+    "Q738898",
+    "chain of custody",
+    "chronological documentation showing the custody, control, transfer, analysis, and disposition of physical or electronic evidence",
+  ),
 ];
 
 export const REQUIREMENT_TERMS: RequirementTerm[] = [
@@ -334,6 +449,18 @@ export const REQUIREMENT_TERMS: RequirementTerm[] = [
     term: "untp:massFraction",
     match: "close",
     note: "The share of the product that material makes up.",
+  },
+  {
+    dataRequirement: "organic-content",
+    term: "gs1:organicPercentClaim",
+    match: "close",
+    note: "A share claimed on the product; schemes also verify the farm behind it.",
+  },
+  {
+    dataRequirement: "animal-welfare",
+    term: "wikidata:Q459426",
+    match: "broad",
+    note: "Animal well-being in general, not fibre sourcing in particular.",
   },
   {
     dataRequirement: "animal-origin",
@@ -446,6 +573,25 @@ export const REQUIREMENT_TERMS: RequirementTerm[] = [
     term: "gs1:RegulatoryIdentifierType-DUE_DILIGENCE_STATEMENT",
     match: "close",
     note: "The due diligence part.",
+  },
+
+  {
+    dataRequirement: "working-conditions",
+    term: "wikidata:Q2992308",
+    match: "close",
+    note: "Conditions in general; schemes add living wages and freedom of association.",
+  },
+  {
+    dataRequirement: "fair-trade-terms",
+    term: "wikidata:Q188485",
+    match: "broad",
+    note: "The trade arrangement as a whole, not its prices and premiums.",
+  },
+  {
+    dataRequirement: "chain-of-custody",
+    term: "wikidata:Q738898",
+    match: "close",
+    note: "A legal-evidence sense; schemes apply it to materials moving through a supply chain.",
   },
 
   {

@@ -7,7 +7,7 @@
 import { parse } from "yaml";
 import { z } from "zod";
 import { linksBehind, type Chain } from "./chain";
-import { THEMES, eurLex, SOURCE_ACTS, type ProductGroup, type Provision } from "./legislation";
+import { THEMES, SOURCE_ACTS, provisionUrl, targetUrl, type ProductGroup, type Provision, type TargetType } from "./legislation";
 
 export interface SpecSource {
   legislation: string;
@@ -34,7 +34,7 @@ export interface Spec {
   savedAt: string;
   productGroup: ProductGroup;
   productGroupName: string;
-  legislations: Array<{ id: string; short: string; title: string; ref: string; url: string }>;
+  legislations: Array<{ id: string; short: string; title: string; ref: string; url: string; type?: TargetType }>;
   dataRequirements: SpecRequirement[];
 }
 
@@ -54,7 +54,7 @@ export function buildSpec(
       const provisions = required.get(d.id) ?? [];
       const standards = new Set<string>();
       for (const law of new Set(provisions.map((p) => p.legislation))) {
-        for (const link of linksBehind(chain, law, d.id)) {
+        for (const link of linksBehind(chain, law, d.id, group)) {
           const standard = chain.standards[link.standard];
           if (standard) standards.add(standard.ref);
         }
@@ -69,7 +69,7 @@ export function buildSpec(
             legislation: law.short,
             act: (p.source && SOURCE_ACTS[p.source]?.ref) || law.ref,
             provision: p.ref,
-            url: eurLex(p.source ?? law.celex),
+            url: provisionUrl(p, law),
             summary: p.text,
             ...(p.quotes?.length ? { quotes: p.quotes } : {}),
           };
@@ -84,7 +84,7 @@ export function buildSpec(
     savedAt: new Date().toISOString(),
     productGroup: group,
     productGroupName: groupName,
-    legislations: laws.map((l) => ({ id: l.id, short: l.short, title: l.title, ref: l.ref, url: eurLex(l.celex) })),
+    legislations: laws.map((l) => ({ id: l.id, short: l.short, title: l.title, ref: l.ref, url: targetUrl(l), type: l.type })),
     dataRequirements: requirements,
   };
 }
@@ -150,6 +150,7 @@ const SpecSchema = z.object({
         title: z.string().default(""),
         ref: z.string().default(""),
         url: z.string().default(""),
+        type: z.enum(["b2g", "b2b", "b2c"]).optional(),
       }),
     )
     .default([]),
@@ -183,6 +184,9 @@ export function parseSpec(text: string): ParsedSpec {
     return { ok: false, error: `${issue.path.join(".") || "specification"}: ${issue.message}` };
   }
   const d = result.data;
+  const ids = d.dataRequirements.map((r) => r.id);
+  const repeated = ids.find((id, i) => ids.indexOf(id) !== i);
+  if (repeated !== undefined) return { ok: false, error: `dataRequirements: id "${repeated}" is used more than once` };
   const slug = d.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   return {
     ok: true,
@@ -233,6 +237,7 @@ export function saveSpec(spec: Spec): Spec[] {
 export function deleteSpec(id: string): Spec[] {
   const next = loadSpecs().filter((s) => s.id !== id);
   write(SPECS_KEY, next);
+  removeCookie(filterCookie(id));
   const all = read<Record<string, unknown>>(MAPPINGS_KEY, {});
   delete all[id];
   write(MAPPINGS_KEY, all);
@@ -248,3 +253,68 @@ export const loadMapping = (specId: string): FieldMapping =>
 export function saveMapping(specId: string, mapping: FieldMapping) {
   write(MAPPINGS_KEY, { ...read<Record<string, FieldMapping>>(MAPPINGS_KEY, {}), [specId]: mapping });
 }
+
+// ---------- The explorer's filter, in cookies ----------
+
+/** Browsers refuse a cookie much past 4 KB. */
+const COOKIE_LIMIT = 3800;
+const LAST_SPEC_COOKIE = "dpp-graph-spec";
+
+/** A spec's id can run to hundreds of characters, so its cookie is named by a hash of it (FNV-1a). */
+function filterCookie(specId: string) {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < specId.length; i++) hash = Math.imul(hash ^ specId.charCodeAt(i), 0x01000193);
+  return `dpp-graph-filter-${(hash >>> 0).toString(16)}`;
+}
+
+const cookieScope = () => `Path=${import.meta.env.BASE_URL}; SameSite=Lax${location.protocol === "https:" ? "; Secure" : ""}`;
+
+function readCookie(name: string): string | null {
+  const entry = document.cookie.split("; ").find((c) => c.startsWith(`${name}=`));
+  return entry ? entry.slice(name.length + 1) : null;
+}
+
+function writeCookie(name: string, value: string): boolean {
+  if (value.length > COOKIE_LIMIT) {
+    // Better no saved filter than an older one coming back.
+    removeCookie(name);
+    return false;
+  }
+  document.cookie = `${name}=${value}; Max-Age=31536000; ${cookieScope()}`;
+  return readCookie(name) === value;
+}
+
+function removeCookie(name: string) {
+  document.cookie = `${name}=; Max-Age=0; ${cookieScope()}`;
+}
+
+function decoded(value: string): string | null {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
+  }
+}
+
+/** The legislations unticked for this specification last time. */
+export function loadHiddenLegislations(specId: string): Set<string> {
+  const value = readCookie(filterCookie(specId));
+  if (!value) return new Set();
+  return new Set(value.split(",").map(decoded).filter((key): key is string => !!key));
+}
+
+/** Remembers the unticked legislations; false if the browser wouldn't keep them. */
+export function saveHiddenLegislations(specId: string, hidden: Set<string>): boolean {
+  if (hidden.size === 0) {
+    removeCookie(filterCookie(specId));
+    return true;
+  }
+  return writeCookie(filterCookie(specId), [...hidden].map(encodeURIComponent).join(","));
+}
+
+export const loadLastSpecId = () => {
+  const value = readCookie(LAST_SPEC_COOKIE);
+  return value ? decoded(value) : null;
+};
+
+export const saveLastSpecId = (id: string) => writeCookie(LAST_SPEC_COOKIE, encodeURIComponent(id));

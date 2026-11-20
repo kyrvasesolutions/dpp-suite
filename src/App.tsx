@@ -12,10 +12,12 @@ import {
 import type { Database } from "sql.js";
 import { ClaudeSettings } from "./components/ClaudeSettings";
 import { ConnectorLayer } from "./components/ConnectorLayer";
+import { GraphView } from "./components/GraphView";
 import { HoverPreview } from "./components/HoverPreview";
 import { ImportDialog } from "./components/ImportDialog";
 import { ItemWindow, WINDOW_WIDTH, type WindowState } from "./components/ItemWindow";
 import { MappingView } from "./components/MappingView";
+import { PrepareView } from "./components/PrepareView";
 import { RequirementsExplorer } from "./components/RequirementsExplorer";
 import { SamplesSidebar } from "./components/SamplesSidebar";
 import { TraceTree } from "./components/TraceTree";
@@ -596,22 +598,25 @@ export function Workspace({ database, nav }: WorkspaceProps) {
   );
 }
 
-type View = "requirements" | "validation" | "mapping";
+type LaneView = "requirements" | "prepare" | "validation" | "mapping";
+type View = LaneView | "graph";
 
-const LANES: Array<{ id: View; label: string }> = [
+const LANES: Array<{ id: LaneView; label: string }> = [
   { id: "requirements", label: "Requirements" },
+  { id: "prepare", label: "Prepare" },
   { id: "validation", label: "Validation" },
   { id: "mapping", label: "Mapping" },
 ];
 
 const viewFromHash = (): View => {
   const hash = window.location.hash.slice(1);
-  return LANES.some((l) => l.id === hash) ? (hash as View) : "requirements";
+  return hash === "graph" || LANES.some((l) => l.id === hash) ? (hash as View) : "requirements";
 };
 
 /**
  * Horizontal lanes share the height of a rail down the left edge, each with
  * its label turned to run along the lane; the chosen lane's view fills the rest.
+ * The bar across the top leads to screens outside the lanes.
  */
 export default function App() {
   const [view, setView] = useState<View>(viewFromHash);
@@ -635,49 +640,65 @@ export default function App() {
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
+  const goTo = (next: View) => {
+    history.replaceState(null, "", `#${next}`);
+    setView(next);
+  };
+
   return (
     <div className="shell">
-      <ToggleButtonGroup
-        aria-label="View"
-        className="lanes"
-        orientation="vertical"
-        selectionMode="single"
-        disallowEmptySelection
-        selectedKeys={[view]}
-        onSelectionChange={(keys) => {
-          const next = [...keys][0] as View;
-          history.replaceState(null, "", `#${next}`);
-          setView(next);
-        }}
-      >
-        {LANES.map((lane) => (
-          <ToggleButton key={lane.id} id={lane.id} className="lane">
-            <span className="lane-label">{lane.label}</span>
-          </ToggleButton>
-        ))}
-      </ToggleButtonGroup>
-      <SamplesSidebar />
-      {view === "mapping" ? (
-        <MappingView />
-      ) : chain ? (
-        view === "requirements" ? (
-          <RequirementsExplorer chain={chain} />
-        ) : (
-          <ValidationView chain={chain} />
-        )
-      ) : (
-        <div className="app">
-          {loadError ? (
-            <div className="banner warn" role="alert">
-              <span>Couldn't open the database: {loadError}</span>
-            </div>
+      <nav className="topnav" aria-label="Screens">
+        <Button
+          className="topnav-link"
+          aria-current={view === "graph" ? "page" : undefined}
+          onPress={() => goTo("graph")}
+        >
+          Graph compliance
+        </Button>
+      </nav>
+      <div className="shell-body">
+        <ToggleButtonGroup
+          aria-label="View"
+          className="lanes"
+          orientation="vertical"
+          selectionMode="single"
+          disallowEmptySelection
+          selectedKeys={view === "graph" ? [] : [view]}
+          onSelectionChange={(keys) => goTo([...keys][0] as LaneView)}
+        >
+          {LANES.map((lane) => (
+            <ToggleButton key={lane.id} id={lane.id} className="lane">
+              <span className="lane-label">{lane.label}</span>
+            </ToggleButton>
+          ))}
+        </ToggleButtonGroup>
+        {view !== "graph" && <SamplesSidebar />}
+        {view === "graph" ? (
+          <GraphView chain={chain} chainError={loadError} />
+        ) : view === "mapping" ? (
+          <MappingView />
+        ) : chain ? (
+          view === "requirements" ? (
+            <RequirementsExplorer chain={chain} />
+          ) : view === "prepare" ? (
+            <PrepareView chain={chain} />
           ) : (
-            <p className="hint" role="status">
-              Loading…
-            </p>
-          )}
-        </div>
-      )}
+            <ValidationView chain={chain} />
+          )
+        ) : (
+          <div className="app">
+            {loadError ? (
+              <div className="banner warn" role="alert">
+                <span>Couldn't open the database: {loadError}</span>
+              </div>
+            ) : (
+              <p className="hint" role="status">
+                Loading…
+              </p>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

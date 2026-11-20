@@ -27,7 +27,8 @@ const COLUMN_INSET = 4;
  * SVG overlay inside the scrolling board, so arrows travel with the columns when it
  * scrolls sideways; a column scrolling up or down redraws them. An arrow whose row
  * is scrolled away ends at that column's edge and turns faint. A row inside a closed
- * panel has no arrow.
+ * panel has no arrow, unless the panel is a `.chain-section`: then its heading stands
+ * in for the row, so folding a section away doesn't hide what connects to it.
  */
 export function ChainArrows({
   boardRef,
@@ -49,9 +50,13 @@ export function ChainArrows({
       board.querySelectorAll<HTMLElement>("[data-chain]").forEach((el) => anchors.set(el.dataset.chain!, el));
 
       const end = (id: string, edge: "left" | "right") => {
-        const el = anchors.get(id);
+        const row = anchors.get(id);
+        if (!row) return null;
         // A closed panel keeps its rows' sizes, since it is hidden "until found", so ask it directly.
-        if (!el || el.closest("[hidden]")) return null;
+        const closed = row.closest("[hidden]");
+        const section = closed?.parentElement?.matches(".chain-section") ? closed.parentElement : null;
+        const el = closed ? section?.querySelector<HTMLElement>("[data-chain-head]") : row;
+        if (!el) return null;
         const rect = el.getBoundingClientRect();
         const list = el.closest(".list")?.getBoundingClientRect();
         const top = (list?.top ?? box.top) + COLUMN_INSET;
@@ -64,18 +69,20 @@ export function ChainArrows({
         };
       };
 
-      const arrows: Arrow[] = [];
+      // Rows of a closed section share its heading, so several relations can draw one line.
+      const byPath = new Map<string, Arrow>();
       for (const { from, to, faint } of relations) {
         const a = end(from, "right");
         const z = end(to, "left");
         if (!a || !z) continue;
         const bend = Math.max(16, (z.x - a.x) * 0.5);
-        arrows.push({
-          key: `${from}>${to}`,
-          d: `M ${a.x} ${a.y} C ${a.x + bend} ${a.y}, ${z.x - bend} ${z.y}, ${z.x} ${z.y}`,
-          faint: !!faint || a.away || z.away,
-        });
+        const d = `M ${a.x} ${a.y} C ${a.x + bend} ${a.y}, ${z.x - bend} ${z.y}, ${z.x} ${z.y}`;
+        const isFaint = !!faint || a.away || z.away;
+        const same = byPath.get(d);
+        if (same) same.faint &&= isFaint;
+        else byPath.set(d, { key: `${from}>${to}`, d, faint: isFaint });
       }
+      const arrows = [...byPath.values()];
 
       const panels = board.querySelectorAll<HTMLElement>(":scope > .panel");
       const last = panels[panels.length - 1]?.getBoundingClientRect();
