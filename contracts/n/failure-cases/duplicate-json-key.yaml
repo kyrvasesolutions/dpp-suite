@@ -1,0 +1,6 @@
+id: FC-DUPLICATE-KEY
+class: duplicate JSON key
+criterion: C2-02
+input: The laboratory file contains an object with the same key twice.
+expected: Rejected at stage "parse" with a typed error; no last-one-wins. Baseline B0-04 shows the current parser accepts it.
+fixture: pending

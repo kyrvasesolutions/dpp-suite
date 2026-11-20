@@ -1,0 +1,6 @@
+id: FC-CONFLICT
+class: conflicting source assertions
+criterion: C2-05
+input: The ERP extract and the laboratory file state different values for the same property.
+expected: The property is marked challenged with both assertions and their source locations visible; neither source wins silently; routes that require it hold.
+fixture: pending

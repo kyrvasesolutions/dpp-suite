@@ -1,0 +1,6 @@
+id: FC-REPRODUCIBILITY
+class: reproducibility
+criterion: C4-04
+input: The same inputs and pinned contract versions are processed twice, on two machines.
+expected: All three outputs are canonically identical, and the release manifests list the same digests.
+fixture: pending

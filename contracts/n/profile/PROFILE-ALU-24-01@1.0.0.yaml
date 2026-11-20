@@ -1,0 +1,16 @@
+# Fixed N profile. Content comes from the v0.5 specification package; see ../README.md.
+id: PROFILE-ALU-24-01
+version: 1.0.0
+status: HOLD
+hold_reason: Property definitions are in the v0.5 specification package, not available in this repository.
+product_family: Aluminium sheet alloy family of the demonstrator customer (D03a)
+languages: [en, de]
+routes: [customer-pdf, erp-staging-csv, registry-prep-json]
+# Each entry, once frozen:
+#   - id: ALU-Dnnn                  stable identifier from the package
+#     definition_ref: <governed term IRI>
+#     unit: <unit code, or null>
+#     labels: { en: ..., de: ... }
+#     required_by: { customer-pdf: bool, erp-staging-csv: bool, registry-prep-json: bool }
+#     members: [ ... ]              required nested members, e.g. FLD-Identifier-scheme_version
+properties: []

@@ -1,0 +1,6 @@
+id: FC-UNKNOWN-CODE
+class: unknown code
+criterion: C2-03
+input: The ERP extract uses a company code that the code list does not contain.
+expected: The source assertion is kept verbatim and flagged; the code is neither dropped nor mapped by guess.
+fixture: pending

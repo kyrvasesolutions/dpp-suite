@@ -1,0 +1,18 @@
+id: INPUT-ERP-CSV
+version: 1.0.0
+status: HOLD
+hold_reason: Column list, code lists and units are in the v0.5 specification package.
+media_type: text/csv
+encoding: UTF-8
+byte_order_mark: rejected
+delimiter: pending
+header_row: required
+columns: []          # name, maps_to (ALU-Dnnn or member), unit, code_list, required
+unknown_codes: keep and flag     # never dropped or guessed (C2-03)
+ingress:
+  stages: [bytes, parse, structure, semantics, authorisation, route]
+  reject:
+    - wrong encoding
+    - missing required column
+    - unexpected column
+    - other media type

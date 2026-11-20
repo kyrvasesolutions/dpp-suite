@@ -1,0 +1,7 @@
+id: registry-prep-json
+recipient: EU DPP registry (ACT-16), held local target
+format: application/json
+submission: never            # local preparation only; no network (FUNC-042, LEAN-DEF-20)
+status: HOLD
+hold_reason: No applicable external registry contract for aluminium has been established (18_DeliveryScope, GATES row). This hold stays after the pack is frozen.
+fields: []
