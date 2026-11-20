@@ -45,7 +45,7 @@ import {
   type Provision,
 } from "../model/legislation";
 import { isIdtaOntology } from "../model/idta";
-import type { Ontology, TermMatch } from "../model/ontologies";
+import { MATCH_LABEL, type Ontology, type OntologyTerm } from "../model/ontologies";
 import { download } from "../model/project";
 import { buildSpec, saveSpec, specFilename, toYaml } from "../model/spec";
 import type { Citation } from "../model/standards";
@@ -59,6 +59,8 @@ const NO_PROVISIONS: Provision[] = [];
 const groupAnchor = (group: CitationGroup) => `std:${group.legislation}|${group.standards.map((st) => st.id).join()}`;
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+const DEAD_END = "Nothing follows from this standard: the act names it, but it stands behind no data requirement for this product group.";
 
 /** Where the act names the standard, led by the implementing act's name when it is not the legislation's own text. */
 const whereCited = (citations: Citation[], ownCelex?: string) => {
@@ -123,8 +125,8 @@ function GroupContext({ group, law, pinned }: { group: CitationGroup; law: Legis
 }
 
 /**
- * One element of the Standards column, by reference only. Descriptions wait in the
- * context, so no two rows repeat each other's wording. A mouse hover shows the
+ * One element of a column: a reference, with a standard's one-line summary under its
+ * name. Fuller descriptions wait in the context. A mouse hover shows the
  * context as a tooltip; a click or tap opens the same context as a popover, which
  * is how it reaches touch screens, where nothing hovers, and lets it be copied.
  */
@@ -136,30 +138,39 @@ function ReferenceRow({
   requirements,
   label,
   context,
+  deadEnd = false,
 }: {
   anchor: string;
-  names: string[];
+  names: Array<{ name: string; summary?: string }>;
   definition?: string;
   where?: string;
   requirements: Array<{ id: string; name: string }>;
   label: string;
   /** `pinned` is true in the popover, where links can be reached. */
   context: (pinned: boolean) => ReactNode;
+  /** Nothing further right follows from it: grayed, and its context says so. */
+  deadEnd?: boolean;
 }) {
+  const note = deadEnd && <p className="std-dead-end-note">{DEAD_END}</p>;
   // An element can fill a phone screen, so the popover hangs off its icon rather than squeezing around all of it.
   const icon = useRef<SVGSVGElement>(null);
   return (
     <DialogTrigger>
       <TooltipTrigger delay={200} closeDelay={80}>
-        <Button className="std-ref" data-chain={anchor}>
+        <Button className={deadEnd ? "std-ref is-dead-end" : "std-ref"} data-chain={anchor}>
           <svg ref={icon} className="std-ref-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
             <circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" strokeWidth="1.3" />
             <path d="M8 7.2v3.6M8 5v.6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
           </svg>
-          {names.map((name) => (
-            <strong key={name} className="std-ref-name">
-              {name}
-            </strong>
+          {names.map(({ name, summary }) => (
+            <span key={name} className="std-ref-entry">
+              <strong className="std-ref-name">{name}</strong>
+              {summary && (
+                <span className="std-ref-summary" title={summary}>
+                  {summary}
+                </span>
+              )}
+            </span>
           ))}
           {definition && <span className="std-ref-definition">{definition}</span>}
           {where && <span className="std-ref-where">{where}</span>}
@@ -174,11 +185,15 @@ function ReferenceRow({
           )}
         </Button>
         <Tooltip className="std-context" placement="right top" offset={8}>
+          {note}
           {context(false)}
         </Tooltip>
       </TooltipTrigger>
       <Popover className="std-context" triggerRef={icon} placement="bottom end" offset={4}>
-        <Dialog aria-label={label}>{context(true)}</Dialog>
+        <Dialog aria-label={label}>
+          {note}
+          {context(true)}
+        </Dialog>
       </Popover>
     </DialogTrigger>
   );
@@ -187,8 +202,9 @@ function ReferenceRow({
 function CitationGroupRow({ group, law, showWhere = true }: { group: CitationGroup; law: Legislation; showWhere?: boolean }) {
   return (
     <ReferenceRow
+      deadEnd={group.requirements.length === 0}
       anchor={groupAnchor(group)}
-      names={group.standards.map((st) => st.ref)}
+      names={group.standards.map((st) => ({ name: st.ref, summary: st.summary }))}
       where={showWhere ? whereCited(group.citations, law.celex) : undefined}
       requirements={group.requirements}
       label={`Where ${law.short} names ${group.standards.map((st) => st.ref).join(", ")}`}
@@ -202,7 +218,7 @@ function TargetedRow({ target }: { target: TargetedStandard }) {
   return (
     <ReferenceRow
       anchor={`target:${standard.id}`}
-      names={[standard.ref]}
+      names={[{ name: standard.ref, summary: standard.summary }]}
       where={standard.body}
       requirements={requirements}
       label={`Why ${standard.ref} targets these data requirements`}
@@ -236,15 +252,22 @@ function TargetedRow({ target }: { target: TargetedStandard }) {
   );
 }
 
-const MATCH_LABEL: Record<TermMatch, string> = {
-  exact: "Exact match",
-  close: "Close match",
-  broad: "Broader term",
-  narrow: "Narrower term",
+
+/** What a term that takes no typed value is instead. An IDTA term's kind is its element's model type. */
+const TERM_KIND: Record<string, string> = {
+  class: "a class",
+  code: "a value in a code list",
+  concept: "a thesaurus concept",
+  item: "a knowledge base item",
 };
+
+/** The type a term's value takes, as its source states it, if it states one. */
+const termType = (term: OntologyTerm) =>
+  term.valueType ?? (term.kind === "MultiLanguageProperty" ? "language-tagged text" : undefined);
 
 /** A term and its definition, which is what the row is for. The context says how it fits and where it comes from. */
 function TermRow({ term, requirements, ontology }: TermInView & { ontology: Ontology }) {
+  const type = termType(term);
   const external = (href: string, text: string, pinned: boolean) =>
     pinned ? (
       <Link href={href} target="_blank" rel="noreferrer" className="req-ref">
@@ -256,9 +279,9 @@ function TermRow({ term, requirements, ontology }: TermInView & { ontology: Onto
   return (
     <ReferenceRow
       anchor={`term:${term.id}`}
-      names={[term.label]}
+      names={[{ name: term.label }]}
       definition={term.definition}
-      where={[...new Set(requirements.map((r) => MATCH_LABEL[r.match]))].join(", ")}
+      where={[[...new Set(requirements.map((r) => MATCH_LABEL[r.match]))].join(", "), type].filter(Boolean).join(" · ")}
       requirements={requirements}
       label={`How ${term.label} in ${ontology.name} defines these data requirements`}
       context={(pinned) => (
@@ -275,6 +298,11 @@ function TermRow({ term, requirements, ontology }: TermInView & { ontology: Onto
             ))}
           </ul>
           <span className="leg-ref">{ontology.description}</span>
+          <span className="leg-ref">
+            Type: {type ?? `none prescribed; this is ${TERM_KIND[term.kind] ?? `a ${term.kind}`}`}
+            <br />
+            Source format: {external(ontology.sourceUrl, ontology.sourceFormat, pinned)}
+          </span>
           <span className="leg-ref">
             {isIdtaOntology(ontology.id) ? (
               <>
@@ -308,7 +336,7 @@ function DataPointRow({ point, ontology }: { point: DataPoint; ontology: Ontolog
   return (
     <ReferenceRow
       anchor={`point:${point.id}`}
-      names={[point.name]}
+      names={[{ name: point.name }]}
       definition={point.description}
       where={point.path}
       requirements={stated ? [{ id: "presence", name: stated }] : []}
@@ -362,6 +390,37 @@ function DataPointRow({ point, ontology }: { point: DataPoint; ontology: Ontolog
   );
 }
 
+/** One ontology's part of a column, under a heading that folds it away. */
+function OntologySection({
+  ontology,
+  count,
+  children,
+  chain,
+}: {
+  ontology: Ontology;
+  /** What the section holds, shown so a closed one still says, e.g. "6 terms". */
+  count: string;
+  children: ReactNode;
+  chain?: string;
+}) {
+  return (
+    <Disclosure className="dp-section chain-section onto-section" defaultExpanded data-chain={chain}>
+      <Heading className="dp-heading">
+        <Button slot="trigger" className="section-head onto-trigger" data-chain-head>
+          <svg className="dp-chevron" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+            <path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <span className="onto-name">{ontology.name}</span>
+          <span className="onto-count">{count}</span>
+          <span className="law-chip">{ontology.sourceFormat}</span>
+          <span className="law-chip">{ontology.license}</span>
+        </Button>
+      </Heading>
+      <DisclosurePanel>{children}</DisclosurePanel>
+    </Disclosure>
+  );
+}
+
 function DataPointsColumn({ groups, known }: { groups: DataPointGroup[]; known: boolean }) {
   const linked = groups.reduce((n, g) => n + g.linked.length, 0);
   return (
@@ -375,11 +434,7 @@ function DataPointsColumn({ groups, known }: { groups: DataPointGroup[]; known: 
       <div className="list">
         {!groups.length && <p className="empty">{known ? "None behind the terms in view." : "No data points yet."}</p>}
         {groups.map(({ ontology, linked: points, others }) => (
-          <div key={ontology.id} className="dp-section" role="group" aria-label={ontology.name}>
-            <div className="section-head term-head">
-              {ontology.name}
-              <span className="law-chip">{ontology.license}</span>
-            </div>
+          <OntologySection key={ontology.id} ontology={ontology} count={plural(points.length, "field")}>
             <ul className="std-refs">
               {points.map((point) => (
                 <li key={point.id}>
@@ -415,7 +470,7 @@ function DataPointsColumn({ groups, known }: { groups: DataPointGroup[]; known: 
                 </DisclosurePanel>
               </Disclosure>
             )}
-          </div>
+          </OntologySection>
         ))}
       </div>
     </section>
@@ -941,11 +996,12 @@ export function RequirementsExplorer({ chain }: { chain: Chain }) {
           <div className="list">
             {inView.size === 0 && <p className="empty">Select a compliance target to see what defines its data requirements.</p>}
             {termGroups.map(({ ontology, terms }) => (
-              <div key={ontology.id} className="dp-section" role="group" aria-label={ontology.name} data-chain={`ontology:${ontology.id}`}>
-                <div className="section-head term-head">
-                  {ontology.name}
-                  <span className="law-chip">{ontology.license}</span>
-                </div>
+              <OntologySection
+                key={ontology.id}
+                ontology={ontology}
+                count={plural(terms.length, "term")}
+                chain={`ontology:${ontology.id}`}
+              >
                 <ul className="std-refs">
                   {terms.map((entry) => (
                     <li key={entry.term.id}>
@@ -953,7 +1009,7 @@ export function RequirementsExplorer({ chain }: { chain: Chain }) {
                     </li>
                   ))}
                 </ul>
-              </div>
+              </OntologySection>
             ))}
           </div>
         </section>

@@ -15,7 +15,8 @@
  *
  * Only the latest version of a standard is kept. Where an act also names an older
  * version, that reference is left out, and `npm run build-seed` fails if two versions
- * of one standard are recorded.
+ * of one standard are recorded. A standard its publisher has withdrawn is left out too,
+ * even where an act still names it; `scripts/check-legal-text.mjs` lists those.
  *
  * `STANDARD_TARGETS` holds the second kind of relation: standards no act names, but
  * whose own scope targets a data requirement. They carry no legal weight from the
@@ -32,6 +33,8 @@ export interface Standard {
   /** Reference as published, e.g. "ISO/IEC 15459-4:2014". */
   ref: string;
   title?: string;
+  /** One line on what it is about; written in `standardSummaries.ts` and read from the database. */
+  summary?: string;
   /** Publishing body. */
   body: string;
   kind: StandardKind;
@@ -143,7 +146,6 @@ export const STANDARDS: Standard[] = [
   { id: "iai-guidelines", ref: "IAI guidelines", title: "Guidelines provided by the International Aluminium Institute on perfluorocarbon emissions", body: "International Aluminium Institute", kind: "guideline" },
 
   // Azo colourants (REACH Annex XVII, Appendix 10)
-  cen("en-iso-17234-1-2015", "EN ISO 17234-1:2015", `${azoLeather} – Part 1: Determination of certain aromatic amines derived from azo colorants`),
   cen("en-iso-17234-2-2011", "EN ISO 17234-2:2011", `${azoLeather} – Part 2: Determination of 4-aminoazobenzene`),
   cen("en-iso-14362-1-2017", "EN ISO 14362-1:2017", `${azoTextile} – Part 1: Detection of the use of certain azo colorants accessible with and without extracting the fibres`),
   cen("en-iso-14362-3-2017", "EN ISO 14362-3:2017", `${azoTextile} – Part 3: Detection of the use of certain azo colorants, which may release 4-aminoazobenzene`),
@@ -158,7 +160,6 @@ export const STANDARDS: Standard[] = [
   cen("en-16516", "EN 16516", indoorAir),
   iso("iso-12219-1", "ISO 12219-1", "Interior air of road vehicles – Part 1: Whole vehicle test chamber – Specification and method for the determination of volatile organic compounds in cabin interiors"),
   iso("iso-12219-10", "ISO 12219-10", "Interior air of road vehicles – Part 10: Whole vehicle test chamber – Specification and methods for the determination of volatile organic compounds in cabin interiors – Trucks and buses"),
-  { id: "din-52025", ref: "DIN 52025", title: "Softening point of pitch", body: "DIN", kind: "technical" },
   { id: "astm-d4359-90", ref: "ASTM D 4359-90", title: "Standard Test Method for Determining Whether a Material Is a Liquid or a Solid", body: "ASTM", kind: "technical" },
 
   // Biodegradation of polymers (REACH Annex XVII, Appendix 15)
@@ -211,7 +212,6 @@ export const STANDARDS: Standard[] = [
   cen("en-16711-1-2015", "EN 16711-1:2015", "Textiles - Determination of metal content - Part 1: Determination of metals using microwave digestion"),
   cen("en-16711-2-2015", "EN 16711-2:2015", "Textiles - Determination of metal content - Part 2: Determination of metals extracted by acidic artificial perspiration solution"),
   scheme("oeko-tex-standard-100", "OEKO-TEX STANDARD 100", "Testing of textile products and accessories for harmful substances", "OEKO-TEX"),
-  scheme("zdhc-mrsl-3-1", "ZDHC MRSL V3.1", "Manufacturing Restricted Substances List", "ZDHC"),
   iso("iso-20743-2021", "ISO 20743:2021", "Textiles — Determination of antibacterial activity of textile products"),
   iso("iso-18184-2025", "ISO 18184:2025", "Textiles — Determination of antiviral activity of textile products"),
 
@@ -231,7 +231,6 @@ export const STANDARDS: Standard[] = [
   iso("iso-4484-3-2023", "ISO 4484-3:2023", "Textiles and textile products — Microplastics from textile sources — Part 3: Measurement of collected material mass released from textile end products by domestic washing method"),
 
   // Named by no act: circularity
-  iso("iso-14021-2016", "ISO 14021:2016", "Environmental labels and declarations — Self-declared environmental claims (Type II environmental labelling)"),
   iso("iso-22095-2020", "ISO 22095:2020", "Chain of custody — General terminology and models"),
   iso("iso-22095-2-2026", "ISO 22095-2:2026", "Chain of custody — Part 2: Requirements and guidelines for mass balance"),
   iso("iso-59020-2024", "ISO 59020:2024", "Circular economy — Measuring and assessing circularity performance"),
@@ -592,24 +591,8 @@ export const CITATIONS: Citation[] = [
     excerpt:
       "the American Society for Testing and Materials (ASTM) D 4359-90 Standard Test Method for Determining Whether a Material Is a Liquid or a Solid",
   },
-  {
-    legislation: "reach",
-    standard: "din-52025",
-    provision: "Annex XVII, Appendix 2",
-    force: "operative",
-    excerpt: "a softening point of 140 to 170 °C according to DIN 52025",
-  },
 
   // Appendix 10: testing methods for azo colourants (entry 43).
-  {
-    legislation: "reach",
-    standard: "en-iso-17234-1-2015",
-    provision: "Annex XVII, Appendix 10 (entry 43)",
-    force: "operative",
-    citedAs: "CEN EN ISO 17234-1:2015",
-    excerpt:
-      "CEN EN ISO 17234-1:2015 Leather – Chemical tests for the determination of certain azo colorants in dyed leathers – Part 1: Determination of certain aromatic amines derived from azo colorants",
-  },
   {
     legislation: "reach",
     standard: "en-iso-17234-2-2011",
@@ -903,7 +886,7 @@ export const STANDARD_LINKS: StandardLink[] = [
   ),
   ...links(
     "reach",
-    ["en-iso-17234-1-2015", "en-iso-17234-2-2011", "en-iso-14362-1-2017", "en-iso-14362-3-2017"],
+    ["en-iso-17234-2-2011", "en-iso-14362-1-2017", "en-iso-14362-3-2017"],
     ["restricted-substances"],
     "stated",
     "Annex XVII, entry 43: azo colourants in textile and leather articles are tested by the methods in Appendix 10.",
@@ -980,7 +963,6 @@ export const STANDARD_TARGETS: StandardTarget[] = [
   ...targets("en-16711-1-2015", ["restricted-substances"], TX, "Measures metals in textiles, including coated fabrics and components.", "https://evs.ee/en/evs-en-16711-1-2015"),
   ...targets("en-16711-2-2015", ["restricted-substances"], TX, "Measures metals extracted from textiles by artificial perspiration.", "https://www.evs.ee/en/evs-en-16711-2-2015"),
   ...targets("oeko-tex-standard-100", ["restricted-substances"], TX, "Certification scheme testing textiles for legally restricted and other harmful substances.", "https://www.oeko-tex.com/importedmedia/downloadfiles/OEKO-TEX_STANDARD_100_Standard_EN_DE.pdf"),
-  ...targets("zdhc-mrsl-3-1", ["restricted-substances"], TX, "Restricts chemicals used in manufacturing, not finished products, and states it is not a statement of legal requirements.", "https://mrsl.roadmaptozero.com/"),
   ...targets("iso-20743-2021", ["biocidal-treatment"], TX, "Tests the antibacterial activity a treated textile claims.", ISO_CATALOGUE(79819)),
   ...targets("iso-18184-2025", ["biocidal-treatment"], TX, "Tests the antiviral activity a treated textile claims.", ISO_CATALOGUE(86323)),
 
@@ -1000,7 +982,6 @@ export const STANDARD_TARGETS: StandardTarget[] = [
   ...targets("iso-4484-3-2023", ["microplastics"], TX, "Measures material released by domestic washing.", ISO_CATALOGUE(81035)),
 
   // ---------- Circularity ----------
-  ...targets("iso-14021-2016", ["recycled-content"], BOTH, "Rules for claiming recycled content.", "https://www.evs.ee/en/iso-14021-2016-amd-1-2021"),
   ...targets("iso-22095-2020", ["recycled-content"], BOTH, "Models for tracing recycled material through a supply chain.", CASCO),
   ...targets("iso-22095-2-2026", ["recycled-content"], BOTH, "Mass balance, a way to account for recycled input.", CASCO),
   ...targets("iso-59020-2024", ["recycled-content", "recyclability"], BOTH, "Indicators of circularity performance.", ISO_CATALOGUE(80650)),

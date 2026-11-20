@@ -3,8 +3,6 @@ import {
   Button,
   DropZone,
   FileTrigger,
-  TextArea,
-  TextField,
   Link,
   ListBox,
   ListBoxItem,
@@ -16,17 +14,15 @@ import { extractFields, type DataField } from "../model/dataFields";
 import { download } from "../model/project";
 import { SAMPLE_DATA, SAMPLE_FILENAME, sampleFile } from "../model/sampleData";
 import {
-  deleteSpec,
   loadMapping,
   loadSpecs,
-  parseSpec,
-  saveSpec,
   saveMapping,
   type FieldMapping,
   type Spec,
   type SpecRequirement,
 } from "../model/spec";
 import { useMediaQuery } from "../useMediaQuery";
+import { SpecLibrary } from "./SpecLibrary";
 import { TargetChip } from "./TargetChip";
 
 /** File kinds a user can bring their product data in (same as the Validation tab). */
@@ -65,9 +61,6 @@ export function MappingView() {
   const [files, setFiles] = useState<LoadedFile[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [mapping, setMapping] = useState<FieldMapping>({});
-  const [pasting, setPasting] = useState(false);
-  const [pasted, setPasted] = useState("");
-  const [specError, setSpecError] = useState<string | null>(null);
   const [picked, setPicked] = useState<Set<Key>>(new Set());
 
   const spec = specs.find((s) => s.id === specId) ?? null;
@@ -172,32 +165,6 @@ export function MappingView() {
     },
   });
 
-  const chooseSpec = (id: string) => setSpecId(id);
-
-  /** Adds a specification from YAML text; it is saved here like an exported one and chosen. */
-  const importSpec = (text: string, origin: string) => {
-    const result = parseSpec(text);
-    if (!result.ok) {
-      setSpecError(`${origin}: ${result.error}`);
-      return false;
-    }
-    setSpecs(saveSpec(result.spec));
-    setSpecId(result.spec.id);
-    setSpecError(null);
-    return true;
-  };
-
-  const importSpecFile = async (list: FileList | null) => {
-    const file = list?.[0];
-    if (file) importSpec(await file.text(), file.name);
-  };
-
-  const removeSpec = (id: string) => {
-    const next = deleteSpec(id);
-    setSpecs(next);
-    if (specId === id) setSpecId(next[0]?.id ?? null);
-  };
-
   const sections = spec ? groupByTheme(spec.dataRequirements) : [];
 
   return (
@@ -238,65 +205,7 @@ export function MappingView() {
             </div>
           </header>
           <div className="list">
-            <div className="spec-import">
-              <FileTrigger acceptedFileTypes={[".yaml", ".yml"]} onSelect={importSpecFile}>
-                <Button className="ghost">Upload YAML</Button>
-              </FileTrigger>
-              <Button className="ghost" aria-expanded={pasting} onPress={() => setPasting((v) => !v)}>
-                Paste YAML
-              </Button>
-            </div>
-            {pasting && (
-              <div className="spec-paste">
-                <TextField aria-label="Specification YAML" value={pasted} onChange={setPasted}>
-                  <TextArea className="spec-textarea" rows={8} placeholder={"name: Aluminum · ESPR\ndataRequirements:\n  - id: product-id\n    name: Unique product identifier"} spellCheck={false} />
-                </TextField>
-                <Button
-                  className="primary"
-                  isDisabled={!pasted.trim()}
-                  onPress={() => {
-                    if (importSpec(pasted, "Pasted YAML")) {
-                      setPasted("");
-                      setPasting(false);
-                    }
-                  }}
-                >
-                  Load specification
-                </Button>
-              </div>
-            )}
-            {specError && (
-              <p className="upload-error" role="alert">
-                {specError}
-              </p>
-            )}
-            {specs.length === 0 && (
-              <p className="empty">
-                Upload or paste a specification YAML above, or export one from the Requirements tab: pick a product
-                group and compliance targets, then choose Export.
-              </p>
-            )}
-            <ul className="spec-list">
-              {specs.map((s) => (
-                <li key={s.id}>
-                  <Button
-                    className={s.id === specId ? "spec-option selected" : "spec-option"}
-                    aria-pressed={s.id === specId}
-                    onPress={() => chooseSpec(s.id)}
-                  >
-                    <span className="group-name">{s.name}</span>
-                    <span className="group-desc">
-                      {plural(s.dataRequirements.length, "data requirement")} ·{" "}
-                      {plural(s.legislations.length, "target")}
-                    </span>
-                    <span className="group-count">Saved {new Date(s.savedAt).toLocaleString()}</span>
-                  </Button>
-                  <Button className="ghost icon" aria-label={`Delete ${s.name}`} onPress={() => removeSpec(s.id)}>
-                    ×
-                  </Button>
-                </li>
-              ))}
-            </ul>
+            <SpecLibrary specs={specs} selectedId={specId} onSpecsChange={setSpecs} onSelect={setSpecId} />
             {spec && (
               <div className="dp-section" role="group" aria-label="Compliance targets in this specification">
                 <div className="section-head">Compliance targets</div>

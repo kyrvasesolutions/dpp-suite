@@ -35,7 +35,7 @@ function seeded(SQL: SqlJsStatic): Database {
 }
 
 /** Raise this whenever the catalogue's tables or seeds change, so saved databases pick up the new version. */
-const CATALOGUE_VERSION = 3;
+const CATALOGUE_VERSION = 9;
 
 /** Filled from the seeds, with nothing of the user's in them, so they can be rebuilt. Children first. */
 const CATALOGUE_TABLES = [
@@ -216,6 +216,7 @@ export function readChain(db: Database): Chain {
       id: text(r.id),
       ref: text(r.ref),
       title: opt(r.title),
+      summary: opt(r.summary),
       body: text(r.body),
       kind: text(r.kind) as Standard["kind"],
       url: opt(r.url),
@@ -325,6 +326,9 @@ export function readChain(db: Database): Chain {
         license: text(r.license),
         licenseUrl: text(r.license_url),
         retrieved: text(r.retrieved),
+        sourceFormat: text(r.source_format),
+        sourceUrl: text(r.source_url),
+        valueTypes: opt(r.value_types)?.split(", ") ?? [],
       }),
     ),
     ontologyTerms: rows(db, "SELECT * FROM ontology_term ORDER BY position").map(
@@ -334,6 +338,8 @@ export function readChain(db: Database): Chain {
         label: text(r.label),
         uri: text(r.uri),
         definition: text(r.definition),
+        kind: text(r.kind),
+        valueType: opt(r.value_type),
       }),
     ),
     requirementTerms: rows(db, "SELECT * FROM data_requirement_term").map(

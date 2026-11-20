@@ -18,6 +18,8 @@
   --suggest: #a3620a;
   --suggest-soft: #fdf1dc;
   --overlay: rgba(20, 24, 31, 0.35);
+  --ontology: #6d28d9;
+  --ontology-on: #ffffff;
   --shadow: 0 1px 2px rgba(20, 24, 31, 0.06), 0 4px 16px rgba(20, 24, 31, 0.06);
   --shadow-lg: 0 4px 12px rgba(20, 24, 31, 0.1), 0 16px 40px rgba(20, 24, 31, 0.14);
 
@@ -54,6 +56,8 @@
     --suggest: #e7a64a;
     --suggest-soft: #3a2a12;
     --overlay: rgba(0, 0, 0, 0.55);
+    --ontology: #a78bfa;
+    --ontology-on: #1a1033;
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 16px rgba(0, 0, 0, 0.3);
     --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.45), 0 16px 40px rgba(0, 0, 0, 0.5);
     color-scheme: dark;
@@ -1875,6 +1879,39 @@ code {
   outline-offset: -2px;
 }
 
+.std-ref.is-dead-end .std-ref-name {
+  color: var(--muted);
+  font-weight: 450;
+}
+
+.std-ref.is-dead-end .std-ref-summary,
+.std-ref.is-dead-end .std-ref-where,
+.std-ref.is-dead-end .std-ref-reqs {
+  opacity: 0.6;
+}
+
+.std-ref-entry {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* Summaries are written to fit; a very narrow column cuts them rather than wrapping. */
+.std-ref-summary {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.std-dead-end-note {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
 .std-ref-icon {
   position: absolute;
   top: 10px;
@@ -1898,14 +1935,49 @@ code {
   overflow-wrap: anywhere;
 }
 
-.term-head {
+.onto-trigger {
+  width: 100%;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
+  min-height: var(--row-h);
+  padding: 6px 12px 6px 8px;
+  border: 0;
+  background: transparent;
+  text-align: start;
+  outline: none;
 }
 
-.term-head .law-chip {
+.onto-trigger[data-hovered] {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.onto-trigger[data-focus-visible] {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.onto-section[data-expanded] > .dp-heading .dp-chevron {
+  transform: rotate(90deg);
+}
+
+.onto-name {
+  flex: 1 1 10em;
+  min-width: 0;
+}
+
+.onto-count {
+  flex: none;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.onto-trigger .law-chip {
+  flex: none;
   text-transform: none;
 }
 
@@ -2058,12 +2130,57 @@ code {
 
 .shell {
   display: flex;
+  flex-direction: column;
   height: 100dvh;
 }
 
-.shell > .app {
+.topnav {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: max(4px, env(safe-area-inset-top)) 12px 4px max(12px, env(safe-area-inset-left));
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.topnav-link {
+  min-height: 30px;
+  padding: 4px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  letter-spacing: 0.03em;
+  outline: none;
+}
+
+.topnav-link[data-hovered] {
+  background: var(--surface);
+}
+
+.topnav-link[aria-current="page"] {
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: inset 0 -3px 0 var(--accent);
+}
+
+.topnav-link[data-focus-visible] {
+  outline: 2px solid var(--accent-ring);
+}
+
+.shell-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.shell-body > .app {
   flex: 1;
   min-width: 0;
+  height: 100%;
 }
 
 /* Two equal horizontal bands share the rail's full height; labels run along the band. */
@@ -2603,7 +2720,7 @@ code {
 .samples {
   flex: none;
   display: flex;
-  height: 100dvh;
+  height: 100%;
   border-right: 1px solid var(--border);
   background: var(--surface-2);
 }
@@ -2715,4 +2832,532 @@ code {
   background: var(--surface);
   color: var(--text);
   font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* ---------- Legislation explorer ---------- */
+
+.app:has(.graph-board) {
+  max-width: none;
+  width: 100%;
+}
+
+.graph-board {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr) 300px;
+  gap: 10px;
+}
+
+.graph-panel {
+  min-width: 0;
+}
+
+.graph-side {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* The list of specifications keeps to its share; the legislations take what's left. */
+.graph-spec {
+  flex: 0 1 auto;
+  max-height: 45%;
+}
+
+.graph-filter {
+  flex: 0 1 auto;
+  min-height: 0;
+}
+
+.graph-filter[data-expanded] {
+  flex: 1 1 0;
+}
+
+.graph-filter-heading {
+  flex: none;
+  margin: 0;
+  font: inherit;
+}
+
+.graph-filter-trigger {
+  width: 100%;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  text-align: left;
+  outline: none;
+}
+
+.graph-filter:not([data-expanded]) .graph-filter-trigger {
+  border-bottom: 0;
+}
+
+.graph-filter-trigger[data-hovered] {
+  background: var(--surface-2);
+}
+
+.graph-filter-trigger[data-focus-visible] {
+  outline: 2px solid var(--accent-ring);
+  outline-offset: -2px;
+}
+
+.graph-filter-title {
+  display: flex;
+  flex-direction: column;
+}
+
+.graph-filter-name {
+  font-size: 14px;
+  font-weight: 620;
+}
+
+.graph-filter-count {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.graph-filter-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-bottom: 8px;
+}
+
+.graph-filter-body[hidden] {
+  display: none;
+}
+
+.graph-filter-item {
+  padding: 5px 12px;
+  /* Keyboard focus shows on the box, not as a second outline around the row. */
+  outline: none;
+}
+
+.graph-filter-item[data-hovered] {
+  background: var(--surface-2);
+}
+
+.graph-filter-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.graph-filter-reqs {
+  flex: none;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.graph-title {
+  min-width: 0;
+}
+
+.graph-title h2 {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.graph-mode {
+  flex: none;
+  display: flex;
+  gap: 4px;
+}
+
+.graph-mode .ghost {
+  min-height: 26px;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+.graph-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+
+.graph-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.graph-svg:active {
+  cursor: grabbing;
+}
+
+.graph-edge line {
+  stroke: var(--link);
+  stroke-width: 1.25;
+}
+
+.graph-arrow.rest {
+  fill: var(--link);
+}
+
+.graph-arrow.active {
+  fill: var(--accent);
+}
+
+.graph-edge.is-active line {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.graph-edge.is-dimmed {
+  opacity: 0.15;
+}
+
+.graph-edge text {
+  fill: var(--muted);
+  font-size: 11px;
+  paint-order: stroke;
+  stroke: var(--surface-2);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+.graph-edge.is-active text {
+  fill: var(--text);
+}
+
+.graph-node {
+  cursor: pointer;
+  outline: none;
+}
+
+.graph-node text {
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.graph-node.is-dimmed {
+  opacity: 0.22;
+}
+
+.graph-node.requirement rect {
+  fill: var(--surface);
+  stroke: var(--accent);
+  stroke-width: 1.5;
+}
+
+.graph-node.requirement text {
+  fill: var(--text);
+}
+
+.graph-node.requirement.is-unattributed rect {
+  stroke: var(--gap);
+  stroke-dasharray: 5 4;
+}
+
+.graph-node.legislation circle {
+  fill: var(--target-color, var(--surface));
+  stroke: var(--target-ink, var(--muted));
+  stroke-width: 2;
+}
+
+.graph-node.legislation text {
+  fill: var(--target-on, var(--text));
+  font-weight: 650;
+}
+
+.graph-node.ontology polygon {
+  fill: var(--ontology);
+  stroke: var(--ontology);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.graph-node.ontology text {
+  fill: var(--ontology-on);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.graph-edge.is-partial line {
+  stroke-dasharray: 5 4;
+}
+
+.graph-node.is-selected rect,
+.graph-node.is-selected circle,
+.graph-node.is-selected polygon,
+.graph-node:focus-visible rect,
+.graph-node:focus-visible circle,
+.graph-node:focus-visible polygon {
+  stroke-width: 3.5;
+}
+
+.graph-node.ontology.is-selected polygon,
+.graph-node.ontology:focus-visible polygon {
+  stroke: var(--text);
+}
+
+.graph-node.is-selected rect,
+.graph-node:focus-visible rect {
+  fill: var(--accent-soft);
+}
+
+.graph-legend {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  right: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  width: fit-content;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.graph-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.graph-key-line {
+  stroke: var(--link);
+  stroke-width: 1.5;
+}
+
+.graph-swatch {
+  flex: none;
+  display: inline-block;
+  height: 12px;
+}
+
+.graph-swatch.requirement {
+  width: 22px;
+  border: 1.5px solid var(--accent);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.graph-swatch.legislation {
+  width: 12px;
+  border: 1.5px solid var(--target-ink, var(--muted));
+  border-radius: 50%;
+  background: var(--target-color, var(--surface));
+}
+
+.graph-swatch.ontology {
+  width: 14px;
+  height: 12px;
+  background: var(--ontology);
+  clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%);
+}
+
+.graph-from {
+  flex-wrap: wrap;
+}
+
+.graph-controls {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+}
+
+.graph-controls .ghost {
+  background: var(--surface);
+}
+
+.graph-tip {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 260px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.graph-tip span {
+  color: var(--muted);
+}
+
+.graph-empty {
+  padding: 16px;
+}
+
+.graph-details {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.graph-details .empty {
+  padding: 0;
+}
+
+.graph-detail-head {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+
+.graph-detail-head h3 {
+  font-size: 15px;
+  font-weight: 620;
+}
+
+.section-kicker {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.graph-detail-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.graph-part-of {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.graph-chip-button,
+.graph-text-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  outline: none;
+}
+
+.graph-text-button {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.graph-text-button[data-hovered] {
+  text-decoration: underline;
+}
+
+.graph-chip-button[data-focus-visible],
+.graph-text-button[data-focus-visible] {
+  outline: 2px solid var(--accent-ring);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+.graph-sources {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.graph-ref {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.graph-table-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.graph-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.graph-table th,
+.graph-table td {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.graph-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.graph-table tbody th {
+  font-weight: 500;
+}
+
+.graph-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.graph-table .is-selected {
+  background: var(--accent-soft);
+}
+
+.graph-table-laws {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+@media (max-width: 1023px) {
+  .graph-board {
+    display: flex;
+    flex-direction: column;
+    overflow: auto;
+  }
+
+  .graph-side {
+    display: contents;
+  }
+
+  .graph-board .panel {
+    flex: none;
+    max-height: none;
+  }
+
+  .graph-board .graph-panel {
+    height: 70dvh;
+  }
+
+  .graph-board .list,
+  .graph-filter-body {
+    max-height: 40dvh;
+  }
 }

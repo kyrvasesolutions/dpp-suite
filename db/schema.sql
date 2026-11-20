@@ -100,6 +100,8 @@ CREATE TABLE IF NOT EXISTS standard (
   id            TEXT PRIMARY KEY,
   ref           TEXT NOT NULL UNIQUE,
   title         TEXT,
+  -- One line on what it is about, in our words.
+  summary       TEXT NOT NULL,
   body          TEXT NOT NULL,
   kind          TEXT NOT NULL CHECK (kind IN ('technical', 'test-guideline', 'guideline', 'convention', 'scheme')),
   position      INTEGER NOT NULL DEFAULT 0,
@@ -204,7 +206,12 @@ CREATE TABLE IF NOT EXISTS ontology (
   license     TEXT,
   license_url TEXT,
   -- When the definitions of its terms were copied.
-  retrieved   TEXT
+  retrieved   TEXT,
+  -- The format the publisher releases it in, and where.
+  source_format TEXT,
+  source_url    TEXT,
+  -- The literal types it declares across the whole vocabulary, as published and comma-separated.
+  value_types   TEXT
 );
 
 -- A term of an ontology, with its definition copied word for word.
@@ -214,7 +221,11 @@ CREATE TABLE IF NOT EXISTS ontology_term (
   label       TEXT NOT NULL,
   uri         TEXT NOT NULL UNIQUE,
   definition  TEXT NOT NULL,
-  position    INTEGER NOT NULL DEFAULT 0
+  position    INTEGER NOT NULL DEFAULT 0,
+  -- What it is at its source: property, class, code, concept, item, or an IDTA element's model type.
+  kind        TEXT NOT NULL,
+  -- The type its value takes, as published, or NULL where the source prescribes none.
+  value_type  TEXT
 );
 
 -- A term that defines a data requirement; `match` says how closely, after SKOS mapping properties.
