@@ -1,0 +1,27 @@
+{
+  "pack": "N contract pack",
+  "profile": "PROFILE-ALU-24-01@1.0.0",
+  "files": {
+    "README.md": "1de5cd9428abe7fafe8884238e4e40b4c7aaccc43666c5a5fbb0f9d69fb9abb8",
+    "failure-cases/ambiguous-footprint.yaml": "3101e967530f1f7b8ba2ee697f27feb4e3ae340150a9049945e705c5bc1ad1c1",
+    "failure-cases/blocked-export.yaml": "cf2acc6aa6bff7396f3a51d566d8dbff9f1045b94f309ce3402c0d6f82d5993e",
+    "failure-cases/conflicting-assertions.yaml": "b698275760224a60ed4651fba4af11e95a8fb92c591db38508c2ff04fd112948",
+    "failure-cases/duplicate-json-key.yaml": "7d9c8a26ca12b75b2138b5b9e0786a161d234841b3b270ef011ed5a5bd3428b3",
+    "failure-cases/leakage.yaml": "a28a9d4661ef378074ae34b9f1b7cbd3664aa57dc89e804a0dec748eca887ec6",
+    "failure-cases/missing-column.yaml": "9e7fc1ee932c2efd786e3cbe2c7b17d4cd475ac2374c48bbe9b2eddd78a481c6",
+    "failure-cases/missing-unit.yaml": "e5b782d495807f3a31dfd7f421cea3dde9e41e02daa989276f98f4847d35bcab",
+    "failure-cases/non-finite-number.yaml": "371f0f48b0e81952aa992c44fa97ea0ad55572b85e6ff7dfbc6617c1f895c2fb",
+    "failure-cases/prohibited-disclosure.yaml": "6b52305ee1bf85b51421864f3691f17050b08ffd190eaff34c2d64f3d4131d18",
+    "failure-cases/reproducibility.yaml": "de0f5ec2027845b1ce2686b8fb21356a06f222895793f912bdd26d72c7a0e00c",
+    "failure-cases/unknown-code.yaml": "bb1c4801ae3295c6825076344aa61d8bc8f7460fd0fe4b3724eaeecf9e6af152",
+    "failure-cases/wrong-encoding.yaml": "acc72001ec613c4cf084dbd41c90fd8e0637a89004dc0ef88e79fa946b2a0608",
+    "failure-cases/wrong-unit.yaml": "65940944cddf9172c0c9ba50270095e2e281f9265412bc80879d26b3952d4bc2",
+    "inputs/erp-extract.csv.contract.yaml": "528c53d47891731da513abc5b960c7d09df87d6a6c7f4feb9d8eb64958c995c1",
+    "inputs/lab-assessment.contract.yaml": "6162ef3f354340e57af90b2309f3340ed3fefaf61ac83d27f94f12018e35ac44",
+    "policy/actor-field-matrix.csv": "d18c70e9bd8238c4950a81f42e8a59541786881868bc82892bcfac1e04b226f2",
+    "profile/PROFILE-ALU-24-01@1.0.0.yaml": "4492b47d538d093aff5b2087bbaf5e18520ffac5d0ea33294ffc98a182e788ce",
+    "routes/customer-pdf.yaml": "464de7233c83cf6f9fb97fe6289902d585e2fa4af864a707f121c776371d16cc",
+    "routes/erp-staging-csv.yaml": "59b4b150f3c0ff86719fe5425500f2969adaa8aa7368d8d9554493732300dbeb",
+    "routes/registry-prep-json.yaml": "5296c55f045d2aa08fbb43b829ab4b814a4a40434e3a3c945dca4234b1eb3d36"
+  }
+}

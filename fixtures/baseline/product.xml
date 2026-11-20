@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<product xmlns="urn:example:dpp">
+  <article sku="AP-6063-T5">
+    <gtin>05412345678901</gtin>
+  </article>
+  <alloy>
+    <designation>EN AW-6063</designation>
+  </alloy>
+</product>

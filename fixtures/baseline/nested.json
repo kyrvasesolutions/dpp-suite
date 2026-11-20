@@ -1,0 +1,11 @@
+{
+  "article": { "sku": "AP-6063-T5", "gtin": "05412345678901" },
+  "alloy": {
+    "composition": [
+      { "element": "Al", "massPercent": 98.9 },
+      { "element": "Mg", "massPercent": 0.55 }
+    ],
+    "svhcList": []
+  },
+  "note": "This description is deliberately longer than sixty characters to test truncation."
+}

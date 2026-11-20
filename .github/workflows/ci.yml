@@ -1,0 +1,63 @@
+# Verifies every pull request and every push to main (assessment criteria C0-05, Cn-G1, Cn-G4).
+# Network checks against third-party sources run separately in sources.yml.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+
+      - name: Typecheck (app, tests and configs)
+        run: npm run typecheck
+
+      - name: N contract pack (structure, digests, holds)
+        run: npm run check-contracts
+
+      - name: Fixture packs match their digests
+        run: npm run check-fixtures
+
+      - name: Seeds are reproducible from their sources
+        run: |
+          npm run build-seed
+          git diff --exit-code -- db/seed
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: End-to-end tests on the production build (egress guard included)
+        run: npm run test:e2e
+
+      - name: Built bundle has the content security policy and no browser LLM client
+        run: npm run check-bundle
+
+      - name: Keep the Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: playwright-report
+          retention-days: 14
+          if-no-files-found: ignore

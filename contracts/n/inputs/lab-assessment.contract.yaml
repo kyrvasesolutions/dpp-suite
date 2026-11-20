@@ -1,0 +1,17 @@
+id: INPUT-LAB-JSON
+version: 1.0.0
+status: HOLD
+hold_reason: Structure, units and footprint context are in the v0.5 specification package.
+media_type: application/json
+encoding: UTF-8
+structure: pending   # JSON Schema for the laboratory and assessment file
+footprint:
+  results: one imported, externally calculated result; method and context kept (UC-43)
+  several_results_without_selection: hold the affected route (C3-04)
+ingress:
+  stages: [bytes, parse, structure, semantics, authorisation, route]
+  reject:
+    - duplicate object keys
+    - non-finite numbers (NaN, Infinity, overflow such as 1e999)
+    - wrong encoding
+    - other media type

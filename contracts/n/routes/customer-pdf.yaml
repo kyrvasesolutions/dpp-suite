@@ -1,0 +1,7 @@
+id: customer-pdf
+recipient: Business customer (ACT-06)
+format: application/pdf
+layout: one fixed layout
+status: HOLD
+hold_reason: Field list and layout content follow from the frozen profile and the approved PDF audience (E3).
+fields: []

@@ -17,6 +17,7 @@ import { HoverPreview } from "./components/HoverPreview";
 import { ImportDialog } from "./components/ImportDialog";
 import { ItemWindow, WINDOW_WIDTH, type WindowState } from "./components/ItemWindow";
 import { MappingView } from "./components/MappingView";
+import { CapabilityBadge } from "./components/CapabilityBadge";
 import { PrepareView } from "./components/PrepareView";
 import { RequirementsExplorer } from "./components/RequirementsExplorer";
 import { SamplesSidebar } from "./components/SamplesSidebar";
@@ -25,6 +26,7 @@ import { ValidationView } from "./components/ValidationView";
 import { loadApiKey, saveApiKey } from "./llm/apiKey";
 import { LlmError, suggestMappings } from "./llm/suggest";
 import { loadChain, persist, readProject, resetDatabase, writeProject } from "./db/database";
+import { capabilityOf } from "./model/capabilities";
 import type { Chain } from "./model/chain";
 import { download, exportProject, type Project } from "./model/project";
 import {
@@ -655,6 +657,7 @@ export default function App() {
         >
           Graph compliance
         </Button>
+        <CapabilityBadge capability={capabilityOf(view)} />
       </nav>
       <div className="shell-body">
         <ToggleButtonGroup

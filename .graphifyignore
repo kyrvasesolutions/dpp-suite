@@ -1,0 +1,14 @@
+# Keep the code graph cheap to rebuild and focused on source. Generated, vendored or
+# large data files add tokens and noise without helping navigation.
+dist/
+node_modules/
+test-results/
+playwright-report/
+package-lock.json
+db/seed/*.sql
+db/source/*.json
+fixtures/
+public/
+*.xlsx
+DPP_System_Explorer*.html
+docs/assessment/cycle-0/register.json

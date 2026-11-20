@@ -1,11 +1,26 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
+import { CONTENT_SECURITY_POLICY } from "./config/csp.ts";
+
+/** Adds the content security policy to the built page only, so the dev server's HMR websocket keeps working. */
+const contentSecurityPolicy = (): Plugin => ({
+  name: "dpp-content-security-policy",
+  apply: "build",
+  transformIndexHtml: () => [
+    {
+      tag: "meta",
+      attrs: { "http-equiv": "Content-Security-Policy", content: CONTENT_SECURITY_POLICY },
+      injectTo: "head-prepend",
+    },
+  ],
+});
 
 export default defineConfig({
   // GitHub Pages serves the site from /<repo>/; the workflow sets BASE_PATH.
   base: process.env.BASE_PATH ?? "/",
   plugins: [
+    contentSecurityPolicy(),
     react(),
     VitePWA({
       registerType: "autoUpdate",

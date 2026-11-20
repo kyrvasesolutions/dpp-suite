@@ -1,0 +1,12 @@
+{
+  "pack": "baseline",
+  "files": {
+    "README.md": "7b4b32dc567061737c9ccded433c8289a1e72f2d7184c64911a781ffd4925394",
+    "erp-comma.csv": "8fcbd319ec618ff1307619fcdfbf332bc059edb070e2240fb2d82eeea13065c2",
+    "erp-semicolon-bom.csv": "d6c7ce93207d0160b8a62af369afe39a987dbe875f7ac69f3b10a449e35152cf",
+    "erp.xlsx": "330df9d76882e42dfe507467fd0c8cb1bc81a2a2f7df8b2b89ea9437cd544055",
+    "nested.json": "5c81b61161b2efbdd22a59f4dc71416bf6597d5156ab3c0ec6602c45ea8cd29a",
+    "product.ttl": "cd4b06d957e66fa1b4874c1389a74889c4aff81cc09726dd8ab4c488bd320db7",
+    "product.xml": "5c115a2810f23c190337e9f9c8202513ef9435412d9f696af7affdc44707cd46"
+  }
+}

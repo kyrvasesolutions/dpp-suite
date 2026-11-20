@@ -3,3 +3,15 @@ dist
 .DS_Store
 .claude/settings.local.json
 graphify-out/
+docs/dpp-suite-assessment-criteria.md
+
+# Planning inputs: kept outside version control, referenced by path
+/DPP_MasterPlus_*.xlsx
+/DPP_System_Explorer*.html
+test-results/
+playwright-report/
+
+# Assessment records stay local: they quote plan content and the repository is public
+/docs/assessment/
+/docs/cycle_0_pull_request.md
+/scripts/assessment/

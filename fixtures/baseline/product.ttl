@@ -1,0 +1,6 @@
+@prefix ex: <https://example.org/> .
+@prefix schema: <https://schema.org/> .
+ex:p1 a schema:Product ;
+  rdf:type schema:Product ;
+  schema:gtin "05412345678901" ;
+  schema:material "EN AW-6063" .

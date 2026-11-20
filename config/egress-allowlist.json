@@ -1,0 +1,4 @@
+{
+  "$comment": "Origins the built app may contact besides its own. N allows no egress (LEAN-DEF-13, criterion C0-07), so the list is empty. Adding an origin needs an owner decision recorded in the cycle's decisions file. Used by the content security policy (vite.config.ts) and the end-to-end egress guard (tests/e2e/egress.ts).",
+  "connect": []
+}

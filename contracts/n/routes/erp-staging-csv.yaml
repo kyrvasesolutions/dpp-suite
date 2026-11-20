@@ -1,0 +1,7 @@
+id: erp-staging-csv
+recipient: Manufacturer, internal ERP staging (ACT-01)
+format: text/csv
+formula_safe_cells: required     # no cell may be read as a spreadsheet formula (C4-02)
+status: HOLD
+hold_reason: Field list follows from the frozen profile.
+fields: []
