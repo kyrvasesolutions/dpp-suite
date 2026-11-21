@@ -26,7 +26,8 @@ for (const pack of readdirSync(ROOT).filter((d) => statSync(join(ROOT, d)).isDir
   const manifestPath = join(dir, "MANIFEST.json");
   const files = listFiles(dir)
     .map((p) => relative(dir, p))
-    .filter((p) => p !== "MANIFEST.json" && !p.endsWith(".DS_Store"))
+    // README files are local notes, kept out of version control, so they are not pinned.
+    .filter((p) => p !== "MANIFEST.json" && !p.endsWith(".DS_Store") && !p.endsWith("README.md"))
     .sort();
   const digests = Object.fromEntries(
     files.map((p) => [p, createHash("sha256").update(readFileSync(join(dir, p))).digest("hex")]),

@@ -25,7 +25,7 @@ export function readPack(dir: string) {
   const files: Record<string, string> = {};
   for (const path of listFiles(dir)) {
     const rel = relative(dir, path).split("\\").join("/");
-    if (rel !== "MANIFEST.json" && !rel.endsWith(".DS_Store")) files[rel] = readFileSync(path, "utf8");
+    if (rel !== "MANIFEST.json" && !rel.endsWith(".DS_Store") && !rel.endsWith("README.md")) files[rel] = readFileSync(path, "utf8");
   }
   const manifestText = readFileSync(join(dir, "MANIFEST.json"), "utf8");
   return {

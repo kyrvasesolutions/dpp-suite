@@ -21,3 +21,12 @@ playwright-report/
 
 # Local Python environment for scripts/assessment
 /.venv/
+
+# The public record of changes is CHANGELOG.md. Assistant and working documentation stays local.
+/CLAUDE.md
+/.claude/
+/.graphifyignore
+/docs/
+/db/README.md
+/contracts/**/README.md
+/fixtures/**/README.md
