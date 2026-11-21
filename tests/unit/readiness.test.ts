@@ -5,7 +5,7 @@
  * Each state and each rule ID on purpose-built records, the prohibited-disclosure route variant (the negative
  * test: a hold, never a value), AT-T (every hold resolves to a rule and a source), and determinism.
  */
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { parse } from "yaml";
@@ -277,5 +277,15 @@ describe("determinism", () => {
     expect(JSON.stringify(assess(pack, a))).toBe(JSON.stringify(assess(pack, b)));
     expect(JSON.stringify(assess(pack, a))).toBe(JSON.stringify(assess(pack, a)));
     expect(JSON.stringify(a)).toBe(before);
+  });
+});
+
+describe("the operator notes explain every rule and check the screen can show", () => {
+  // The operator notes are kept locally, outside version control, so CI has no copy.
+  it.runIf(existsSync("docs/operator/readiness-notes.md"))("lists each readiness rule and structural check in the same words, and the four states", () => {
+    const notes = readFileSync("docs/operator/readiness-notes.md", "utf8");
+    for (const r of [...pack.policy.readiness.rules, ...pack.policy.readiness.checks]) expect(notes, r.id).toContain(`| \`${r.id}\` | ${r.text} |`);
+    for (const state of ["Present", "Missing", "Not accessible to this recipient", "Challenged"]) expect(notes, state).toContain(`| ${state} |`);
+    expect(notes).toContain("not a conformity assessment");
   });
 });
