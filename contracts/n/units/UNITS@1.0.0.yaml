@@ -1,0 +1,18 @@
+# Units. PUBLIC STAND-IN for the private N pack (decision D1-01, option b): synthetic, renumbered
+# identifiers, stand-in definitions and codes. Generated from the private specification; do not edit by hand.
+id: UNITS
+version: 1.0.0
+status: FROZEN
+units:
+  - code: mm
+    name: millimetre
+  - code: kg
+    name: kilogram
+  - code: "%"
+    name: per cent (mass share)
+  - code: MPa
+    name: megapascal
+  - code: kg{CO2e}/kg
+    name: kilogram CO2 equivalent per kilogram of product
+conversions: []
+note: Every mapped input unit equals the profile unit, so the frozen mappings need no conversion.

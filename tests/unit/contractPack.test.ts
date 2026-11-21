@@ -22,11 +22,7 @@ const text = (name: string) => new TextDecoder("utf-8", { fatal: true }).decode(
 type Property = { id: string; unit: string | null; required_by: Record<string, boolean> };
 type Column = { name: string; maps_to: string; code_list?: string; required: boolean };
 const profile = yaml("profile/PROFILE-ALU-24-01@1.0.0.yaml") as { status: string; properties: Property[] };
-const erp = yaml("inputs/erp-extract.csv.contract.yaml") as {
-  delimiter: string;
-  columns: Column[];
-  code_lists: Record<string, { values: string[] | Record<string, string> }>;
-};
+const erp = yaml("inputs/erp-extract.csv.contract.yaml") as { delimiter: string; columns: Column[] };
 const lab = yaml("inputs/lab-assessment.contract.yaml") as { allowed_units: Record<string, string[]> };
 const ids = new Set(profile.properties.map((p) => p.id));
 const baseId = (mapsTo: string) => mapsTo.split("/")[0];
@@ -40,10 +36,13 @@ function rows(csv: string) {
   return { cols, rows: body.map((l) => Object.fromEntries(l.split(erp.delimiter).map((v, i) => [cols[i], v]))) };
 }
 
-const codeValues = (list: string) => {
-  const values = erp.code_lists[list].values;
-  return Array.isArray(values) ? values : Object.keys(values);
-};
+/** Codes of a pinned code-list file, by name or exact id@version. */
+const codeValues = (list: string) =>
+  readFileSync(join(PACK, `code-lists/${list.includes("@") ? list : `${list}@1.0.0`}.csv`), "utf8")
+    .split("\n")
+    .filter((l) => l.trim() && !l.startsWith("#"))
+    .slice(1)
+    .map((l) => l.split(",")[0]);
 
 describe("C0-01 frozen contract pack", () => {
   const tmp = mkdtempSync(join(tmpdir(), "pack-"));

@@ -5,18 +5,36 @@ version: 1.0.0
 status: FROZEN
 stand_in: true
 source: stand-in for the private pack (D1-01 b)
+release:
+  released: 2026-11-21
+  released_by: stand-in, generated with the private pack
+  basis: stand-in
 product_family: Stand-in aluminium sheet product family
 languages:
   - en
   - de
+sectors: SECTOR@1.0.0
 routes:
   - customer-pdf
   - erp-staging-csv
   - registry-prep-json
+pins:
+  terms: ALU-TERMS@1.0.0
+  legal: ALU-LEGAL@1.0.0
+  units: UNITS@1.0.0
+  code_lists:
+    - COMPANY@1.0.0
+    - CN@1.0.0
+    - ALLOY@1.0.0
+    - TEMPER@1.0.0
+    - SURFACE@1.0.0
+    - COUNTRY@1.0.0
+    - CUSTOMER@1.0.0
+    - SUPPLIER@1.0.0
+    - SECTOR@1.0.0
 properties:
   - id: ALU-D101
     definition_ref: urn:dpp-demo:standin:term:product-model-id
-    definition: Stand-in definition for product model identifier.
     unit: null
     labels:
       en: Product model identifier
@@ -31,7 +49,6 @@ properties:
       - FLD-Identifier-scheme_version
   - id: ALU-D102
     definition_ref: urn:dpp-demo:standin:term:manufacturer-id
-    definition: Stand-in definition for manufacturer identifier.
     unit: null
     labels:
       en: Manufacturer identifier
@@ -46,7 +63,6 @@ properties:
       - FLD-Identifier-scheme_version
   - id: ALU-D103
     definition_ref: urn:dpp-demo:standin:term:product-name
-    definition: Stand-in definition for product name.
     unit: null
     labels:
       en: Product name
@@ -58,7 +74,6 @@ properties:
     members: []
   - id: ALU-D104
     definition_ref: urn:dpp-demo:standin:term:batch-id
-    definition: Stand-in definition for batch identifier.
     unit: null
     labels:
       en: Batch identifier
@@ -73,7 +88,6 @@ properties:
       - FLD-Identifier-scheme_version
   - id: ALU-D105
     definition_ref: urn:dpp-demo:standin:term:commodity-code
-    definition: Stand-in definition for commodity code (cn).
     unit: null
     labels:
       en: Commodity code (CN)
@@ -85,7 +99,6 @@ properties:
     members: []
   - id: ALU-D106
     definition_ref: urn:dpp-demo:standin:term:alloy-designation
-    definition: Stand-in definition for alloy designation.
     unit: null
     labels:
       en: Alloy designation
@@ -95,9 +108,12 @@ properties:
       erp-staging-csv: true
       registry-prep-json: false
     members: []
+    context_labels:
+      - lang: de
+        context: automotive
+        text: Werkstoff
   - id: ALU-D107
     definition_ref: urn:dpp-demo:standin:term:temper-designation
-    definition: Stand-in definition for temper designation.
     unit: null
     labels:
       en: Temper designation
@@ -109,7 +125,6 @@ properties:
     members: []
   - id: ALU-D108
     definition_ref: urn:dpp-demo:standin:term:nominal-thickness
-    definition: Stand-in definition for nominal thickness.
     unit: mm
     labels:
       en: Nominal thickness
@@ -119,9 +134,15 @@ properties:
       erp-staging-csv: true
       registry-prep-json: false
     members: []
+    context_labels:
+      - lang: de
+        context: construction
+        text: Blechstärke
+      - lang: en
+        context: construction
+        text: Sheet gauge
   - id: ALU-D109
     definition_ref: urn:dpp-demo:standin:term:measured-thickness
-    definition: Stand-in definition for measured thickness.
     unit: mm
     labels:
       en: Measured thickness
@@ -136,7 +157,6 @@ properties:
       - FLD-Uncertainty-uncertainty_kind
   - id: ALU-D110
     definition_ref: urn:dpp-demo:standin:term:nominal-width
-    definition: Stand-in definition for nominal width.
     unit: mm
     labels:
       en: Nominal width
@@ -148,7 +168,6 @@ properties:
     members: []
   - id: ALU-D111
     definition_ref: urn:dpp-demo:standin:term:nominal-length
-    definition: Stand-in definition for nominal length.
     unit: mm
     labels:
       en: Nominal length
@@ -160,7 +179,6 @@ properties:
     members: []
   - id: ALU-D112
     definition_ref: urn:dpp-demo:standin:term:net-mass
-    definition: Stand-in definition for net mass of the batch.
     unit: kg
     labels:
       en: Net mass of the batch
@@ -172,7 +190,6 @@ properties:
     members: []
   - id: ALU-D113
     definition_ref: urn:dpp-demo:standin:term:surface-finish
-    definition: Stand-in definition for surface finish.
     unit: null
     labels:
       en: Surface finish
@@ -182,9 +199,12 @@ properties:
       erp-staging-csv: true
       registry-prep-json: false
     members: []
+    context_labels:
+      - lang: de
+        context: construction
+        text: Oberfläche
   - id: ALU-D114
     definition_ref: urn:dpp-demo:standin:term:recycled-content
-    definition: Stand-in definition for recycled content.
     unit: "%"
     labels:
       en: Recycled content
@@ -196,7 +216,6 @@ properties:
     members: []
   - id: ALU-D115
     definition_ref: urn:dpp-demo:standin:term:tensile-strength
-    definition: Stand-in definition for tensile strength rm (measured).
     unit: MPa
     labels:
       en: Tensile strength Rm (measured)
@@ -211,7 +230,6 @@ properties:
       - FLD-Uncertainty-uncertainty_kind
   - id: ALU-D116
     definition_ref: urn:dpp-demo:standin:term:country-of-casting
-    definition: Stand-in definition for country of casting.
     unit: null
     labels:
       en: Country of casting
@@ -221,9 +239,12 @@ properties:
       erp-staging-csv: true
       registry-prep-json: false
     members: []
+    context_labels:
+      - lang: en
+        context: automotive
+        text: Country of melt
   - id: ALU-D117
     definition_ref: urn:dpp-demo:standin:term:production-date
-    definition: Stand-in definition for production date.
     unit: null
     labels:
       en: Production date
@@ -235,7 +256,6 @@ properties:
     members: []
   - id: ALU-D118
     definition_ref: urn:dpp-demo:standin:term:evidence-references
-    definition: Stand-in definition for evidence references.
     unit: null
     labels:
       en: Evidence references
@@ -254,7 +274,6 @@ properties:
       - FLD-Evidence-access_policy_ref
   - id: ALU-D119
     definition_ref: urn:dpp-demo:standin:term:carbon-footprint
-    definition: Stand-in definition for product carbon footprint.
     unit: kg{CO2e}/kg
     labels:
       en: Product carbon footprint
@@ -270,7 +289,6 @@ properties:
       - FLD-Footprint-calculated_by
   - id: ALU-D120
     definition_ref: urn:dpp-demo:standin:term:post-consumer-share
-    definition: Stand-in definition for post-consumer recycled share.
     unit: "%"
     labels:
       en: Post-consumer recycled share
@@ -282,7 +300,6 @@ properties:
     members: []
   - id: ALU-D121
     definition_ref: urn:dpp-demo:standin:term:product-narrative
-    definition: Stand-in definition for product narrative.
     unit: null
     labels:
       en: Product narrative
@@ -301,7 +318,6 @@ properties:
       - FLD-Text-revision
   - id: ALU-D122
     definition_ref: urn:dpp-demo:standin:term:customer-article-number
-    definition: Stand-in definition for customer article number.
     unit: null
     labels:
       en: Customer article number
@@ -317,7 +333,6 @@ properties:
       - FLD-Identifier-scope
   - id: ALU-D123
     definition_ref: urn:dpp-demo:standin:term:chemical-composition
-    definition: Stand-in definition for chemical composition (measured).
     unit: "%"
     labels:
       en: Chemical composition (measured)
@@ -333,7 +348,6 @@ properties:
       - FLD-Uncertainty-uncertainty_kind
   - id: ALU-D124
     definition_ref: urn:dpp-demo:standin:term:primary-supplier
-    definition: Stand-in definition for primary aluminium supplier.
     unit: null
     labels:
       en: Primary aluminium supplier

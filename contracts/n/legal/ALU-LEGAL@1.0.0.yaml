@@ -1,0 +1,87 @@
+# Illustrative legal requirements. PUBLIC STAND-IN for the private N pack (decision D1-01, option b): synthetic, renumbered
+# identifiers, stand-in definitions and codes. Generated from the private specification; do not edit by hand.
+id: ALU-LEGAL
+version: 1.0.0
+status: FROZEN
+note: Illustrative requirements for the demonstrator, linked to the regulatory chain in src/model/legislation.ts. Not a legal assessment, and there is no legal monitor.
+statuses:
+  in-force: The act applies to this product now (for CBAM, to imports into the EU).
+  pending-product-rules: The act is in force, but the obligation applies only once product rules exist (an ESPR delegated act, or a harmonised technical specification under the CPR).
+  voluntary: No legal requirement is selected; the property is voluntary information beyond the legal minimum (UC-04).
+entries:
+  - property: ALU-D101
+    status: pending-product-rules
+    requirement: product-id
+    legislation: espr
+  - property: ALU-D102
+    status: pending-product-rules
+    requirement: manufacturer
+    legislation: espr
+  - property: ALU-D103
+    status: voluntary
+  - property: ALU-D104
+    status: pending-product-rules
+    requirement: product-id
+    legislation: cpr
+  - property: ALU-D105
+    status: in-force
+    requirement: commodity-code
+    legislation: cbam
+  - property: ALU-D106
+    status: pending-product-rules
+    requirement: material-composition
+    legislation: cpr
+  - property: ALU-D107
+    status: voluntary
+  - property: ALU-D108
+    status: voluntary
+  - property: ALU-D109
+    status: voluntary
+  - property: ALU-D110
+    status: voluntary
+  - property: ALU-D111
+    status: voluntary
+  - property: ALU-D112
+    status: in-force
+    requirement: quantities
+    legislation: cbam
+  - property: ALU-D113
+    status: voluntary
+  - property: ALU-D114
+    status: pending-product-rules
+    requirement: recycled-content
+    legislation: espr
+  - property: ALU-D115
+    status: pending-product-rules
+    requirement: performance
+    legislation: cpr
+  - property: ALU-D116
+    status: in-force
+    requirement: production-site
+    legislation: cbam
+  - property: ALU-D117
+    status: voluntary
+  - property: ALU-D118
+    status: in-force
+    requirement: verification
+    legislation: cbam
+  - property: ALU-D119
+    status: pending-product-rules
+    requirement: carbon-footprint
+    legislation: espr
+  - property: ALU-D120
+    status: pending-product-rules
+    requirement: recycled-content
+    legislation: espr
+  - property: ALU-D121
+    status: voluntary
+  - property: ALU-D122
+    status: voluntary
+  - property: ALU-D123
+    status: pending-product-rules
+    requirement: material-composition
+    legislation: espr
+  - property: ALU-D124
+    status: pending-product-rules
+    requirement: supply-chain-operators
+    legislation: espr

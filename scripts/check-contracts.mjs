@@ -8,11 +8,19 @@
  *
  * A part on HOLD must say why. The registry route stays on HOLD after the pack is frozen, until an
  * applicable external contract exists, so it never fails --require-frozen.
+ *
+ * Once the profile is frozen it also checks the Cycle 1 rules:
+ *   C1-02  every reference names an exact id@version that resolves to a file in the pack; no "latest"
+ *   C1-04  every definition_ref and nested member resolves to a governed term with a definition
+ *   C1-05  sector labels carry a plain language tag and a separate sector context
+ *   C1-06  every property has one source-status label; legal links resolve in the regulatory chain
+ *   FUNC-030  every mapped unit equals the profile unit, or a declared conversion exists
  */
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { parse } from "yaml";
+import { PROVISIONS } from "../src/model/legislation.ts";
 
 const argv = process.argv.slice(2);
 const packAt = argv.indexOf("--pack");
@@ -163,6 +171,109 @@ if (matrix.status === "FROZEN") {
   }
 } else if (matrix.status === "HOLD") holds.push("policy/actor-field-matrix.csv");
 else fail(`policy/actor-field-matrix.csv: first line must be "# status: FROZEN" or "# status: HOLD …"`);
+
+// ---------- Pinned reference files (C1-02 to C1-06) ----------
+
+const PIN = /^[A-Z][A-Z0-9-]*@\d+\.\d+\.\d+$/;
+const pinned = (kind, ref, ext) => {
+  if (typeof ref !== "string" || !PIN.test(ref)) {
+    fail(`${kind} reference "${ref}" must be an exact id@version (C1-02)`);
+    return null;
+  }
+  const path = `${kind}/${ref}.${ext}`;
+  if (!present.includes(path)) {
+    fail(`${kind} reference ${ref} does not resolve to ${path} in the pack (C1-02)`);
+    return null;
+  }
+  return path;
+};
+const readCodes = (path) =>
+  readFileSync(join(ROOT, path), "utf8")
+    .split(/\r?\n/)
+    .filter((l) => l.trim() && !l.startsWith("#"))
+    .slice(1)
+    .map((l) => l.split(",")[0].trim());
+const pinnedYaml = (kind, ref) => {
+  const path = pinned(kind, ref, "yaml");
+  if (!path) return null;
+  const doc = readYaml(path);
+  if (`${doc.id}@${doc.version}` !== ref) fail(`${path}: id and version must be ${ref}`);
+  status(path, doc);
+  return doc;
+};
+
+if (profileFrozen) {
+  const pins = profile.pins ?? {};
+  if (!profile.release?.released || !profile.release?.released_by) fail(`${profilePath}: release metadata (released, released_by) is required (C1-01)`);
+
+  // Terms (C1-04)
+  const terms = pinnedYaml("terms", pins.terms);
+  const termIds = new Map((terms?.terms ?? []).map((t) => [t.id, t]));
+  for (const t of termIds.values()) if (!t.definition) fail(`term ${t.id} has no definition (C1-04)`);
+  for (const p of properties) {
+    if (!termIds.has(p.definition_ref)) fail(`${p.id}: definition_ref ${p.definition_ref} does not resolve to a governed term (C1-04)`);
+    for (const m of p.members ?? []) if (!termIds.has(m)) fail(`${p.id}: member ${m} does not resolve to a governed term (C1-04)`);
+  }
+
+  // Code lists (C1-02, C1-03)
+  const codeLists = new Map();
+  for (const ref of [...(pins.code_lists ?? []), profile.sectors]) {
+    const path = pinned("code-lists", ref, "csv");
+    if (path) codeLists.set(ref, readCodes(path));
+  }
+  if (!codeLists.has(profile.sectors)) fail(`${profilePath}: sectors must name a pinned code list (C1-05)`);
+  const erpInput = readYaml("inputs/erp-extract.csv.contract.yaml");
+  for (const c of erpInput.columns ?? []) {
+    if (c.code_list && !codeLists.has(c.code_list)) fail(`ERP column ${c.name}: code list ${c.code_list} is not pinned by the profile (C1-02)`);
+  }
+
+  // Sector labels (C1-05)
+  const sectors = new Set(codeLists.get(profile.sectors) ?? []);
+  for (const p of properties) {
+    for (const l of p.context_labels ?? []) {
+      if (!/^[a-z]{2,3}$/.test(l.lang ?? "") || !profile.languages.includes(l.lang)) {
+        fail(`${p.id}: context label language "${l.lang}" must be a plain language tag of the profile (C1-05)`);
+      }
+      if (!sectors.has(l.context)) fail(`${p.id}: context "${l.context}" is not in ${profile.sectors} (C1-05)`);
+      if (!l.text) fail(`${p.id}: context label for ${l.lang}/${l.context} has no text`);
+    }
+  }
+
+  // Source-status labels and legal links (C1-06)
+  const legal = pinnedYaml("legal", pins.legal);
+  const statuses = new Set(Object.keys(legal?.statuses ?? {}));
+  const entries = legal?.entries ?? [];
+  for (const id of propertyIds) {
+    const own = entries.filter((e) => e.property === id);
+    if (own.length !== 1) {
+      fail(`${id}: needs exactly one source-status entry, found ${own.length} (C1-06)`);
+      continue;
+    }
+    const e = own[0];
+    if (!statuses.has(e.status)) fail(`${id}: source status "${e.status}" is not defined (C1-06)`);
+    if (e.status === "voluntary") {
+      if (e.requirement || e.legislation) fail(`${id}: a voluntary property names no legal requirement (C1-06)`);
+    } else if (!PROVISIONS.some((pr) => pr.dataRequirement === e.requirement && pr.legislation === e.legislation && pr.groups.includes("aluminium"))) {
+      fail(`${id}: no aluminium provision for ${e.requirement} in ${e.legislation} in the regulatory chain (C1-06)`);
+    }
+  }
+  for (const e of entries) if (!propertyIds.includes(e.property)) fail(`source-status entry ${e.property} is not a profile property`);
+
+  // Units and conversions (FUNC-030 slice)
+  const units = pinnedYaml("units", pins.units);
+  const unitCodes = new Set((units?.units ?? []).map((u) => u.code));
+  const converts = (from, to) => from === to || (units?.conversions ?? []).some((c) => c.from === from && c.to === to);
+  const unitOf = new Map(properties.map((p) => [p.id, p.unit]));
+  for (const p of properties) if (p.unit !== null && !unitCodes.has(p.unit)) fail(`${p.id}: unit ${p.unit} is not in ${pins.units}`);
+  for (const c of erpInput.columns ?? []) {
+    const target = unitOf.get(String(c.maps_to).split("/")[0]);
+    if (c.unit && !converts(c.unit, target)) fail(`ERP column ${c.name}: no conversion from ${c.unit} to ${target} (FUNC-030)`);
+  }
+  for (const [prop, list] of Object.entries(lab.allowed_units ?? {})) {
+    if (!unitOf.has(prop)) fail(`lab allowed_units: ${prop} is not a profile property`);
+    for (const u of list) if (!converts(u, unitOf.get(prop))) fail(`lab allowed unit ${u} for ${prop}: no conversion to ${unitOf.get(prop)} (FUNC-030)`);
+  }
+}
 
 // ---------- Failure cases ----------
 
