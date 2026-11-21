@@ -4,12 +4,14 @@
  *
  *   npm run check-fixtures              fail on any file that is missing, unlisted or changed
  *   npm run check-fixtures -- --write   rewrite every MANIFEST.json from the files as they are
+ *   npm run check-fixtures -- --root <dir>   check packs in another directory, such as the private ones
  */
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
-const ROOT = "fixtures";
+const rootAt = process.argv.indexOf("--root");
+const ROOT = rootAt >= 0 ? process.argv[rootAt + 1] : "fixtures";
 const write = process.argv.includes("--write");
 const errors = [];
 

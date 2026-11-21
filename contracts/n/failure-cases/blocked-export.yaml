@@ -3,4 +3,4 @@ class: blocked export
 criterion: C3-03
 input: A required property of a route is missing.
 expected: The route holds; the hold names the property, the rule and the source; no output file is produced for that route.
-fixture: pending
+fixture: fixtures/n/erp-missing-recycled-content.csv

@@ -15,3 +15,6 @@ playwright-report/
 /docs/assessment/
 /docs/cycle_0_pull_request.md
 /scripts/assessment/
+
+# Specification package and the filled contract pack stay private (decision D1-01, option b)
+/spec/

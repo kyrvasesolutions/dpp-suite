@@ -3,4 +3,4 @@ class: missing column
 criterion: C2-02
 input: The ERP extract lacks a required column.
 expected: Rejected at stage "structure" with a typed error naming the column.
-fixture: pending
+fixture: fixtures/n/erp-missing-alloy-column.csv

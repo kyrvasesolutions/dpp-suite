@@ -3,4 +3,4 @@ class: wrong unit
 criterion: C2-04
 input: A measured value carries a unit that the input contract does not allow for its property.
 expected: Typed error at stage "semantics" naming the property, the unit given and the units allowed; no conversion guessed.
-fixture: pending
+fixture: fixtures/n/lab-wrong-unit.json

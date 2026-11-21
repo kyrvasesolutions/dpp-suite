@@ -1,7 +1,9 @@
 id: FC-LEAKAGE
 class: leakage
 criterion: C3-05
-also_tested_by: [C4-01, C5-04]
+also_tested_by:
+  - C4-01
+  - C5-04
 input: A field denied to the business customer in the actor/field matrix has a valid value.
 expected: The value is absent from the customer PDF and from every view shown for that recipient.
-fixture: pending
+fixture: fixtures/n/d03a-erp-extract.csv

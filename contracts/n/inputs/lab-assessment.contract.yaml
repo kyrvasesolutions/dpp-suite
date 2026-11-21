@@ -1,15 +1,216 @@
+# Laboratory and assessment contract. PUBLIC STAND-IN for the private N pack (decision D1-01, option b): synthetic, renumbered
+# identifiers, stand-in definitions and codes. Generated from the private specification; do not edit by hand.
 id: INPUT-LAB-JSON
 version: 1.0.0
-status: HOLD
-hold_reason: Structure, units and footprint context are in the v0.5 specification package.
+status: FROZEN
 media_type: application/json
 encoding: UTF-8
-structure: pending   # JSON Schema for the laboratory and assessment file
+structure:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  additionalProperties: false
+  required:
+    - schema_id
+    - product
+    - observations
+    - footprints
+    - evidence
+    - texts
+  properties:
+    schema_id:
+      const: LAB-ASSESSMENT@1.0.0
+    product:
+      type: object
+      additionalProperties: false
+      required:
+        - model_id
+        - batch_id
+        - alloy
+      properties:
+        model_id:
+          type: string
+        batch_id:
+          type: string
+        alloy:
+          type: string
+    observations:
+      type: array
+      items:
+        type: object
+        additionalProperties: false
+        required:
+          - observation_id
+          - property
+          - value
+          - unit
+          - uncertainty
+          - method
+          - evidence_id
+        properties:
+          observation_id:
+            type: string
+          property:
+            enum:
+              - ALU-D109
+              - ALU-D115
+              - ALU-D123
+          element:
+            type: string
+          value:
+            type: number
+          unit:
+            type:
+              - string
+              - "null"
+          uncertainty:
+            type: object
+            additionalProperties: false
+            required:
+              - expanded
+              - coverage_factor
+              - uncertainty_kind
+            properties:
+              expanded:
+                type: number
+                minimum: 0
+              coverage_factor:
+                type: number
+                exclusiveMinimum: 0
+              uncertainty_kind:
+                enum:
+                  - standard
+                  - expanded
+          method:
+            type: string
+          evidence_id:
+            type: string
+    footprints:
+      type: array
+      items:
+        type: object
+        additionalProperties: false
+        required:
+          - result_id
+          - property
+          - value
+          - unit
+          - method
+          - system_boundary
+          - reference_year
+          - calculated_by
+          - evidence_id
+        properties:
+          result_id:
+            type: string
+          property:
+            const: ALU-D119
+          value:
+            type: number
+            minimum: 0
+          unit:
+            type:
+              - string
+              - "null"
+          method:
+            type: string
+          system_boundary:
+            enum:
+              - cradle-to-gate
+          reference_year:
+            type: integer
+          calculated_by:
+            type: string
+          evidence_id:
+            type: string
+    evidence:
+      type: array
+      items:
+        type: object
+        additionalProperties: false
+        required:
+          - evidence_id
+          - issuer
+          - revision
+          - record_kind
+          - scope
+          - digest
+          - access_policy_ref
+        properties:
+          evidence_id:
+            type: string
+          issuer:
+            type: string
+          revision:
+            type: string
+          record_kind:
+            enum:
+              - test-report
+              - calculation-report
+              - certificate
+          scope:
+            type: string
+          digest:
+            type:
+              - string
+              - "null"
+            pattern: ^sha256:[0-9a-f]{64}$
+          access_policy_ref:
+            type: string
+    texts:
+      type: array
+      items:
+        type: object
+        additionalProperties: false
+        required:
+          - text_id
+          - subject_ref
+          - language
+          - sector
+          - market
+          - approval_state
+          - revision
+          - text
+        properties:
+          text_id:
+            type: string
+          subject_ref:
+            type: string
+          language:
+            enum:
+              - en
+              - de
+          sector:
+            type: string
+          market:
+            type: string
+          approval_state:
+            enum:
+              - draft
+              - approved
+          revision:
+            type: string
+          text:
+            type: string
+allowed_units:
+  ALU-D109:
+    - mm
+  ALU-D115:
+    - MPa
+  ALU-D123:
+    - "%"
+  ALU-D119:
+    - kg{CO2e}/kg
 footprint:
   results: one imported, externally calculated result; method and context kept (UC-43)
   several_results_without_selection: hold the affected route (C3-04)
 ingress:
-  stages: [bytes, parse, structure, semantics, authorisation, route]
+  stages:
+    - bytes
+    - parse
+    - structure
+    - semantics
+    - authorisation
+    - route
   reject:
     - duplicate object keys
     - non-finite numbers (NaN, Infinity, overflow such as 1e999)

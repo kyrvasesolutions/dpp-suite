@@ -1,0 +1,34 @@
+id: customer-pdf
+note: "Failure fixture FC-PROHIBITED-DISCLOSURE: a route variant that requires
+  properties the matrix denies to its recipient."
+recipient: Business customer (ACT-06)
+format: application/pdf
+status: FROZEN
+fields:
+  - ALU-D101
+  - ALU-D102
+  - ALU-D103
+  - ALU-D104
+  - ALU-D105
+  - ALU-D106
+  - ALU-D107
+  - ALU-D108
+  - ALU-D109
+  - ALU-D110
+  - ALU-D111
+  - ALU-D112
+  - ALU-D113
+  - ALU-D114
+  - ALU-D115
+  - ALU-D116
+  - ALU-D117
+  - ALU-D119
+  - ALU-D120
+  - ALU-D121
+  - ALU-D122
+  - ALU-D123
+  - ALU-D118
+  - ALU-D124
+requires:
+  - ALU-D118
+  - ALU-D124

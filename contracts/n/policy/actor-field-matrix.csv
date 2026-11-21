@@ -1,2 +1,26 @@
-# status: HOLD; rows (one per profile property) come from the v0.5 specification package
+# status: FROZEN; public stand-in (D1-01 b)
 property,customer-pdf,erp-staging-csv,registry-prep-json
+ALU-D101,permit,permit,permit
+ALU-D102,permit,permit,permit
+ALU-D103,permit,permit,deny
+ALU-D104,permit,permit,deny
+ALU-D105,permit,permit,permit
+ALU-D106,permit,permit,deny
+ALU-D107,permit,permit,deny
+ALU-D108,permit,permit,deny
+ALU-D109,permit,permit,deny
+ALU-D110,permit,permit,deny
+ALU-D111,permit,permit,deny
+ALU-D112,permit,permit,deny
+ALU-D113,permit,permit,deny
+ALU-D114,permit,permit,deny
+ALU-D115,derived,permit,deny
+ALU-D116,permit,permit,deny
+ALU-D117,permit,permit,deny
+ALU-D118,deny,permit,deny
+ALU-D119,permit,permit,deny
+ALU-D120,permit,permit,deny
+ALU-D121,permit,deny,deny
+ALU-D122,permit,permit,deny
+ALU-D123,derived,permit,deny
+ALU-D124,deny,permit,deny

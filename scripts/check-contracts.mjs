@@ -4,6 +4,7 @@
  *   npm run check-contracts                      structure, digests and, once frozen, the full rules
  *   npm run check-contracts -- --write           rewrite MANIFEST.json from the files as they are
  *   npm run check-contracts -- --require-frozen  also fail while any part is still on HOLD
+ *   npm run check-contracts -- --pack <dir>      check another pack, such as the private one (decision D1-01)
  *
  * A part on HOLD must say why. The registry route stays on HOLD after the pack is frozen, until an
  * applicable external contract exists, so it never fails --require-frozen.
@@ -13,13 +14,19 @@ import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "
 import { join, relative } from "node:path";
 import { parse } from "yaml";
 
-const ROOT = "contracts/n";
+const argv = process.argv.slice(2);
+const packAt = argv.indexOf("--pack");
+const ROOT = packAt >= 0 ? argv[packAt + 1] : "contracts/n";
+if (!ROOT || ROOT.startsWith("--")) {
+  console.error("check-contracts: --pack needs a directory");
+  process.exit(1);
+}
 const MANIFEST = join(ROOT, "MANIFEST.json");
 const ROUTES = ["customer-pdf", "erp-staging-csv", "registry-prep-json"];
 const STANDING_HOLDS = new Set(["routes/registry-prep-json.yaml"]);
 const ACCESS = new Set(["permit", "deny", "derived"]);
 
-const args = new Set(process.argv.slice(2));
+const args = new Set(argv);
 const errors = [];
 const holds = [];
 const fail = (msg) => errors.push(msg);
@@ -173,12 +180,13 @@ for (const path of caseFiles) {
     if (!/^C\d+-\d{2}$/.test(id ?? "")) fail(`${path}: "${id}" is not a criterion ID such as C2-02`);
   }
   if (c.fixture === "pending") holds.push(`${path} (fixture)`);
+  else if (c.fixture && !existsSync(c.fixture)) fail(`${path}: fixture ${c.fixture} does not exist`);
 }
 
 // ---------- Report ----------
 
 const blocking = holds.filter((h) => !STANDING_HOLDS.has(h));
-console.log(`N contract pack: ${present.length} files, ${caseFiles.length} failure cases, ${propertyIds.length} properties.`);
+console.log(`N contract pack ${ROOT}: ${present.length} files, ${caseFiles.length} failure cases, ${propertyIds.length} properties.`);
 if (holds.length) {
   console.log(`HOLD (${holds.length}):`);
   for (const h of holds) console.log(`  ${h}${STANDING_HOLDS.has(h) ? "  (standing hold)" : ""}`);
@@ -191,4 +199,5 @@ if (args.has("--require-frozen") && blocking.length) {
   console.error(`check-contracts: ${blocking.length} part(s) still on HOLD`);
   process.exit(1);
 }
-console.log(holds.length ? "Structure and digests OK; pack not frozen." : "Pack frozen; all checks passed.");
+if (blocking.length) console.log("Structure and digests OK; pack not frozen.");
+else console.log(`Pack frozen; all checks passed${holds.length ? " (registry route on its standing hold)" : ""}.`);
