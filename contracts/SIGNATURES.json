@@ -1,8 +1,8 @@
 {
   "n": {
-    "manifest_sha256": "1acb0d7f32579b339b6d2f8872fb3d552ab6788090beb0a07e6472e31b918a2d",
+    "manifest_sha256": "34a8af8b11a667ae31df58a36884f18644f4c98d5fd5a85adbb5203e0abdcade",
     "signed_by": "kyrvasesolutions (GitHub account of the owner)",
     "date": "2026-11-21",
-    "basis": "ARTIFICIAL-DEMO sign-off under the owner's standing instruction; pack README files moved out of version control (decision D2-02)"
+    "basis": "ARTIFICIAL-DEMO sign-off under the owner's standing instruction; decision D3-01"
   }
 }

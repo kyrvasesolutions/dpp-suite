@@ -3794,3 +3794,53 @@ code {
   border-color: var(--suggest);
   color: var(--suggest);
 }
+
+.readiness-checks {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.readiness-checks li[data-state="failed"] {
+  color: var(--warn);
+}
+
+.readiness-routes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 10px;
+  align-items: start;
+}
+
+.readiness-route[data-state="on-hold"] {
+  border-color: var(--warn);
+}
+
+.readiness-route[data-state="ready"] {
+  border-color: var(--ok);
+}
+
+.readiness-recipient {
+  margin-top: 14px;
+  display: grid;
+  gap: 8px;
+}
+
+.readiness-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.readiness-switch button[aria-pressed="true"] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.readiness-withheld ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}

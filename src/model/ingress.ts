@@ -44,6 +44,7 @@ export type IngressCode =
   | "duplicate-record"
   | "duplicate-id"
   | "padded-identifier"
+  | "subject-mismatch"
   | "not-authorised";
 
 /** What each error means for the operator, in the words of the operator notes (C2-08). */
@@ -74,6 +75,7 @@ export const ERROR_TEXT: Record<IngressCode, string> = {
   "duplicate-record": "Two rows describe the same product model and batch. Keep one row per batch.",
   "duplicate-id": "Two entries in the file have the same identifier, so it is unclear which one is meant.",
   "padded-identifier": "An identifier or code has spaces at its ends or invisible characters, so it would not match the same identifier written plainly.",
+  "subject-mismatch": "A text is about another product model than the one this laboratory file reports on.",
   "not-authorised": "This role may not import source files.",
 };
 
@@ -488,6 +490,11 @@ export async function importLabJson(
     // The lab file names the model, batch and alloy it reports on, so they become assertions too (FUNC-065).
     const reference = (key: string, property: string, member?: string) => {
       const raw = str(get(product, key));
+      // The same rule as for identifiers in the ERP extract: padding would keep the value from matching its record.
+      if (key !== "alloy" && (raw !== raw.trim() || HAS_INVISIBLE.test(raw))) {
+        errors.push(issue("semantics", "padded-identifier", `${name}, /product/${key}`, JSON.stringify(raw)));
+        return;
+      }
       assertions.push({ property, ...(member ? { member } : {}), raw, value: raw, unit: null, source: src(`/product/${key}`), flags: ["declared"] });
     };
     reference("model_id", byRole(pack, "model"), "FLD-Identifier-value");
@@ -616,6 +623,8 @@ export async function importLabJson(
 
     const narrativeProperty = byRole(pack, "narrative");
     list(get(doc, "texts")).forEach((t, i) => {
+      const subject = str(get(t, "subject_ref"));
+      if (subject !== model) errors.push(issue("semantics", "subject-mismatch", `${name}, /texts/${i}/subject_ref`, `"${subject}" is not "${model}".`));
       const flags: Flag[] = ["declared"];
       if (str(get(t, "approval_state")) !== "approved") flags.push("draft-text");
       assertions.push({
@@ -639,12 +648,23 @@ export async function importLabJson(
   }
 }
 
+const ROLE_SLUGS = {
+  model: "product-model-id",
+  batch: "batch-id",
+  alloy: "alloy-designation",
+  temper: "temper-designation",
+  footprint: "carbon-footprint",
+  evidence: "evidence-references",
+  narrative: "product-narrative",
+} as const;
+export type Role = keyof typeof ROLE_SLUGS;
+
 /**
- * Finds a property by the role its definition plays, so the import code names no identifier: the public
+ * Finds a property by the role its definition plays, so no code names an identifier: the public
  * stand-in and the private pack number their properties differently (decision D1-01, option b).
  */
-function byRole(pack: ProfilePack, role: "model" | "batch" | "alloy" | "evidence" | "narrative"): string {
-  const slug = { model: "product-model-id", batch: "batch-id", alloy: "alloy-designation", evidence: "evidence-references", narrative: "product-narrative" }[role];
+export function byRole(pack: ProfilePack, role: Role): string {
+  const slug = ROLE_SLUGS[role];
   const found = pack.properties.find((p) => p.definitionRef.endsWith(`:${slug}`));
   if (!found) throw new Error(`The profile has no ${role} property (${slug})`);
   return found.id;

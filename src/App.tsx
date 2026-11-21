@@ -21,6 +21,7 @@ import { CapabilityBadge } from "./components/CapabilityBadge";
 import { PrepareView } from "./components/PrepareView";
 import { ProfileView } from "./components/ProfileView";
 import { ImportView } from "./components/ImportView";
+import { ReadinessView } from "./components/ReadinessView";
 import { RequirementsExplorer } from "./components/RequirementsExplorer";
 import { SamplesSidebar } from "./components/SamplesSidebar";
 import { TraceTree } from "./components/TraceTree";
@@ -29,6 +30,7 @@ import { loadApiKey, saveApiKey } from "./llm/apiKey";
 import { LlmError, suggestMappings } from "./llm/suggest";
 import { loadChain, persist, readProject, resetDatabase, writeProject } from "./db/database";
 import { capabilityOf } from "./model/capabilities";
+import { RecordStoreProvider } from "./model/recordStore";
 import type { Chain } from "./model/chain";
 import { download, exportProject, type Project } from "./model/project";
 import {
@@ -602,12 +604,13 @@ export function Workspace({ database, nav }: WorkspaceProps) {
   );
 }
 
-type LaneView = "profile" | "import" | "requirements" | "prepare" | "validation" | "mapping";
+type LaneView = "profile" | "import" | "readiness" | "requirements" | "prepare" | "validation" | "mapping";
 type View = LaneView | "graph";
 
 const LANES: Array<{ id: LaneView; label: string }> = [
   { id: "profile", label: "Profile" },
   { id: "import", label: "Import" },
+  { id: "readiness", label: "Readiness" },
   { id: "requirements", label: "Requirements" },
   { id: "prepare", label: "Prepare" },
   { id: "validation", label: "Validation" },
@@ -625,6 +628,14 @@ const viewFromHash = (): View => {
  * The bar across the top leads to screens outside the lanes.
  */
 export default function App() {
+  return (
+    <RecordStoreProvider>
+      <Shell />
+    </RecordStoreProvider>
+  );
+}
+
+function Shell() {
   const [view, setView] = useState<View>(viewFromHash);
   const [chain, setChain] = useState<Chain | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -679,13 +690,15 @@ export default function App() {
             </ToggleButton>
           ))}
         </ToggleButtonGroup>
-        {view !== "graph" && view !== "profile" && view !== "import" && <SamplesSidebar />}
+        {view !== "graph" && view !== "profile" && view !== "import" && view !== "readiness" && <SamplesSidebar />}
         {view === "graph" ? (
           <GraphView chain={chain} chainError={loadError} />
         ) : view === "profile" ? (
           <ProfileView chain={chain} />
         ) : view === "import" ? (
           <ImportView />
+        ) : view === "readiness" ? (
+          <ReadinessView />
         ) : view === "mapping" ? (
           <MappingView />
         ) : chain ? (

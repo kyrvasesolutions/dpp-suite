@@ -48,7 +48,15 @@ const ProfileDoc = z.object({
   languages: z.array(z.string()),
   sectors: pin,
   routes: z.tuple([z.literal(ROUTES[0]), z.literal(ROUTES[1]), z.literal(ROUTES[2])]),
-  pins: z.object({ terms: pin, legal: pin, units: pin, code_lists: z.array(pin), inputs: z.array(pin), route_contracts: z.array(pin) }),
+  pins: z.object({
+    terms: pin,
+    legal: pin,
+    units: pin,
+    code_lists: z.array(pin),
+    inputs: z.array(pin),
+    route_contracts: z.array(pin),
+    policy: z.array(pin),
+  }),
   properties: z.array(
     z.object({
       id: z.string().regex(/^ALU-D\d{3}$/),
@@ -115,8 +123,64 @@ const LabContractDoc = z.object({
   allowed_units: z.record(z.string(), z.array(z.string())),
 });
 
+const RouteDoc = z.object({
+  id: z.enum(ROUTES),
+  version: z.string(),
+  recipient: z.string().min(1),
+  format: z.string().min(1),
+  status: z.enum(["FROZEN", "HOLD"]),
+  submission: z.string().optional(),
+  hold_reason: z.string().optional(),
+  fields: z.array(z.string()),
+});
+
+const RuleText = z.object({ id: z.string().regex(/^[A-Z]{2}-[A-Z-]+$/), text: z.string().min(1) });
+const ReadinessDoc = z.object({
+  id: z.literal("READINESS-RULES"),
+  version: z.string(),
+  rules: z.array(RuleText),
+  checks: z.array(RuleText),
+});
+
+const Bound = z.number().nullable();
+const DerivedDoc = z.object({
+  id: z.literal("DERIVED-RULES"),
+  version: z.string(),
+  rules: z.array(
+    z.object({
+      id: z.string().regex(/^DR-[A-Z-]+$/),
+      property: z.string(),
+      method: z.enum(["limits-by-alloy-and-temper", "limits-by-alloy-and-element"]),
+      standard: z.string().min(1),
+      limits: z.string().min(1),
+      output: z.string().min(1),
+      illustrative: z.boolean(),
+    }),
+  ),
+  limits: z.object({
+    illustrative: z.boolean(),
+    note: z.string(),
+    tensile: z.object({ unit: z.string(), entries: z.array(z.object({ alloy: z.string(), temper: z.string(), min: Bound, max: Bound })) }),
+    composition: z.object({ unit: z.string(), entries: z.array(z.object({ alloy: z.string(), element: z.string(), min: Bound, max: Bound })) }),
+  }),
+});
+
 export type ErpContract = z.infer<typeof ErpContractDoc>;
 export type LabContract = z.infer<typeof LabContractDoc>;
+export type ReadinessRules = z.infer<typeof ReadinessDoc>;
+export type DerivedRules = z.infer<typeof DerivedDoc>;
+
+/** What the actor/field matrix says about one property for one route (FUNC-019 slice). */
+export type Access = "permit" | "deny" | "derived";
+
+export interface RouteInfo {
+  id: Route;
+  recipient: string;
+  format: string;
+  /** HOLD for a route that is on hold in the pack itself (the registry route, which is never submitted). */
+  status: "FROZEN" | "HOLD";
+  holdReason?: string;
+}
 
 export interface PinnedFile {
   ref: string;
@@ -163,6 +227,34 @@ export interface ProfilePack {
   fileCount: number;
   /** The two pinned input contracts the imports follow (Cycle 2). */
   inputs: { erp: ErpContract; lab: LabContract };
+  /** The three routes with their recipient and standing status (Cycle 3). */
+  routes: Record<Route, RouteInfo>;
+  /** Property → route → access, as the pack states it. Read only through `decide` in policy.ts. */
+  matrix: Record<string, Record<Route, Access>>;
+  /** The pinned readiness rules and derived-disclosure rules (Cycle 3). */
+  policy: { readiness: ReadinessRules; derived: DerivedRules };
+}
+
+/** Reads the actor/field matrix CSV: comment lines start with "#", then `property,<routes…>`, then one row per property. */
+function parseMatrix(text: string, propertyIds: string[]): ProfilePack["matrix"] {
+  const rows = text
+    .split(/\r?\n/)
+    .filter((l) => l.trim() && !l.startsWith("#"))
+    .map((l) => l.split(",").map((c) => c.trim()));
+  const [header = [], ...body] = rows;
+  if (header.join(",") !== ["property", ...ROUTES].join(",")) throw new ProfileError(`actor/field matrix: header must be property,${ROUTES.join(",")}`);
+  const matrix: ProfilePack["matrix"] = {};
+  for (const row of body) {
+    const cells = Object.fromEntries(ROUTES.map((r, i) => [r, row[i + 1]]));
+    for (const [route, value] of Object.entries(cells)) {
+      if (value !== "permit" && value !== "deny" && value !== "derived") throw new ProfileError(`actor/field matrix ${row[0]}, ${route}: "${value}" is not permit, deny or derived`);
+    }
+    if (Object.hasOwn(matrix, row[0])) throw new ProfileError(`actor/field matrix: ${row[0]} appears twice`);
+    matrix[row[0]] = cells as Record<Route, Access>;
+  }
+  for (const id of propertyIds) if (!Object.hasOwn(matrix, id)) throw new ProfileError(`actor/field matrix has no row for ${id}`);
+  for (const id of Object.keys(matrix)) if (!propertyIds.includes(id)) throw new ProfileError(`actor/field matrix row ${id} is not a profile property`);
+  return matrix;
 }
 
 export async function sha256Hex(text: string): Promise<string> {
@@ -253,6 +345,13 @@ export async function loadProfilePack(source: PackSource): Promise<ProfilePack> 
     ...contracts("routes", "routes/", profile.pins.route_contracts),
   ];
 
+  const readiness = pinnedDoc("policy", "READINESS-RULES@1.0.0", ReadinessDoc);
+  const derived = pinnedDoc("policy", "DERIVED-RULES@1.0.0", DerivedDoc);
+  for (const ref of profile.pins.policy) {
+    if (ref !== "READINESS-RULES@1.0.0" && ref !== "DERIVED-RULES@1.0.0") throw new ProfileError(`${ref} is not a policy file this build reads`);
+  }
+  if (profile.pins.policy.length !== 2) throw new ProfileError("the profile must pin READINESS-RULES@1.0.0 and DERIVED-RULES@1.0.0");
+
   const termById = new Map(terms.doc.terms.map((t) => [t.id, t]));
   const term = (owner: string, id: string) => {
     const found = termById.get(id);
@@ -284,6 +383,20 @@ export async function loadProfilePack(source: PackSource): Promise<ProfilePack> 
     };
   });
 
+  const matrixPath = "policy/actor-field-matrix.csv";
+  const propertyIds = profile.properties.map((p) => p.id);
+  const matrix = parseMatrix(files[matrixPath] ?? "", propertyIds);
+  for (const rule of derived.doc.rules) {
+    if (!propertyIds.includes(rule.property)) throw new ProfileError(`${derived.file.path}: ${rule.id} names ${rule.property}, which is not a profile property`);
+  }
+  const routes = Object.fromEntries(
+    ROUTES.map((r) => {
+      const doc = parseWith(RouteDoc, `routes/${r}.yaml`, files[`routes/${r}.yaml`] ?? "");
+      if (doc.id !== r) throw new ProfileError(`routes/${r}.yaml: id is ${doc.id}`);
+      return [r, { id: r, recipient: doc.recipient, format: doc.format, status: doc.status, ...(doc.hold_reason ? { holdReason: doc.hold_reason } : {}) }];
+    }),
+  ) as Record<Route, RouteInfo>;
+
   return {
     dir: source.dir,
     id: profile.id,
@@ -302,6 +415,8 @@ export async function loadProfilePack(source: PackSource): Promise<ProfilePack> 
       legal.file,
       units.file,
       ...mappingPins,
+      readiness.file,
+      derived.file,
       ...codeLists.map(({ ref, path, digest }) => ({ ref, path, digest })),
     ],
     termCount: terms.doc.terms.length,
@@ -313,6 +428,9 @@ export async function loadProfilePack(source: PackSource): Promise<ProfilePack> 
       erp: parseWith(ErpContractDoc, "inputs/erp-extract.csv.contract.yaml", files["inputs/erp-extract.csv.contract.yaml"] ?? ""),
       lab: parseWith(LabContractDoc, "inputs/lab-assessment.contract.yaml", files["inputs/lab-assessment.contract.yaml"] ?? ""),
     },
+    routes,
+    matrix,
+    policy: { readiness: readiness.doc, derived: derived.doc },
   };
 }
 

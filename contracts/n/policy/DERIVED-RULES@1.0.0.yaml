@@ -1,0 +1,113 @@
+# The only permitted derived disclosures (illustrative limits). PUBLIC STAND-IN for the private N pack (decision D1-01, option b): synthetic, renumbered
+# identifiers, stand-in definitions and codes. Generated from the private specification; do not edit by hand.
+id: DERIVED-RULES
+version: 1.0.0
+status: FROZEN
+rules:
+  - id: DR-TENSILE-LIMITS
+    property: ALU-D115
+    method: limits-by-alloy-and-temper
+    standard: EN 485-2
+    limits: tensile
+    output: within or outside the limits for the alloy and temper; basis names the standard, the alloy and the temper
+    illustrative: true
+  - id: DR-COMPOSITION-LIMITS
+    property: ALU-D123
+    method: limits-by-alloy-and-element
+    standard: EN 573-3
+    limits: composition
+    output: within or outside the limits for the alloy, over every element reported; basis names the standard and the alloy
+    illustrative: true
+limits:
+  illustrative: true
+  note: Illustrative values for the demonstrator. They are not a reproduction of EN 485-2 or EN 573-3.
+  tensile:
+    unit: MPa
+    entries:
+      - alloy: EN AW-3003
+        temper: O
+        min: 95
+        max: 135
+      - alloy: EN AW-3003
+        temper: H22
+        min: 130
+        max: 180
+      - alloy: EN AW-3003
+        temper: H24
+        min: 150
+        max: 200
+      - alloy: EN AW-5083
+        temper: O
+        min: 275
+        max: 350
+      - alloy: EN AW-5083
+        temper: H111
+        min: 275
+        max: 350
+      - alloy: EN AW-5083
+        temper: H32
+        min: 315
+        max: 390
+      - alloy: EN AW-5754
+        temper: O
+        min: 190
+        max: 240
+      - alloy: EN AW-5754
+        temper: H111
+        min: 190
+        max: 240
+      - alloy: EN AW-5754
+        temper: H22
+        min: 220
+        max: 270
+      - alloy: EN AW-5754
+        temper: H24
+        min: 240
+        max: 290
+      - alloy: EN AW-5754
+        temper: H32
+        min: 220
+        max: 270
+      - alloy: EN AW-6082
+        temper: O
+        min: null
+        max: 150
+      - alloy: EN AW-6082
+        temper: T6
+        min: 290
+        max: null
+  composition:
+    unit: "%"
+    entries:
+      - alloy: EN AW-3003
+        element: Mn
+        min: 1
+        max: 1.5
+      - alloy: EN AW-3003
+        element: Mg
+        min: null
+        max: 0.1
+      - alloy: EN AW-5083
+        element: Mg
+        min: 4
+        max: 4.9
+      - alloy: EN AW-5083
+        element: Mn
+        min: 0.4
+        max: 1
+      - alloy: EN AW-5754
+        element: Mg
+        min: 2.6
+        max: 3.6
+      - alloy: EN AW-5754
+        element: Mn
+        min: null
+        max: 0.5
+      - alloy: EN AW-6082
+        element: Mg
+        min: 0.6
+        max: 1.2
+      - alloy: EN AW-6082
+        element: Mn
+        min: 0.4
+        max: 1

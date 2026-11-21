@@ -1,0 +1,31 @@
+# Fixed readiness rules. PUBLIC STAND-IN for the private N pack (decision D1-01, option b): synthetic, renumbered
+# identifiers, stand-in definitions and codes. Generated from the private specification; do not edit by hand.
+id: READINESS-RULES
+version: 1.0.0
+status: FROZEN
+rules:
+  - id: RR-MISSING
+    text: A property the route requires has no value in the record.
+  - id: RR-INACCESSIBLE
+    text: The route requires a property that its recipient may not see. The value is withheld and the route holds.
+  - id: RR-CHALLENGED
+    text: "A required value is challenged: the sources disagree and both values are kept."
+  - id: RR-UNKNOWN-CODE
+    text: A required value carries a code that is not in its code list.
+  - id: RR-SEVERAL-RESULTS
+    text: There are several footprint results and no rule to select one.
+  - id: RR-DRAFT-TEXT
+    text: A required text is not approved.
+  - id: RR-EVIDENCE-DIGEST
+    text: Required evidence lacks its digest, so the value it supports is insufficiently assured.
+  - id: RR-DERIVED-UNDETERMINABLE
+    text: The route may only receive a derived statement for this property, and the limits table cannot decide it for this alloy and temper.
+  - id: RR-STANDING-HOLD
+    text: "The route itself is on hold: no applicable external contract has been established."
+checks:
+  - id: CK-MODEL-IDENTIFIER
+    text: The record has a product model identifier with every member the ERP contract maps.
+  - id: CK-BATCH-IDENTIFIER
+    text: The record has a batch identifier with every member the ERP contract maps.
+  - id: CK-KNOWN-PROPERTIES
+    text: Every value in the record belongs to a property of the profile.

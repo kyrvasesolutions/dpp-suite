@@ -11,7 +11,7 @@ export type CapabilityLabel = (typeof CAPABILITY_LABELS)[number];
 
 export interface Capability {
   /** The screen, as in the URL hash. */
-  id: "profile" | "import" | "requirements" | "prepare" | "validation" | "mapping" | "graph";
+  id: "profile" | "import" | "readiness" | "requirements" | "prepare" | "validation" | "mapping" | "graph";
   name: string;
   label: CapabilityLabel;
   /**
@@ -55,6 +55,13 @@ export const CAPABILITIES: Capability[] = [
     basis: "Cycle 2 exit: strict import of the two N source files with verbatim source assertions, flags and challenged values. FUNC-125 is experimental: import side only.",
   },
   {
+    id: "readiness",
+    name: "Readiness",
+    label: "untested",
+    functions: ["FUNC-002", "FUNC-012", "FUNC-126", "FUNC-019", "FUNC-046"],
+    basis: "Selected structural, completeness and route checks per route, a fixed recipient matrix and derived disclosure; not yet assessed, and no conformity claim.",
+  },
+  {
     id: "requirements",
     name: "Requirements",
     label: "experimental",
@@ -73,15 +80,16 @@ export const CAPABILITIES: Capability[] = [
     id: "validation",
     name: "Validation",
     label: "untested",
-    functions: ["FUNC-002"],
-    basis: "Lists uploaded files only; no values are validated yet.",
+    functions: [],
+    extends: ["FUNC-002"],
+    basis: "Lists uploaded files only; no values are validated yet. Record checks are on the Readiness screen.",
   },
   {
     id: "mapping",
     name: "Mapping",
     label: "experimental",
-    functions: ["FUNC-012"],
-    extends: ["FUNC-039", "FUNC-091"],
+    functions: [],
+    extends: ["FUNC-012", "FUNC-039", "FUNC-091"],
     basis: "Field names are mapped to requirements; values are not imported and mappings are not executed.",
   },
   {
