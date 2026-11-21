@@ -1,4 +1,5 @@
 /** Reads the fields (column headers, element or property paths) out of a user's data file, with a sample value for each. */
+import { JsonSyntaxError, parseStrictJson, toPlain } from "./strictJson";
 
 export interface DataField {
   /** Unique path, e.g. `product.composition[].element`. */
@@ -32,7 +33,8 @@ function flatten(value: unknown, path: string, out: Map<string, string | undefin
 
 function fromJson(text: string): DataField[] {
   const out = new Map<string, string | undefined>();
-  flatten(JSON.parse(text), "", out);
+  // Strict: duplicate keys and numbers that overflow to Infinity are refused (C2-02, baseline finding B0-04).
+  flatten(toPlain(parseStrictJson(text)), "", out);
   return [...out].map(([path, sample]) => ({ path, sample }));
 }
 
@@ -194,7 +196,16 @@ export async function extractFields(file: File): Promise<DataField[]> {
       else throw new Error(`unsupported file type .${ext}`);
     }
   } catch (error) {
-    const reason = error instanceof SyntaxError ? "not valid JSON." : error instanceof Error ? error.message : "can't be read.";
+    const reason =
+      error instanceof JsonSyntaxError
+        ? error.code === "syntax"
+          ? "not valid JSON."
+          : `not accepted: ${error.message}.`
+        : error instanceof SyntaxError
+          ? "not valid JSON."
+          : error instanceof Error
+            ? error.message
+            : "can't be read.";
     throw new Error(`${file.name}: ${reason}`);
   }
   const seen = new Set<string>();

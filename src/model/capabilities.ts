@@ -11,7 +11,7 @@ export type CapabilityLabel = (typeof CAPABILITY_LABELS)[number];
 
 export interface Capability {
   /** The screen, as in the URL hash. */
-  id: "profile" | "requirements" | "prepare" | "validation" | "mapping" | "graph";
+  id: "profile" | "import" | "requirements" | "prepare" | "validation" | "mapping" | "graph";
   name: string;
   label: CapabilityLabel;
   /**
@@ -42,6 +42,13 @@ export const CAPABILITIES: Capability[] = [
     basis: "Cycle 1 exit: the frozen N profile, verified against its pinned files, with every N02 criterion passed.",
   },
   {
+    id: "import",
+    name: "Import",
+    label: "untested",
+    functions: ["FUNC-039", "FUNC-125", "FUNC-017", "FUNC-065"],
+    basis: "New in Cycle 2: strict import of the two N source files with the pinned code lists and units; not yet assessed at a cycle exit.",
+  },
+  {
     id: "requirements",
     name: "Requirements",
     label: "experimental",
@@ -67,8 +74,8 @@ export const CAPABILITIES: Capability[] = [
     id: "mapping",
     name: "Mapping",
     label: "experimental",
-    functions: ["FUNC-039", "FUNC-012"],
-    extends: ["FUNC-091"],
+    functions: ["FUNC-012"],
+    extends: ["FUNC-039", "FUNC-091"],
     basis: "Field names are mapped to requirements; values are not imported and mappings are not executed.",
   },
   {
