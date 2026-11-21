@@ -266,7 +266,7 @@ if (profileFrozen) {
   };
   if (readiness) {
     const ids = unique("readiness rules", readiness.rules ?? [], /^RR-[A-Z]+(-[A-Z]+)*$/);
-    for (const id of ["RR-MISSING", "RR-INACCESSIBLE", "RR-CHALLENGED", "RR-UNKNOWN-CODE", "RR-SEVERAL-RESULTS", "RR-DRAFT-TEXT", "RR-EVIDENCE-DIGEST", "RR-STANDING-HOLD"]) {
+    for (const id of ["RR-MISSING", "RR-INACCESSIBLE", "RR-CHALLENGED", "RR-UNKNOWN-CODE", "RR-SEVERAL-RESULTS", "RR-DRAFT-TEXT", "RR-EVIDENCE-DIGEST", "RR-DERIVED-UNDETERMINABLE", "RR-STANDING-HOLD"]) {
       if (!ids.has(id)) fail(`readiness rules: ${id} is missing (C3-03)`);
     }
     unique("readiness checks", readiness.checks ?? [], /^CK-[A-Z]+(-[A-Z]+)*$/);

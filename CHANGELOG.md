@@ -8,13 +8,16 @@ Functional changes to the DPP suite, one entry per merged pull request, newest f
   - Every hold names a rule with its text, the property, and where the source values are. A missing value and the registry route's own hold are the only ones with no source value to point to.
   - The holds are: missing value, value the recipient may not see, challenged value, unknown code, several footprint results with no rule to choose one, draft text, evidence without a digest, a derived statement the limits cannot decide, and the registry route's standing hold.
   - Exactly one footprint result is selected. With several and no rule, none is selected and every route that needs the footprint holds; both results stay listed.
+  - A required property that the recipient may not see and that is also missing shows both holds.
   - Three structural checks on the record are listed. A fixed notice says these are selected structural, completeness and route checks, not a conformity assessment.
 - **View as recipient** shows exactly what each route's recipient would receive.
   - One decision function applies the fixed actor and field matrix. Only it reads the matrix.
   - A permitted value is copied with its source. A denied property does not appear; it is listed for the operator, never with its value.
   - The evidence record a permitted value rests on is not shown to a recipient who may not see evidence.
-  - For the customer PDF, tensile strength and chemical composition appear only as *within* or *outside* the limits for the alloy, with the standard as basis. The value, its uncertainty and its method are not shown. The limits table is illustrative.
+  - For the customer PDF, tensile strength and chemical composition appear only as *within* or *outside* the limits for the alloy. The basis reads "illustrative limits after" the standard, because the limits table is illustrative, and the statement cites the places of its inputs. The value, its uncertainty and its method are not shown.
+  - Every permitted value shows where it came from.
   - A route on hold still gets a view, marked as on hold.
+- A laboratory text about another product model than the file's own is refused at the semantics stage.
 - The record state now lives in the app, so the Readiness screen shows what the Import screen imported. Four prepared record states are available on the Readiness screen: a clean pair, a conflicting alloy, two footprints and a blocked export.
 - The contract pack gains two pinned policy files, the readiness rules and the derived-disclosure rules. The contract check fails if a derived cell of the matrix lacks exactly one derived rule. The pack is signed again.
 - Capability labels: the Readiness screen is Untested. The record checks and route readiness are no longer cited by the Validation and Mapping screens, which keep them as extensions.
