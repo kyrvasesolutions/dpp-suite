@@ -1,0 +1,6 @@
+id: FC-EVIDENCE-DIGEST-MISSING
+class: evidence without digest
+criterion: C2-06
+input: An evidence record in the laboratory file has the digest null.
+expected: The file is accepted; the evidence assertion carries the flag evidence-digest-missing, and nothing scores it away.
+fixture: fixtures/n/lab-evidence-digest-missing.json

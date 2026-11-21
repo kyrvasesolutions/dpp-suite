@@ -18,6 +18,9 @@ for each failure class in `contracts/n/failure-cases/`. No real customer data (L
 | `lab-wrong-unit.json` | Measured thickness in inches, not allowed |
 | `lab-duplicate-key.json` | Object with the key `value` twice |
 | `lab-non-finite.json` | Number that overflows to Infinity |
+| `erp-decimal-comma.csv` | Nominal thickness written with a decimal comma |
+| `lab-unit-alias.json` | Tensile strength in N/mm², an alias the contract does not allow |
+| `lab-evidence-digest-missing.json` | Evidence record with a null digest |
 | `routes/customer-pdf-requires-denied.yaml` | Route variant that requires denied properties |
 
 After any change run `npm run check-fixtures -- --write`.

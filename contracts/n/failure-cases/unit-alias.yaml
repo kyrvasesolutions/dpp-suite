@@ -1,0 +1,6 @@
+id: FC-UNIT-ALIAS
+class: unit written as an alias
+criterion: C2-04
+input: The laboratory states the tensile strength in N/mm², which equals MPa but is not an allowed unit.
+expected: Typed error wrong-unit at stage "semantics"; nothing is converted, because the units file declares no alias.
+fixture: fixtures/n/lab-unit-alias.json

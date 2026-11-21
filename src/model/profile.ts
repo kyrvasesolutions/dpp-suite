@@ -85,6 +85,39 @@ const UnitsDoc = z.object({
   conversions: z.array(z.object({ from: z.string(), to: z.string(), factor: z.number() })),
 });
 
+const ErpContractDoc = z.object({
+  id: z.literal("INPUT-ERP-CSV"),
+  version: z.string(),
+  media_type: z.literal("text/csv"),
+  encoding: z.literal("UTF-8"),
+  byte_order_mark: z.literal("rejected"),
+  delimiter: z.string().length(1),
+  decimal_separator: z.string().length(1),
+  columns: z.array(
+    z.object({
+      name: z.string(),
+      maps_to: z.string(),
+      language: z.string().optional(),
+      unit: z.string().nullable(),
+      code_list: z.string().optional(),
+      format: z.string().optional(),
+      required: z.boolean(),
+    }),
+  ),
+});
+
+const LabContractDoc = z.object({
+  id: z.literal("INPUT-LAB-JSON"),
+  version: z.string(),
+  media_type: z.literal("application/json"),
+  encoding: z.literal("UTF-8"),
+  structure: z.record(z.string(), z.unknown()),
+  allowed_units: z.record(z.string(), z.array(z.string())),
+});
+
+export type ErpContract = z.infer<typeof ErpContractDoc>;
+export type LabContract = z.infer<typeof LabContractDoc>;
+
 export interface PinnedFile {
   ref: string;
   path: string;
@@ -128,6 +161,8 @@ export interface ProfilePack {
   legalStatuses: Record<string, string>;
   manifestDigest: string;
   fileCount: number;
+  /** The two pinned input contracts the imports follow (Cycle 2). */
+  inputs: { erp: ErpContract; lab: LabContract };
 }
 
 export async function sha256Hex(text: string): Promise<string> {
@@ -274,6 +309,10 @@ export async function loadProfilePack(source: PackSource): Promise<ProfilePack> 
     legalStatuses: legal.doc.statuses,
     manifestDigest: source.manifestDigest,
     fileCount: Object.keys(files).length,
+    inputs: {
+      erp: parseWith(ErpContractDoc, "inputs/erp-extract.csv.contract.yaml", files["inputs/erp-extract.csv.contract.yaml"] ?? ""),
+      lab: parseWith(LabContractDoc, "inputs/lab-assessment.contract.yaml", files["inputs/lab-assessment.contract.yaml"] ?? ""),
+    },
   };
 }
 

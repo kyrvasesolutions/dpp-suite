@@ -3653,3 +3653,144 @@ code {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ---------- Import (Cycle 2) ---------- */
+
+.app.import {
+  overflow-y: auto;
+  gap: 14px;
+}
+
+.import-pickers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.import-picker,
+.import-samples label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.import-samples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.import-samples select,
+.import-picker input {
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  max-width: 100%;
+}
+
+.import-results {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 10px;
+}
+
+.import-file {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+}
+
+.import-file[data-ok="false"] {
+  border-color: var(--warn);
+}
+
+.import-file h3 {
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.import-verdict {
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.import-file[data-ok="true"] .import-verdict {
+  color: var(--ok);
+}
+
+.import-file[data-ok="false"] .import-verdict {
+  color: var(--warn);
+}
+
+.import-stages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  list-style: none;
+  padding: 0;
+  margin: 8px 0;
+}
+
+.import-stages li {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.import-stages li[data-state="passed"] {
+  background: var(--ok-soft);
+  color: var(--ok);
+  border-color: transparent;
+}
+
+.import-stages li[data-state="failed"] {
+  background: var(--warn-soft);
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.import-errors {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.import-table td {
+  vertical-align: top;
+}
+
+.import-flags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-left: 6px;
+}
+
+.import-flag {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.import-flag[data-flag="unknown-code"],
+.import-flag[data-flag="challenged"],
+.import-flag[data-flag="several-results"],
+.import-flag[data-flag="evidence-digest-missing"],
+.import-flag[data-flag="draft-text"] {
+  border-color: var(--suggest);
+  color: var(--suggest);
+}

@@ -31,7 +31,7 @@ jobs:
         run: npm run typecheck
 
       - name: N contract pack (structure, digests, holds)
-        run: npm run check-contracts
+        run: npm run check-contracts -- --require-frozen --require-signed
 
       - name: Fixture packs match their digests
         run: npm run check-fixtures

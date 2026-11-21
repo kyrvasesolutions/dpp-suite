@@ -78,6 +78,10 @@ export default defineConfig({
       },
     }),
   ],
+  build: {
+    // Sample fixtures are fetched by the Import screen; a data: URL would be refused by connect-src 'self'.
+    assetsInlineLimit: (file) => (file.includes("/fixtures/") ? false : undefined),
+  },
   server: { host: true, port: 5173 },
   preview: { host: true, port: 4173 },
 });
