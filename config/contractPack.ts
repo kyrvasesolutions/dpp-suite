@@ -11,6 +11,9 @@ import { join, relative } from "node:path";
 export const PUBLIC_PACK = "contracts/n";
 export const packDir = () => process.env.DPP_CONTRACT_PACK ?? PUBLIC_PACK;
 
+/** The synthetic fixtures that follow the embedded pack: fixtures/n for the stand-in, spec/fixtures/n for the private pack. */
+export const fixtureDir = () => process.env.DPP_FIXTURE_PACK ?? packDir().replace(/(^|\/)contracts\//, "$1fixtures/");
+
 const listFiles = (dir: string): string[] =>
   readdirSync(dir).flatMap((name) => {
     const path = join(dir, name);

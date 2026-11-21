@@ -12,9 +12,14 @@ import {
 } from "../model/ingress";
 import { loadProfilePack, type ProfilePack } from "../model/profile";
 
-/** The synthetic N fixtures, served with the app so the operator can try a clean and a faulty import. */
-const FIXTURES = import.meta.glob("../../fixtures/n/*.{csv,json}", { query: "?url", import: "default", eager: true }) as Record<string, string>;
-const fixtureUrl = (name: string) => FIXTURES[`../../fixtures/n/${name}`];
+/** The synthetic N fixtures that match the embedded pack, served with the app so the operator can try a clean and a faulty import. */
+const FIXTURES = import.meta.glob(["@n-fixtures/*.{csv,json}", "!@n-fixtures/MANIFEST.json"], { query: "?url", import: "default", eager: true }) as Record<string, string>;
+const BY_NAME = new Map(Object.entries(FIXTURES).map(([path, url]) => [path.split("/").pop()!, url]));
+const fixtureUrl = (name: string) => {
+  const url = BY_NAME.get(name);
+  if (!url) throw new Error(`Sample file ${name} is not in the fixture pack`);
+  return url;
+};
 
 interface Sample {
   id: string;
