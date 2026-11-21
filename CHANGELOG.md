@@ -2,6 +2,10 @@
 
 Functional changes to the DPP suite, one entry per merged pull request, newest first.
 
+## Unreleased: Readiness screen supported (21 November 2026)
+
+- The Readiness screen is labelled Supported: route readiness, the fixed recipient matrix and derived disclosure passed an independent review, with no leak found in more than 60 attempts to make a denied field reach a recipient.
+
 ## [#10](https://github.com/kyrvasesolutions/dpp-suite/pull/10) Route readiness and recipient disclosure (21 November 2026)
 
 - New **Readiness** screen after Import. For each imported record it shows, per route, whether the route is ready or on hold, which required properties are present, missing, not accessible to the recipient or challenged, and why.
