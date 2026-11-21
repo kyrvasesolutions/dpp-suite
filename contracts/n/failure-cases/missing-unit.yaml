@@ -3,4 +3,4 @@ class: missing unit
 criterion: C2-04
 input: A measured value that requires a unit has none.
 expected: Typed error at stage "semantics"; the value is not accepted as unitless.
-fixture: pending
+fixture: fixtures/n/lab-missing-unit.json

@@ -1,16 +1,180 @@
+# ERP extract contract. PUBLIC STAND-IN for the private N pack (decision D1-01, option b): synthetic, renumbered
+# identifiers, stand-in definitions and codes. Generated from the private specification; do not edit by hand.
 id: INPUT-ERP-CSV
 version: 1.0.0
-status: HOLD
-hold_reason: Column list, code lists and units are in the v0.5 specification package.
+status: FROZEN
 media_type: text/csv
 encoding: UTF-8
 byte_order_mark: rejected
-delimiter: pending
+delimiter: ;
+decimal_separator: .
 header_row: required
-columns: []          # name, maps_to (ALU-Dnnn or member), unit, code_list, required
-unknown_codes: keep and flag     # never dropped or guessed (C2-03)
+columns:
+  - name: company_code
+    maps_to: ALU-D102
+    unit: null
+    code_list: COMPANY
+    required: true
+  - name: product_model_scheme
+    maps_to: ALU-D101/FLD-Identifier-scheme
+    unit: null
+    required: true
+  - name: product_model_id
+    maps_to: ALU-D101/FLD-Identifier-value
+    unit: null
+    required: true
+  - name: product_model_scheme_version
+    maps_to: ALU-D101/FLD-Identifier-scheme_version
+    unit: null
+    required: true
+  - name: product_name_en
+    maps_to: ALU-D103
+    language: en
+    unit: null
+    required: true
+  - name: product_name_de
+    maps_to: ALU-D103
+    language: de
+    unit: null
+    required: true
+  - name: batch_id
+    maps_to: ALU-D104/FLD-Identifier-value
+    unit: null
+    required: true
+  - name: batch_scheme_version
+    maps_to: ALU-D104/FLD-Identifier-scheme_version
+    unit: null
+    required: true
+  - name: cn_code
+    maps_to: ALU-D105
+    unit: null
+    code_list: CN
+    required: true
+  - name: alloy
+    maps_to: ALU-D106
+    unit: null
+    code_list: ALLOY
+    required: true
+  - name: temper
+    maps_to: ALU-D107
+    unit: null
+    code_list: TEMPER
+    required: true
+  - name: thickness_nominal_mm
+    maps_to: ALU-D108
+    unit: mm
+    required: true
+  - name: width_nominal_mm
+    maps_to: ALU-D110
+    unit: mm
+    required: true
+  - name: length_nominal_mm
+    maps_to: ALU-D111
+    unit: mm
+    required: true
+  - name: net_mass_kg
+    maps_to: ALU-D112
+    unit: kg
+    required: true
+  - name: surface_finish
+    maps_to: ALU-D113
+    unit: null
+    code_list: SURFACE
+    required: true
+  - name: recycled_content_pct
+    maps_to: ALU-D114
+    unit: "%"
+    required: false
+  - name: post_consumer_pct
+    maps_to: ALU-D120
+    unit: "%"
+    required: false
+  - name: country_of_casting
+    maps_to: ALU-D116
+    unit: null
+    code_list: COUNTRY
+    required: true
+  - name: production_date
+    maps_to: ALU-D117
+    unit: null
+    format: ISO 8601 date
+    required: true
+  - name: customer_code
+    maps_to: ALU-D122/FLD-Identifier-scope
+    unit: null
+    code_list: CUSTOMER
+    required: true
+  - name: customer_article_no
+    maps_to: ALU-D122/FLD-Identifier-value
+    unit: null
+    required: true
+  - name: supplier_code
+    maps_to: ALU-D124
+    unit: null
+    code_list: SUPPLIER
+    required: true
+code_lists:
+  COMPANY:
+    description: ERP company codes and the manufacturer identifier each stands for
+    values:
+      SI01: STANDIN-MFR-01
+      SI02: STANDIN-MFR-02
+  CN:
+    description: Illustrative Combined Nomenclature codes for alloyed aluminium sheet
+    values:
+      - "76061292"
+      - "76061293"
+      - "76061299"
+  ALLOY:
+    description: EN AW alloy designations in scope
+    values:
+      - EN AW-3003
+      - EN AW-5083
+      - EN AW-5754
+      - EN AW-6082
+  TEMPER:
+    description: EN 515 temper designations in scope
+    values:
+      - O
+      - H111
+      - H22
+      - H24
+      - H32
+      - T6
+  SURFACE:
+    description: Surface finish codes
+    values:
+      - MILL
+      - BRUSHED
+      - EMBOSSED
+      - PAINTED
+  COUNTRY:
+    description: ISO 3166-1 alpha-2 codes accepted for the country of casting
+    values:
+      - AT
+      - DE
+      - FR
+      - IT
+      - NO
+  CUSTOMER:
+    description: Customer codes that scope a customer article number
+    values:
+      - SC01
+      - SC02
+  SUPPLIER:
+    description: Internal primary aluminium supplier codes (confidential)
+    values:
+      - SS01
+      - SS02
+unknown_codes: keep and flag
 ingress:
-  stages: [bytes, parse, structure, semantics, authorisation, route]
+  stages:
+    - bytes
+    - parse
+    - structure
+    - semantics
+    - authorisation
+    - route
   reject:
     - wrong encoding
     - missing required column

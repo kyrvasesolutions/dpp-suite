@@ -3,4 +3,4 @@ class: non-finite number
 criterion: C2-02
 input: The laboratory file contains a number that overflows to Infinity (for example 1e999).
 expected: Rejected at stage "parse" with a typed error. Baseline B0-04 shows the current parser accepts it.
-fixture: pending
+fixture: fixtures/n/lab-non-finite.json

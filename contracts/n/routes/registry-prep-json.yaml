@@ -1,7 +1,13 @@
+# Route registry-prep-json. PUBLIC STAND-IN for the private N pack (decision D1-01, option b): synthetic, renumbered
+# identifiers, stand-in definitions and codes. Generated from the private specification; do not edit by hand.
 id: registry-prep-json
 recipient: EU DPP registry (ACT-16), held local target
 format: application/json
-submission: never            # local preparation only; no network (FUNC-042, LEAN-DEF-20)
+submission: never
 status: HOLD
-hold_reason: No applicable external registry contract for aluminium has been established (18_DeliveryScope, GATES row). This hold stays after the pack is frozen.
-fields: []
+hold_reason: No applicable external registry contract for aluminium has been
+  established. This hold stays after the pack is frozen.
+fields:
+  - ALU-D101
+  - ALU-D102
+  - ALU-D105
