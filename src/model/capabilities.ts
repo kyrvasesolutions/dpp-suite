@@ -14,8 +14,13 @@ export interface Capability {
   id: "profile" | "requirements" | "prepare" | "validation" | "mapping" | "graph";
   name: string;
   label: CapabilityLabel;
-  /** Plan functions (2_FunctionCatalog) the screen relates to; empty for capabilities outside the plan. */
+  /**
+   * Plan functions (2_FunctionCatalog) whose N slice this screen delivers, under this screen's label.
+   * A function is cited here by one screen only, so it never carries two labels (criteria §2.3).
+   */
   functions: string[];
+  /** Plan functions this screen goes beyond, as an extension (F3, no completeness credit, criteria §2.6). */
+  extends?: string[];
   /** One sentence on why the label is what it is. */
   basis: string;
 }
@@ -27,21 +32,22 @@ export const CAPABILITY_TEXT: Record<CapabilityLabel, string> = {
   untested: "Untested",
 };
 
-/** Labels from the Cycle 0 baseline assessment of 20 November 2026 (docs/assessment/cycle-0). */
+/** Labels from the Cycle 0 baseline (20 November 2026) and the Cycle 1 exit (21 November 2026), docs/assessment. */
 export const CAPABILITIES: Capability[] = [
   {
     id: "profile",
     name: "Profile",
-    label: "untested",
+    label: "supported",
     functions: ["FUNC-001", "FUNC-025", "FUNC-027", "FUNC-028", "FUNC-029", "FUNC-030", "FUNC-031", "FUNC-081", "FUNC-085", "FUNC-091"],
-    basis: "New in Cycle 1: shows the frozen N profile from its pinned files; not yet assessed at a cycle exit.",
+    basis: "Cycle 1 exit: the frozen N profile, verified against its pinned files, with every N02 criterion passed.",
   },
   {
     id: "requirements",
     name: "Requirements",
     label: "experimental",
-    functions: ["FUNC-025", "FUNC-028", "FUNC-081", "FUNC-001", "FUNC-043"],
-    basis: "Legal text and terms are checked against their sources, but not against the frozen N profile.",
+    functions: ["FUNC-043"],
+    extends: ["FUNC-001", "FUNC-025", "FUNC-028", "FUNC-081"],
+    basis: "The wider legal chain and ontology terms, checked against their sources; the N profile itself is on the Profile screen.",
   },
   {
     id: "prepare",
@@ -61,7 +67,8 @@ export const CAPABILITIES: Capability[] = [
     id: "mapping",
     name: "Mapping",
     label: "experimental",
-    functions: ["FUNC-039", "FUNC-091", "FUNC-012"],
+    functions: ["FUNC-039", "FUNC-012"],
+    extends: ["FUNC-091"],
     basis: "Field names are mapped to requirements; values are not imported and mappings are not executed.",
   },
   {

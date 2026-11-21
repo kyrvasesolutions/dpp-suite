@@ -174,7 +174,7 @@ else fail(`policy/actor-field-matrix.csv: first line must be "# status: FROZEN" 
 
 // ---------- Pinned reference files (C1-02 to C1-06) ----------
 
-const PIN = /^[A-Z][A-Z0-9-]*@\d+\.\d+\.\d+$/;
+const PIN = /^[A-Za-z][A-Za-z0-9-]*@\d+\.\d+\.\d+$/;
 const pinned = (kind, ref, ext) => {
   if (typeof ref !== "string" || !PIN.test(ref)) {
     fail(`${kind} reference "${ref}" must be an exact id@version (C1-02)`);
@@ -227,6 +227,29 @@ if (profileFrozen) {
     if (c.code_list && !codeLists.has(c.code_list)) fail(`ERP column ${c.name}: code list ${c.code_list} is not pinned by the profile (C1-02)`);
   }
 
+  // Mapping contracts and routes are pinned by exact id@version too (C1-02)
+  const SEMVER = /^\d+\.\d+\.\d+$/;
+  const pinnedDocs = (kind, refs, prefix) => {
+    const docs = present.filter((p) => p.startsWith(prefix)).map((p) => [p, readYaml(p)]);
+    const found = docs.map(([, d]) => `${d.id}@${d.version}`).sort();
+    for (const [p, d] of docs) if (!SEMVER.test(String(d.version))) fail(`${p}: version "${d.version}" must be an exact version such as 1.0.0 (C1-02)`);
+    for (const ref of refs ?? []) if (typeof ref !== "string" || !PIN.test(ref)) fail(`${kind} reference "${ref}" must be an exact id@version (C1-02)`);
+    if (JSON.stringify([...(refs ?? [])].sort()) !== JSON.stringify(found)) {
+      fail(`${profilePath}: pins.${kind} must be exactly ${found.join(", ")} (C1-02)`);
+    }
+  };
+  pinnedDocs("inputs", pins.inputs, "inputs/");
+  pinnedDocs("route_contracts", pins.route_contracts, "routes/");
+
+  // Declared mappings point at a profile property and, for a member path, one of its members (FUNC-091)
+  const membersOf = new Map(properties.map((p) => [p.id, p.members ?? []]));
+  for (const c of erpInput.columns ?? []) {
+    const [base, member, ...rest] = String(c.maps_to).split("/");
+    if (!membersOf.has(base)) fail(`ERP column ${c.name}: maps_to ${c.maps_to} is not a profile property (FUNC-091)`);
+    else if (member && !membersOf.get(base).includes(member)) fail(`ERP column ${c.name}: ${member} is not a member of ${base} (FUNC-091)`);
+    if (rest.length) fail(`ERP column ${c.name}: maps_to ${c.maps_to} is nested too deeply`);
+  }
+
   // Sector labels (C1-05)
   const sectors = new Set(codeLists.get(profile.sectors) ?? []);
   for (const p of properties) {
@@ -266,8 +289,10 @@ if (profileFrozen) {
   const unitOf = new Map(properties.map((p) => [p.id, p.unit]));
   for (const p of properties) if (p.unit !== null && !unitCodes.has(p.unit)) fail(`${p.id}: unit ${p.unit} is not in ${pins.units}`);
   for (const c of erpInput.columns ?? []) {
-    const target = unitOf.get(String(c.maps_to).split("/")[0]);
+    const [base, member] = String(c.maps_to).split("/");
+    const target = unitOf.get(base);
     if (c.unit && !converts(c.unit, target)) fail(`ERP column ${c.name}: no conversion from ${c.unit} to ${target} (FUNC-030)`);
+    if (!c.unit && target && !member) fail(`ERP column ${c.name}: ${base} has unit ${target}, the column states none (FUNC-030)`);
   }
   for (const [prop, list] of Object.entries(lab.allowed_units ?? {})) {
     if (!unitOf.has(prop)) fail(`lab allowed_units: ${prop} is not a profile property`);

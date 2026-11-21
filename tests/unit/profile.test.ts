@@ -81,6 +81,28 @@ describe.each(PACKS)("profile from %s", (pack) => {
     await expect(loadProfilePack(readPack(dir))).rejects.toThrow(/exact id@version/);
   });
 
+  it.each([
+    ["inputs/erp-extract.csv.contract.yaml", "version: 1.0.0", "version: latest"],
+    ["inputs/lab-assessment.contract.yaml", "version: 1.0.0", "version: latest"],
+    ["routes/customer-pdf.yaml", "version: 1.0.0", "version: latest"],
+    ["inputs/erp-extract.csv.contract.yaml", "id: INPUT-ERP-CSV", "id: INPUT-ERP-CSV-2"],
+  ])("C1-02 refuses a mapping contract that is not the pinned version (%s: %s -> %s)", async (file, from, to) => {
+    const dir = copyOf(pack);
+    edit(dir, file, (t) => t.replace(from, to));
+    rewrite(dir);
+    expect(() => checker("--pack", dir)).toThrow(/C1-02/);
+    await expect(loadProfilePack(readPack(dir))).rejects.toThrow(ProfileError);
+  });
+
+  it("FUNC-091 refuses a declared mapping to a property or member that does not exist", () => {
+    const dir = copyOf(pack);
+    const erp = "inputs/erp-extract.csv.contract.yaml";
+    const first = parse(readFileSync(join(dir, erp), "utf8")).columns[0].maps_to as string;
+    edit(dir, erp, (t) => t.replace(`maps_to: ${first}\n`, "maps_to: ALU-D999\n"));
+    rewrite(dir);
+    expect(() => checker("--pack", dir)).toThrow(/is not a profile property/);
+  });
+
   it("C1-03 an edited code list keeps its name and gets a new digest", async () => {
     const before = await load();
     const dir = copyOf(pack);

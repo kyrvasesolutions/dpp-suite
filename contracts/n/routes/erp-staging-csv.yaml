@@ -1,6 +1,7 @@
 # Route erp-staging-csv. PUBLIC STAND-IN for the private N pack (decision D1-01, option b): synthetic, renumbered
 # identifiers, stand-in definitions and codes. Generated from the private specification; do not edit by hand.
 id: erp-staging-csv
+version: 1.0.0
 recipient: Manufacturer, internal ERP staging (ACT-01)
 format: text/csv
 formula_safe_cells: required
