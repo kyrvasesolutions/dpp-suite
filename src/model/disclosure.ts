@@ -37,6 +37,8 @@ export interface ProjectedValue {
 export interface DerivedDisclosure extends DerivedStatement {
   property: string;
   rule: string;
+  /** Where the inputs of the statement are (locations only, never their values). */
+  sources: Array<{ file: string; location: string }>;
 }
 
 export interface Withheld {
@@ -88,7 +90,7 @@ export function project(pack: ProfilePack, record: ProductRecord, route: Route):
     } else if (access === "derived") {
       if (!own.length) continue;
       const result = derive(pack, record, p.id);
-      if (result.ok) derived.push({ property: p.id, rule: result.rule, ...result.statement });
+      if (result.ok) derived.push({ property: p.id, rule: result.rule, ...result.statement, sources: result.sources });
       else withheld.push({ property: p.id, decision: "derived", rule: result.rule, reason: `Only a derived statement is permitted, and it cannot be made: ${result.reason}.` });
     } else {
       for (const v of own) {

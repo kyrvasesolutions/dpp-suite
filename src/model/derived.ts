@@ -17,18 +17,20 @@ export interface DerivedStatement {
 }
 
 export type DerivedResult =
-  | { ok: true; rule: string; statement: DerivedStatement }
+  | { ok: true; rule: string; statement: DerivedStatement; /** Where the inputs used are: the value, the alloy and the temper. */ sources: Array<{ file: string; location: string }> }
   | { ok: false; rule: string; reason: string };
 
 const within = (v: number, b: { min: number | null; max: number | null }) => (b.min === null || v >= b.min) && (b.max === null || v <= b.max);
 
+const locations = (v: RecordValue[]) => v.flatMap((x) => x.assertions.map((a) => ({ file: a.source.file, location: a.source.location })));
+
 /** The one text a record states for a property, or why there is none: a challenged or repeated value cannot be relied on. */
-function onlyText(pack: ProfilePack, record: ProductRecord, role: "alloy" | "temper"): { text: string } | { problem: string } {
+function onlyText(pack: ProfilePack, record: ProductRecord, role: "alloy" | "temper"): { text: string; from: RecordValue[] } | { problem: string } {
   const property = byRole(pack, role);
   const values = record.values.filter((v) => v.property === property && !v.member);
   if (values.length !== 1) return { problem: `${role} is ${values.length ? "stated more than once" : "missing"}` };
   if (values[0].status === "challenged") return { problem: `${role} is challenged` };
-  return { text: values[0].assertions[0].raw };
+  return { text: values[0].assertions[0].raw, from: values };
 }
 
 /** The numeric readings of one property, one per element for a composition and one in all for a strength. */
@@ -42,6 +44,9 @@ export function derive(pack: ProfilePack, record: ProductRecord, property: strin
   const rules = pack.policy.derived.rules.filter((r) => r.property === property);
   if (rules.length !== 1) throw new Error(`Property "${property}" has ${rules.length} derived rules, expected exactly one`);
   const rule = rules[0];
+  // Limits marked illustrative are never presented as the standard's own: the basis says so.
+  const illustrative = rule.illustrative || pack.policy.derived.limits.illustrative;
+  const basisOf = (rest: string) => `${illustrative ? "illustrative limits after " : ""}${rule.standard}, ${rest}`;
   const fail = (reason: string): DerivedResult => ({ ok: false, rule: rule.id, reason });
   const values = readings(record, property);
   if (!values.length) return fail("no value to derive from");
@@ -58,7 +63,12 @@ export function derive(pack: ProfilePack, record: ProductRecord, property: strin
     if ("problem" in temper) return fail(temper.problem);
     const limit = pack.policy.derived.limits.tensile.entries.find((e) => e.alloy === alloy.text && e.temper === temper.text);
     if (!limit) return fail(`no limits for ${alloy.text} ${temper.text}`);
-    return { ok: true, rule: rule.id, statement: { within: within(numbers[0].n as number, limit), basis: `${rule.standard}, ${alloy.text} ${temper.text}` } };
+    return {
+      ok: true,
+      rule: rule.id,
+      statement: { within: within(numbers[0].n as number, limit), basis: basisOf(`${alloy.text} ${temper.text}`) },
+      sources: locations([...values, ...alloy.from, ...temper.from]),
+    };
   }
 
   // limits-by-alloy-and-element: every element reported must have limits for this alloy
@@ -68,5 +78,5 @@ export function derive(pack: ProfilePack, record: ProductRecord, property: strin
     if (!limit) return fail(`no limits for ${x.qualifier ?? "an unnamed element"} in ${alloy.text}`);
     if (!within(x.n as number, limit)) all = false;
   }
-  return { ok: true, rule: rule.id, statement: { within: all, basis: `${rule.standard}, ${alloy.text}` } };
+  return { ok: true, rule: rule.id, statement: { within: all, basis: basisOf(alloy.text) }, sources: locations([...values, ...alloy.from]) };
 }

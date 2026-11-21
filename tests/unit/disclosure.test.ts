@@ -137,7 +137,7 @@ describe("assertNoLeak", () => {
     const planted = { ...p, values: [...p.values, { property: "X", status: "single" as const, assertions: [{ ...supplier.assertions[0], source: { file: "f", location: "l" } }] }] };
     expect(() => assertNoLeak(planted, record, pack)).toThrow(/leak/);
     const tensile = record.values.find((v) => v.property === propertyBySlug(pack, "tensile-strength"))!;
-    const raw = { ...p, derived: [...p.derived, { property: "X", rule: "R", within: true, basis: `value ${tensile.assertions[0].raw} MPa` }] };
+    const raw = { ...p, derived: [...p.derived, { property: "X", rule: "R", sources: [], within: true, basis: `value ${tensile.assertions[0].raw} MPa` }] };
     expect(() => assertNoLeak(raw, record, pack)).toThrow(/leak/);
   });
 });
@@ -152,11 +152,15 @@ describe("derived disclosure", () => {
 
   it("gives the clean record's strength and composition as within the limits, with the basis, and nothing else", async () => {
     const { record, p } = await customer(CLEAN);
-    expect(p.derived).toEqual([
-      { property: tensile(), rule: "DR-TENSILE-LIMITS", within: true, basis: "EN 485-2, EN AW-5754 H111" },
-      { property: composition(), rule: "DR-COMPOSITION-LIMITS", within: true, basis: "EN 573-3, EN AW-5754" },
+    expect(p.derived.map(({ sources, ...d }) => d)).toEqual([
+      { property: tensile(), rule: "DR-TENSILE-LIMITS", within: true, basis: "illustrative limits after EN 485-2, EN AW-5754 H111" },
+      { property: composition(), rule: "DR-COMPOSITION-LIMITS", within: true, basis: "illustrative limits after EN 573-3, EN AW-5754" },
     ]);
-    for (const d of p.derived) expect(Object.keys(d).sort()).toEqual(["basis", "property", "rule", "within"]);
+    for (const d of p.derived) expect(Object.keys(d).sort()).toEqual(["basis", "property", "rule", "sources", "within"]);
+    // the inputs are cited by place: the value, the alloy and the temper for strength
+    expect(p.derived[0].sources.map((s) => s.location).join(" ")).toMatch(/observations\/1\/value.*column alloy|column alloy.*observations\/1\/value/);
+    expect(p.derived[0].sources.some((s) => s.location.includes("column temper"))).toBe(true);
+    expect(pack.policy.derived.limits.illustrative).toBe(true);
     const json = JSON.stringify(p);
     for (const v of record.values.filter((x) => [tensile(), composition()].includes(x.property))) {
       for (const a of v.assertions) {
@@ -169,7 +173,7 @@ describe("derived disclosure", () => {
 
   it("says outside for a strength above the limits, built with an edited laboratory value", async () => {
     const { p, record } = await customer({ ...CLEAN, editLab: (doc) => (doc.observations[1].value = 260) });
-    expect(p.derived.find((d) => d.property === tensile())).toEqual({ property: tensile(), rule: "DR-TENSILE-LIMITS", within: false, basis: "EN 485-2, EN AW-5754 H111" });
+    expect(p.derived.find((d) => d.property === tensile())).toMatchObject({ property: tensile(), rule: "DR-TENSILE-LIMITS", within: false, basis: "illustrative limits after EN 485-2, EN AW-5754 H111" });
     expect(JSON.stringify(p)).not.toContain("260");
     assertNoLeak(p, record, pack);
   });
@@ -188,7 +192,7 @@ describe("derived disclosure", () => {
 
   it("says outside for one element over its limit, and within again when all are in", async () => {
     const out = await customer({ ...CLEAN, editLab: (doc) => (doc.observations[2].value = 4.37) });
-    expect(out.p.derived.find((d) => d.property === composition())).toEqual({ property: composition(), rule: "DR-COMPOSITION-LIMITS", within: false, basis: "EN 573-3, EN AW-5754" });
+    expect(out.p.derived.find((d) => d.property === composition())).toMatchObject({ property: composition(), rule: "DR-COMPOSITION-LIMITS", within: false, basis: "illustrative limits after EN 573-3, EN AW-5754" });
     expect(JSON.stringify(out.p)).not.toContain("4.37");
     const upper = await customer({ ...CLEAN, editLab: (doc) => (doc.observations[3].value = 0.9) });
     expect(upper.p.derived.find((d) => d.property === composition())!.within).toBe(false);

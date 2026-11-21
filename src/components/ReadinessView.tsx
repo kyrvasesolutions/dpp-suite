@@ -233,6 +233,7 @@ function RecipientView({ projection, label }: { projection: Projection; label: (
                   <div key={i}>
                     <code>{a.raw}</code>
                     {a.unit ? ` ${a.unit}` : ""}
+                    <div className="small hint" data-testid="recipient-source">{a.source.location}</div>
                   </div>
                 ))}
                 {v.status === "challenged" && <span className="import-flag" data-flag="challenged">challenged</span>}
@@ -244,6 +245,7 @@ function RecipientView({ projection, label }: { projection: Projection; label: (
               <td>{label(d.property)}</td>
               <td>
                 {d.within ? "Within" : "Outside"} the limits ({d.basis})
+                <div className="small hint">{[...new Set(d.sources.map((s) => s.location))].join("; ")}</div>
               </td>
             </tr>
           ))}

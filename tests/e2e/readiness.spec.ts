@@ -73,8 +73,11 @@ test("the recipient view of the customer PDF shows no denied property and only d
   for (const value of ["SS01", "EV-TR-0417", "EV-CR-0099"]) expect(text).not.toContain(value);
   // derived statements only, never the strength or composition values
   await expect(view.getByTestId("recipient-derived")).toHaveCount(2);
-  await expect(view).toContainText("Within the limits (EN 485-2, EN AW-5754 H111)");
+  await expect(view).toContainText("Within the limits (illustrative limits after EN 485-2, EN AW-5754 H111)");
   for (const value of ["228", "3.05", "0.31"]) expect(text).not.toContain(value);
+  // every permitted value shows where it came from; so do the derived statements
+  await expect(view.getByTestId("recipient-source").first()).toContainText("d03a-erp-extract.csv, row 2, column");
+  await expect(view.getByTestId("recipient-derived").first()).toContainText("/observations/1/value");
   // what is withheld is listed for the operator, outside the recipient view
   await expect(page.getByTestId("withheld")).toHaveCount(deniedLabels.length);
   expect(await view.getByTestId("withheld").count()).toBe(0);
