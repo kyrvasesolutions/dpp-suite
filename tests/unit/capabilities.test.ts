@@ -32,7 +32,7 @@ describe("capability registry", () => {
   });
 
   // A label becomes "supported" only at a cycle exit, with evidence in that cycle's evidence log.
-  const SUPPORTED_AT_EXIT: Record<string, string> = { profile: "Cycle 1, 21 November 2026" };
+  const SUPPORTED_AT_EXIT: Record<string, string> = { profile: "Cycle 1, 21 November 2026", import: "Cycle 2, 21 November 2026" };
   it("labels a screen supported only after a recorded cycle exit", () => {
     const supported = CAPABILITIES.filter((c) => c.label === "supported").map((c) => c.id);
     expect(supported.sort()).toEqual(Object.keys(SUPPORTED_AT_EXIT).sort());

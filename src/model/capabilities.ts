@@ -32,7 +32,7 @@ export const CAPABILITY_TEXT: Record<CapabilityLabel, string> = {
   untested: "Untested",
 };
 
-/** Labels from the Cycle 0 baseline (20 November 2026) and the Cycle 1 exit (21 November 2026), docs/assessment. */
+/** Labels from the Cycle 0 baseline (20 November 2026) and the Cycle 1 and 2 exits (21 November 2026), docs/assessment. */
 export const CAPABILITIES: Capability[] = [
   {
     id: "profile",
@@ -44,9 +44,9 @@ export const CAPABILITIES: Capability[] = [
   {
     id: "import",
     name: "Import",
-    label: "untested",
+    label: "supported",
     functions: ["FUNC-039", "FUNC-125", "FUNC-017", "FUNC-065"],
-    basis: "New in Cycle 2: strict import of the two N source files with the pinned code lists and units; not yet assessed at a cycle exit.",
+    basis: "Cycle 2 exit: strict import of the two N source files with verbatim source assertions, flags and challenged values.",
   },
   {
     id: "requirements",
