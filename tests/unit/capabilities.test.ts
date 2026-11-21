@@ -15,18 +15,27 @@ describe("capability registry", () => {
   });
 
   it("cites plan functions as FUNC-nnn", () => {
-    for (const c of CAPABILITIES) for (const f of c.functions) expect(f).toMatch(/^FUNC-\d{3}$/);
+    for (const c of CAPABILITIES) for (const f of [...c.functions, ...(c.extends ?? [])]) expect(f).toMatch(/^FUNC-\d{3}$/);
+  });
+
+  it("gives each plan function one label: one screen delivers it, others may only extend it", () => {
+    const delivered = CAPABILITIES.flatMap((c) => c.functions);
+    expect(new Set(delivered).size).toBe(delivered.length);
+    for (const c of CAPABILITIES) for (const f of c.extends ?? []) expect(c.functions).not.toContain(f);
   });
 
   // The assessment register is kept locally, outside version control (decision D0-06), so CI has no copy.
   const REGISTER = "docs/assessment/cycle-0/register.json";
   it.runIf(existsSync(REGISTER))("cites only FUNC IDs that are in the local plan register", () => {
     const register = JSON.parse(readFileSync(REGISTER, "utf8")) as { all_func_ids: string[] };
-    for (const c of CAPABILITIES) for (const f of c.functions) expect(register.all_func_ids).toContain(f);
+    for (const c of CAPABILITIES) for (const f of [...c.functions, ...(c.extends ?? [])]) expect(register.all_func_ids).toContain(f);
   });
 
-  it("labels nothing supported before a cycle exit has evidence for it", () => {
-    expect(CAPABILITIES.filter((c) => c.label === "supported")).toEqual([]);
+  // A label becomes "supported" only at a cycle exit, with evidence in that cycle's evidence log.
+  const SUPPORTED_AT_EXIT: Record<string, string> = { profile: "Cycle 1, 21 November 2026" };
+  it("labels a screen supported only after a recorded cycle exit", () => {
+    const supported = CAPABILITIES.filter((c) => c.label === "supported").map((c) => c.id);
+    expect(supported.sort()).toEqual(Object.keys(SUPPORTED_AT_EXIT).sort());
   });
 
   it("fails loudly for an unknown screen", () => {

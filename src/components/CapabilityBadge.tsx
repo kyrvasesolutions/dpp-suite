@@ -4,12 +4,13 @@ import { CAPABILITY_TEXT, type Capability } from "../model/capabilities";
 export function CapabilityBadge({ capability }: { capability: Capability }) {
   const text = CAPABILITY_TEXT[capability.label];
   const functions = capability.functions.length ? capability.functions.join(", ") : "outside the plan";
+  const extension = capability.extends?.length ? ` Extension beyond: ${capability.extends.join(", ")}.` : "";
   return (
     <p
       className="capability"
       data-label={capability.label}
       data-testid="capability-badge"
-      title={`${capability.basis} Plan functions: ${functions}.`}
+      title={`${capability.basis} Plan functions: ${functions}.${extension}`}
     >
       <span className="capability-label">{text}</span>
       <span className="capability-detail">
