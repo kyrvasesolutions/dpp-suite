@@ -639,12 +639,23 @@ export async function importLabJson(
   }
 }
 
+const ROLE_SLUGS = {
+  model: "product-model-id",
+  batch: "batch-id",
+  alloy: "alloy-designation",
+  temper: "temper-designation",
+  footprint: "carbon-footprint",
+  evidence: "evidence-references",
+  narrative: "product-narrative",
+} as const;
+export type Role = keyof typeof ROLE_SLUGS;
+
 /**
- * Finds a property by the role its definition plays, so the import code names no identifier: the public
+ * Finds a property by the role its definition plays, so no code names an identifier: the public
  * stand-in and the private pack number their properties differently (decision D1-01, option b).
  */
-function byRole(pack: ProfilePack, role: "model" | "batch" | "alloy" | "evidence" | "narrative"): string {
-  const slug = { model: "product-model-id", batch: "batch-id", alloy: "alloy-designation", evidence: "evidence-references", narrative: "product-narrative" }[role];
+export function byRole(pack: ProfilePack, role: Role): string {
+  const slug = ROLE_SLUGS[role];
   const found = pack.properties.find((p) => p.definitionRef.endsWith(`:${slug}`));
   if (!found) throw new Error(`The profile has no ${role} property (${slug})`);
   return found.id;

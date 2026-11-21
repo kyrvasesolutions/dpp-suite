@@ -249,10 +249,10 @@ function parseMatrix(text: string, propertyIds: string[]): ProfilePack["matrix"]
     for (const [route, value] of Object.entries(cells)) {
       if (value !== "permit" && value !== "deny" && value !== "derived") throw new ProfileError(`actor/field matrix ${row[0]}, ${route}: "${value}" is not permit, deny or derived`);
     }
-    if (row[0] in matrix) throw new ProfileError(`actor/field matrix: ${row[0]} appears twice`);
+    if (Object.hasOwn(matrix, row[0])) throw new ProfileError(`actor/field matrix: ${row[0]} appears twice`);
     matrix[row[0]] = cells as Record<Route, Access>;
   }
-  for (const id of propertyIds) if (!(id in matrix)) throw new ProfileError(`actor/field matrix has no row for ${id}`);
+  for (const id of propertyIds) if (!Object.hasOwn(matrix, id)) throw new ProfileError(`actor/field matrix has no row for ${id}`);
   for (const id of Object.keys(matrix)) if (!propertyIds.includes(id)) throw new ProfileError(`actor/field matrix row ${id} is not a profile property`);
   return matrix;
 }
