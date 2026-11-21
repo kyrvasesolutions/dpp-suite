@@ -354,6 +354,21 @@ describe("C2-08 the operator notes explain every error and flag the screen can s
   });
 });
 
+describe("Cycle 3 review: padded product identifiers in the lab file", () => {
+  it.each([
+    ["model_id", " PM-5754-H111-2000"],
+    ["model_id", "PM-5754-H111-2000 "],
+    ["batch_id", "B-2026-0417\u200b"],
+    ["batch_id", "\u00adB-2026-0417"],
+  ])("refuses %s %j with padded-identifier at its pointer", async (key, value) => {
+    const doc = JSON.parse(VALID_LAB());
+    doc.product[key] = value;
+    const r = await lab(enc(JSON.stringify(doc)));
+    expect(rejected(r)).toEqual({ stage: "semantics", codes: expect.arrayContaining(["padded-identifier"]) });
+    if (!r.ok) expect(r.errors.find((e) => e.code === "padded-identifier")!.location).toContain(`/product/${key}`);
+  });
+});
+
 describe("Cycle 3 review: a text must be about the file's own product model", () => {
   it("rejects a lab text whose subject_ref names another model, with the location", async () => {
     const doc = JSON.parse(VALID_LAB());

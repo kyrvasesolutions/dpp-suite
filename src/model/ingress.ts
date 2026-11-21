@@ -490,6 +490,11 @@ export async function importLabJson(
     // The lab file names the model, batch and alloy it reports on, so they become assertions too (FUNC-065).
     const reference = (key: string, property: string, member?: string) => {
       const raw = str(get(product, key));
+      // The same rule as for identifiers in the ERP extract: padding would keep the value from matching its record.
+      if (key !== "alloy" && (raw !== raw.trim() || HAS_INVISIBLE.test(raw))) {
+        errors.push(issue("semantics", "padded-identifier", `${name}, /product/${key}`, JSON.stringify(raw)));
+        return;
+      }
       assertions.push({ property, ...(member ? { member } : {}), raw, value: raw, unit: null, source: src(`/product/${key}`), flags: ["declared"] });
     };
     reference("model_id", byRole(pack, "model"), "FLD-Identifier-value");
