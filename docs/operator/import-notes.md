@@ -63,6 +63,7 @@ the place in the file, and the cause. Correct the file at its source (usually th
 | `precision-loss` | semantics | A number has more significant digits than can be kept exactly, or is too small to represent. |
 | `duplicate-record` | semantics | Two rows describe the same product model and batch. Keep one row per batch. |
 | `duplicate-id` | semantics | Two entries in the file have the same identifier, so it is unclear which one is meant. |
+| `padded-identifier` | semantics | An identifier or code has spaces at its ends or invisible characters, so it would not match the same identifier written plainly. |
 | `not-authorised` | authorisation | This role may not import source files. |
 
 ## Status of a value

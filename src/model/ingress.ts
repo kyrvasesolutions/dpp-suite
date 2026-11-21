@@ -43,6 +43,7 @@ export type IngressCode =
   | "precision-loss"
   | "duplicate-record"
   | "duplicate-id"
+  | "padded-identifier"
   | "not-authorised";
 
 /** What each error means for the operator, in the words of the operator notes (C2-08). */
@@ -72,6 +73,7 @@ export const ERROR_TEXT: Record<IngressCode, string> = {
   "precision-loss": "A number has more significant digits than can be kept exactly, or is too small to represent.",
   "duplicate-record": "Two rows describe the same product model and batch. Keep one row per batch.",
   "duplicate-id": "Two entries in the file have the same identifier, so it is unclear which one is meant.",
+  "padded-identifier": "An identifier or code has spaces at its ends or invisible characters, so it would not match the same identifier written plainly.",
   "not-authorised": "This role may not import source files.",
 };
 
@@ -255,6 +257,11 @@ function csvRows(text: string, delimiter: string, name: string): string[][] {
 
 const DECIMAL = /^-?(?:0|[1-9]\d*)(?:\.\d+)?$/;
 
+/** Characters that print as nothing: zero-width spaces and joiners, word joiner, byte order mark, soft hyphen. */
+const INVISIBLE = /[\u200B-\u200D\u2060\uFEFF\u00AD]/g;
+/** The same set without the global flag, for test(), which would otherwise keep state between calls. */
+const HAS_INVISIBLE = /[\u200B-\u200D\u2060\uFEFF\u00AD]/;
+
 /**
  * Whether a number literal survives as a double without changing: at most 15 significant digits, and no
  * nonzero literal that underflows to 0. Longer numbers would be silently rounded (re-assessment R2-5).
@@ -335,12 +342,16 @@ export async function importErpCsv(
       for (const c of contract.columns) {
         const raw = cell[c.name];
         const loc = at(rowNo, c.name);
-        if (raw.trim() === "") {
+        if (raw.replace(INVISIBLE, "").trim() === "") {
           // A value of only spaces is as empty as no value; an optional one is simply absent.
           if (c.required) errors.push(issue("semantics", "missing-value", loc, raw === "" ? undefined : "The cell holds only spaces."));
           continue;
         }
         const [property, member] = c.maps_to.split("/");
+        if ((c.code_list || member?.startsWith("FLD-Identifier-")) && (raw !== raw.trim() || HAS_INVISIBLE.test(raw))) {
+          errors.push(issue("semantics", "padded-identifier", loc, JSON.stringify(raw)));
+          continue;
+        }
         const flags: Flag[] = ["declared"];
         let value: string | number | null = raw;
         if (c.unit) {

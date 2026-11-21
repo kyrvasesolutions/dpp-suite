@@ -422,3 +422,21 @@ describe("Cycle 2 re-assessment findings", () => {
     expect(state.unattached.map((a) => a.source.location)).toContain("lab.json, /observations/0/value");
   });
 });
+
+describe("Cycle 2 re-assessment, round 2", () => {
+  it.each([
+    ["a trailing space", "B-2026-0417 "],
+    ["a leading space", " B-2026-0417"],
+    ["a zero-width space", "B-2026-0417​"],
+  ])("N1 refuses a batch ID with %s", async (_, cell) => {
+    expect(rejected(await erp(withCell("batch_id", cell)))?.codes).toContain("padded-identifier");
+  });
+
+  it("N1 refuses a padded code instead of flagging it unknown", async () => {
+    expect(rejected(await erp(withCell("alloy", "EN AW-5754 ")))?.codes).toContain("padded-identifier");
+  });
+
+  it("N2 treats a cell of only invisible characters as empty", async () => {
+    expect(rejected(await erp(withCell("product_name_en", "​")))?.codes).toContain("missing-value");
+  });
+});
