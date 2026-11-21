@@ -7,7 +7,7 @@
  * (a challenged or missing input, an alloy or temper the table does not cover), there is no statement at all
  * and the reason says why; nothing else is derived and nothing is guessed.
  */
-import { byRole, type ProductRecord, type RecordValue } from "./ingress";
+import { byRole, type Assertion, type ProductRecord, type RecordValue } from "./ingress";
 import type { ProfilePack } from "./profile";
 
 export interface DerivedStatement {
@@ -17,12 +17,26 @@ export interface DerivedStatement {
 }
 
 export type DerivedResult =
-  | { ok: true; rule: string; statement: DerivedStatement; /** Where the inputs used are: the value, the alloy and the temper. */ sources: Array<{ file: string; location: string }> }
+  | { ok: true; rule: string; statement: DerivedStatement; /** Where the inputs used are: the value, the alloy and the temper. */ sources: PublicSource[] }
   | { ok: false; rule: string; reason: string };
 
 const within = (v: number, b: { min: number | null; max: number | null }) => (b.min === null || v >= b.min) && (b.max === null || v <= b.max);
 
-const locations = (v: RecordValue[]) => v.flatMap((x) => x.assertions.map((a) => ({ file: a.source.file, location: a.source.location })));
+/**
+ * A source as a recipient may see it: the kind of file and the position in it, never the file's name, which the
+ * uploader chose and which can carry anything (a code, a value).
+ */
+export interface PublicSource {
+  role: "ERP extract" | "Laboratory file";
+  position: string;
+}
+
+export function publicSource(source: Assertion["source"]): PublicSource {
+  const prefix = `${source.file}, `;
+  return { role: source.role === "erp" ? "ERP extract" : "Laboratory file", position: source.location.startsWith(prefix) ? source.location.slice(prefix.length) : "" };
+}
+
+const locations = (v: RecordValue[]) => v.flatMap((x) => x.assertions.map((a) => publicSource(a.source)));
 
 /** The one text a record states for a property, or why there is none: a challenged or repeated value cannot be relied on. */
 function onlyText(pack: ProfilePack, record: ProductRecord, role: "alloy" | "temper"): { text: string; from: RecordValue[] } | { problem: string } {

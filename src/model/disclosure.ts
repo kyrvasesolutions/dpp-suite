@@ -10,7 +10,7 @@
  * A route that is on hold still gets a projection, for the readiness view, but marked `onHold`: outputs of a
  * later cycle must refuse it. A value whose property the profile does not know is withheld, never copied.
  */
-import { derive, type DerivedStatement } from "./derived";
+import { derive, publicSource, type DerivedStatement, type PublicSource } from "./derived";
 import { byRole, type Assertion, type Flag, type ProductRecord, type ValueStatus } from "./ingress";
 import { decide } from "./policy";
 import type { ProfilePack, Route } from "./profile";
@@ -21,8 +21,8 @@ export interface ProjectedAssertion {
   value: string | number | null;
   unit: string | null;
   details?: Record<string, string>;
-  /** Where the value is stated: the file and the position in it. */
-  source: { file: string; location: string };
+  /** Where the value is stated: the kind of file and the position in it, never the uploaded file's name. */
+  source: PublicSource;
   flags: Flag[];
 }
 
@@ -37,8 +37,8 @@ export interface ProjectedValue {
 export interface DerivedDisclosure extends DerivedStatement {
   property: string;
   rule: string;
-  /** Where the inputs of the statement are (locations only, never their values). */
-  sources: Array<{ file: string; location: string }>;
+  /** Where the inputs of the statement are (kind of file and position only, never their values or the file name). */
+  sources: PublicSource[];
 }
 
 export interface Withheld {
@@ -69,7 +69,7 @@ const copy = (a: Assertion, evidenceVisible: boolean): ProjectedAssertion => ({
   ...(a.details
     ? { details: Object.fromEntries(Object.entries(a.details).filter(([k]) => evidenceVisible || k !== "evidence_id")) }
     : {}),
-  source: { file: a.source.file, location: a.source.location },
+  source: publicSource(a.source),
   flags: [...a.flags],
 });
 

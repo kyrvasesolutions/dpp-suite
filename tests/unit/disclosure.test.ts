@@ -81,8 +81,7 @@ describe("AT-U: the leakage matrix", () => {
     const record = await recordFor(pack, CLEAN);
     const p = project(pack, record, "customer-pdf");
     const name = p.values.find((v) => v.property === propertyBySlug(pack, "product-name") && v.qualifier === "en")!;
-    expect(name.assertions[0].source).toEqual({ file: "d03a-erp-extract.csv", location: expect.stringContaining("column product_name_en") });
-    expect(Object.keys(name.assertions[0].source).sort()).toEqual(["file", "location"]);
+    expect(name.assertions[0].source).toEqual({ role: "ERP extract", position: "row 2, column product_name_en" });
     // permitted members keep the method and uncertainty of their own property
     const thickness = p.values.find((v) => v.property === propertyBySlug(pack, "measured-thickness"))!;
     expect(thickness.assertions[0].details?.method).toBeTruthy();
@@ -128,13 +127,40 @@ describe("AT-U: the leakage matrix", () => {
   });
 });
 
+describe("sources in a projection never carry the uploaded file's name", () => {
+  // a name chosen by the uploader can carry a supplier code and a raw measured value
+  const erpName = "SS01-KA-778812.csv";
+  const labName = "SS01-227.777.json";
+
+  it("shows the kind of file and the position, for every route", async () => {
+    const record = await recordFor(pack, { ...CLEAN, erpName, labName, editLab: (doc) => (doc.observations[1].value = 227.777) });
+    for (const route of ROUTES) {
+      const p = project(pack, record, route);
+      const json = JSON.stringify(p);
+      for (const name of [erpName, labName, ...(route === "customer-pdf" ? ["SS01", "227.777"] : [])]) expect(json, `${route} ${name}`).not.toContain(name);
+      assertNoLeak(p, record, pack);
+      for (const s of [...p.values.flatMap((v) => v.assertions.map((a) => a.source)), ...p.derived.flatMap((d) => d.sources)]) {
+        expect(["ERP extract", "Laboratory file"]).toContain(s.role);
+        expect(s.position).toMatch(/^(row \d+, column \w+|\/[\w/]+)$/);
+        expect(Object.keys(s).sort()).toEqual(["position", "role"]);
+      }
+    }
+    // the operator-side readiness view keeps the full location, file name included
+    const holds = assess(pack, { ...record, values: record.values.filter((v) => v.property !== propertyBySlug(pack, "recycled-content")) });
+    expect(holds.length).toBe(3);
+    const sourced = (await recordFor(pack, { ...CLEAN, erpName, labName, lab: "lab-two-footprints.json" }));
+    const hold = assess(pack, sourced)[0].holds.find((h) => h.ruleId === "RR-SEVERAL-RESULTS")!;
+    expect(hold.sources[0].location).toContain(labName);
+  });
+});
+
 describe("assertNoLeak", () => {
   it("detects a raw denied value planted in a projection, and a derived one", async () => {
     const record = await recordFor(pack, CLEAN);
     const p = project(pack, record, "customer-pdf");
     expect(() => assertNoLeak(p, record, pack)).not.toThrow();
     const supplier = record.values.find((v) => v.property === propertyBySlug(pack, "primary-supplier"))!;
-    const planted = { ...p, values: [...p.values, { property: "X", status: "single" as const, assertions: [{ ...supplier.assertions[0], source: { file: "f", location: "l" } }] }] };
+    const planted = { ...p, values: [...p.values, { property: "X", status: "single" as const, assertions: [{ ...supplier.assertions[0], source: { role: "ERP extract" as const, position: "p" } }] }] };
     expect(() => assertNoLeak(planted, record, pack)).toThrow(/leak/);
     const tensile = record.values.find((v) => v.property === propertyBySlug(pack, "tensile-strength"))!;
     const raw = { ...p, derived: [...p.derived, { property: "X", rule: "R", sources: [], within: true, basis: `value ${tensile.assertions[0].raw} MPa` }] };
@@ -158,8 +184,8 @@ describe("derived disclosure", () => {
     ]);
     for (const d of p.derived) expect(Object.keys(d).sort()).toEqual(["basis", "property", "rule", "sources", "within"]);
     // the inputs are cited by place: the value, the alloy and the temper for strength
-    expect(p.derived[0].sources.map((s) => s.location).join(" ")).toMatch(/observations\/1\/value.*column alloy|column alloy.*observations\/1\/value/);
-    expect(p.derived[0].sources.some((s) => s.location.includes("column temper"))).toBe(true);
+    expect(p.derived[0].sources.map((s) => s.position).join(" ")).toMatch(/observations\/1\/value.*column alloy|column alloy.*observations\/1\/value/);
+    expect(p.derived[0].sources.some((s) => s.position.includes("column temper"))).toBe(true);
     expect(pack.policy.derived.limits.illustrative).toBe(true);
     const json = JSON.stringify(p);
     for (const v of record.values.filter((x) => [tensile(), composition()].includes(x.property))) {

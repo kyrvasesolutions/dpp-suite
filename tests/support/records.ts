@@ -18,6 +18,9 @@ export function propertyBySlug(pack: ProfilePack, slug: string): string {
 export interface Combination {
   erp?: string;
   lab?: string;
+  /** Names the uploaded files are given, when they differ from the fixture names. */
+  erpName?: string;
+  labName?: string;
   /** Edits of the ERP text (a scratch copy) and of the parsed lab document. */
   editErp?: (csv: string) => string;
   editLab?: (doc: any) => void;
@@ -28,14 +31,14 @@ export async function recordsFor(pack: ProfilePack, c: Combination): Promise<Pro
   const results = [];
   if (c.erp) {
     const csv = c.editErp ? c.editErp(text(c.erp)) : text(c.erp);
-    const r = await importErpCsv(pack, { bytes: enc(csv), name: c.erp, type: "text/csv" });
+    const r = await importErpCsv(pack, { bytes: enc(csv), name: c.erpName ?? c.erp, type: "text/csv" });
     if (!r.ok) throw new Error(`${c.erp} rejected: ${r.errors[0].code}`);
     results.push(r);
   }
   if (c.lab) {
     const doc = JSON.parse(text(c.lab));
     c.editLab?.(doc);
-    const r = await importLabJson(pack, { bytes: enc(JSON.stringify(doc)), name: c.lab, type: "application/json" });
+    const r = await importLabJson(pack, { bytes: enc(JSON.stringify(doc)), name: c.labName ?? c.lab, type: "application/json" });
     if (!r.ok) throw new Error(`${c.lab} rejected: ${r.errors[0].code}`);
     results.push(r);
   }
