@@ -50,7 +50,8 @@ const listFiles = (dir) =>
 const packFiles = () =>
   listFiles(ROOT)
     .map((p) => relative(ROOT, p))
-    .filter((p) => p !== "MANIFEST.json" && !p.endsWith(".DS_Store"))
+    // README files are local notes, kept out of version control, so they are not part of the pinned pack.
+    .filter((p) => p !== "MANIFEST.json" && !p.endsWith(".DS_Store") && !p.endsWith("README.md"))
     .sort();
 
 const sha256 = (path) => createHash("sha256").update(readFileSync(join(ROOT, path))).digest("hex");

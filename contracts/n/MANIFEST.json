@@ -2,7 +2,6 @@
   "pack": "N contract pack",
   "profile": "PROFILE-ALU-24-01@1.0.0",
   "files": {
-    "README.md": "ce45863e7bba1f800477d41d21f0ec995622329385603e2269a130f9c44f9a93",
     "code-lists/ALLOY@1.0.0.csv": "3f3f2fd94c923e31e02a66cf7b3d93ee843bc57a77d03a10cfd6d3a13c8624ab",
     "code-lists/CN@1.0.0.csv": "b6da51b844ef2b91468a94cce98c616a6b1c0b1c8fc6ff58f978abf9fdbea772",
     "code-lists/COMPANY@1.0.0.csv": "047acd3917aa78aa847510c1298e618e18e1339beb516515a33ebb5cc5e309e2",
