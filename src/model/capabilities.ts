@@ -11,7 +11,7 @@ export type CapabilityLabel = (typeof CAPABILITY_LABELS)[number];
 
 export interface Capability {
   /** The screen, as in the URL hash. */
-  id: "requirements" | "prepare" | "validation" | "mapping" | "graph";
+  id: "profile" | "requirements" | "prepare" | "validation" | "mapping" | "graph";
   name: string;
   label: CapabilityLabel;
   /** Plan functions (2_FunctionCatalog) the screen relates to; empty for capabilities outside the plan. */
@@ -29,6 +29,13 @@ export const CAPABILITY_TEXT: Record<CapabilityLabel, string> = {
 
 /** Labels from the Cycle 0 baseline assessment of 20 November 2026 (docs/assessment/cycle-0). */
 export const CAPABILITIES: Capability[] = [
+  {
+    id: "profile",
+    name: "Profile",
+    label: "untested",
+    functions: ["FUNC-001", "FUNC-025", "FUNC-027", "FUNC-028", "FUNC-029", "FUNC-030", "FUNC-031", "FUNC-081", "FUNC-085", "FUNC-091"],
+    basis: "New in Cycle 1: shows the frozen N profile from its pinned files; not yet assessed at a cycle exit.",
+  },
   {
     id: "requirements",
     name: "Requirements",
