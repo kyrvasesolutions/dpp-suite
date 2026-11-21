@@ -2,6 +2,7 @@ import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 import { CONTENT_SECURITY_POLICY } from "./config/csp.ts";
+import { checkPack, packDir, readPack } from "./config/contractPack.ts";
 
 /** Adds the content security policy to the built page only, so the dev server's HMR websocket keeps working. */
 const contentSecurityPolicy = (): Plugin => ({
@@ -16,11 +17,40 @@ const contentSecurityPolicy = (): Plugin => ({
   ],
 });
 
+/**
+ * Embeds the frozen contract pack as `virtual:contract-pack` (Cycle 1, C1-02). The checker runs first, so
+ * an unresolved term, a moving version or a changed file fails the build; the app then verifies every
+ * digest again when it loads the pack.
+ */
+const contractPack = (): Plugin => {
+  const id = "virtual:contract-pack";
+  const dir = packDir();
+  return {
+    name: "dpp-contract-pack",
+    buildStart() {
+      try {
+        checkPack(dir);
+      } catch (error) {
+        const out = (error as { stderr?: string; stdout?: string }).stderr || (error as Error).message;
+        this.error(`contract pack ${dir} failed its check:\n${out}`);
+      }
+    },
+    resolveId: (source) => (source === id ? `\0${id}` : undefined),
+    load(resolved) {
+      if (resolved !== `\0${id}`) return undefined;
+      const pack = readPack(dir);
+      for (const path of [...Object.keys(pack.files), "MANIFEST.json"]) this.addWatchFile(`${dir}/${path}`);
+      return `export default ${JSON.stringify({ ...pack, packDir: dir })};`;
+    },
+  };
+};
+
 export default defineConfig({
   // GitHub Pages serves the site from /<repo>/; the workflow sets BASE_PATH.
   base: process.env.BASE_PATH ?? "/",
   plugins: [
     contentSecurityPolicy(),
+    contractPack(),
     react(),
     VitePWA({
       registerType: "autoUpdate",

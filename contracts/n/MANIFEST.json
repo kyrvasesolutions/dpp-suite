@@ -2,7 +2,16 @@
   "pack": "N contract pack",
   "profile": "PROFILE-ALU-24-01@1.0.0",
   "files": {
-    "README.md": "bd3bcc65b7120318a210d8db3bbaeb1736c811249fd1dd9b1a357fa8d2628595",
+    "README.md": "c1425d648885f6506e9118ae3cc6253316b73532a953c01e595f97fe3fae1847",
+    "code-lists/ALLOY@1.0.0.csv": "3f3f2fd94c923e31e02a66cf7b3d93ee843bc57a77d03a10cfd6d3a13c8624ab",
+    "code-lists/CN@1.0.0.csv": "b6da51b844ef2b91468a94cce98c616a6b1c0b1c8fc6ff58f978abf9fdbea772",
+    "code-lists/COMPANY@1.0.0.csv": "047acd3917aa78aa847510c1298e618e18e1339beb516515a33ebb5cc5e309e2",
+    "code-lists/COUNTRY@1.0.0.csv": "a160f0d7b9086cfa0587b4438407501ea60b5c6bf5c6b7cf08a4ddc79da7d04d",
+    "code-lists/CUSTOMER@1.0.0.csv": "b50392cead689adc68bffbd55513f62f8eee1b550bb7620762eafa32785b42ae",
+    "code-lists/SECTOR@1.0.0.csv": "7b2969fe42f3cefd1c6bc46f225d28970a5257b3631e2115e8366de951835e16",
+    "code-lists/SUPPLIER@1.0.0.csv": "9df9955a3c2822a2daeb90349886b5425fb77481fdb2336f6c2819047e5967e8",
+    "code-lists/SURFACE@1.0.0.csv": "998583410e077665abc0021dc066367ce14a630fdcff700a2a8c8c8e2f22f538",
+    "code-lists/TEMPER@1.0.0.csv": "4b35b33af69b950bc2086ff2d13c8317d7e6e1ff7b5778bf9cf41b4a94e8299c",
     "failure-cases/ambiguous-footprint.yaml": "159c5a36b2e84a156fcf6e439a5145ee9e9846ebfb7373791e553e6a877e60d7",
     "failure-cases/blocked-export.yaml": "3c9ffd55f18cd6c9413d417223590a31df8afe779ce5ee3c026979f47bf105c0",
     "failure-cases/conflicting-assertions.yaml": "a0501bf8b096ed793292b40cef86d7a9652f35e7788d3900c308b499be3defb8",
@@ -16,12 +25,15 @@
     "failure-cases/unknown-code.yaml": "2d8323de7b659674664504f5bd9f9d1647c6ac8ceb3306ebbdc038ac68536f89",
     "failure-cases/wrong-encoding.yaml": "85edef754621c9e993ab0b931b32df2628f1b220e0cf8e438588d349b74cafee",
     "failure-cases/wrong-unit.yaml": "ee21b29007339835cad14c904ec64a0217c37028fa95ba1898e04b3bc8fe6d2d",
-    "inputs/erp-extract.csv.contract.yaml": "9096b5239e53d5d546d2eee03a68b51f037b5e89711b97e556d15067f10bced3",
+    "inputs/erp-extract.csv.contract.yaml": "2f96f4eaf82ff983608d0038a48ef0d47c01a0b4c7e17ff5f810065f529ec403",
     "inputs/lab-assessment.contract.yaml": "344c67011e283191f65e2197c43b72516ec5f5c68f3f515eabfad2be2a3d662a",
+    "legal/ALU-LEGAL@1.0.0.yaml": "5cc4d43ecb86d9f27b36d5cc9a34bfe7ccf9c17c0610ae90b63f5c90484ab50e",
     "policy/actor-field-matrix.csv": "e02f650d50b1614402c74a876b6603fb660da05ac86df16fde24aeb6fe0d69cd",
-    "profile/PROFILE-ALU-24-01@1.0.0.yaml": "2c25ee48d3b58a5b22ac98f8d8b1484a41f39ae9ddcc081071029fc1d79b8a60",
+    "profile/PROFILE-ALU-24-01@1.0.0.yaml": "a9df4b8bc9d8751c083e96768d58ecb2dae7a70d4fca8cb8c5037b3b1663bfb4",
     "routes/customer-pdf.yaml": "1ec29862bf5a3e6996f20c39505b866a60359ddcd152e409cbfe46f7178c47bb",
     "routes/erp-staging-csv.yaml": "9430b5d332c9409a84ab84ccca707e00ecc87059ff1b201526b13e1b0fba3c7b",
-    "routes/registry-prep-json.yaml": "6e25bf8ed1a1e8d4658fd1b1d1a860d31baffc4a5360cf2fae388ab8c48a0319"
+    "routes/registry-prep-json.yaml": "6e25bf8ed1a1e8d4658fd1b1d1a860d31baffc4a5360cf2fae388ab8c48a0319",
+    "terms/ALU-TERMS@1.0.0.yaml": "953c2646326a6e209d4f71379ad46d915b36ffec7fc4db5eb9769face69949e3",
+    "units/UNITS@1.0.0.yaml": "4d75219d7ea4f71883c0d55686419d8f1e14602b44616e96926616fc0d2bbfba"
   }
 }

@@ -19,6 +19,7 @@ import { ItemWindow, WINDOW_WIDTH, type WindowState } from "./components/ItemWin
 import { MappingView } from "./components/MappingView";
 import { CapabilityBadge } from "./components/CapabilityBadge";
 import { PrepareView } from "./components/PrepareView";
+import { ProfileView } from "./components/ProfileView";
 import { RequirementsExplorer } from "./components/RequirementsExplorer";
 import { SamplesSidebar } from "./components/SamplesSidebar";
 import { TraceTree } from "./components/TraceTree";
@@ -600,10 +601,11 @@ export function Workspace({ database, nav }: WorkspaceProps) {
   );
 }
 
-type LaneView = "requirements" | "prepare" | "validation" | "mapping";
+type LaneView = "profile" | "requirements" | "prepare" | "validation" | "mapping";
 type View = LaneView | "graph";
 
 const LANES: Array<{ id: LaneView; label: string }> = [
+  { id: "profile", label: "Profile" },
   { id: "requirements", label: "Requirements" },
   { id: "prepare", label: "Prepare" },
   { id: "validation", label: "Validation" },
@@ -675,9 +677,11 @@ export default function App() {
             </ToggleButton>
           ))}
         </ToggleButtonGroup>
-        {view !== "graph" && <SamplesSidebar />}
+        {view !== "graph" && view !== "profile" && <SamplesSidebar />}
         {view === "graph" ? (
           <GraphView chain={chain} chainError={loadError} />
+        ) : view === "profile" ? (
+          <ProfileView chain={chain} />
         ) : view === "mapping" ? (
           <MappingView />
         ) : chain ? (

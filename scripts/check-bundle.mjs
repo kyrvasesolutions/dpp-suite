@@ -2,6 +2,9 @@
  * Checks the production build in dist/ for egress controls (criterion C0-07, baseline finding B0-03):
  * the page carries the content security policy, and no browser LLM client is bundled unless the build
  * was made with VITE_ENABLE_LLM=true. Run after `npm run build`.
+ *
+ * It also refuses a build that embeds any contract pack other than the public stand-in in contracts/n
+ * (decision D1-01, option b), so a local build made with DPP_CONTRACT_PACK can't be published by mistake.
  */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -36,8 +39,15 @@ if (process.env.VITE_ENABLE_LLM !== "true") {
   }
 }
 
+const packs = new Set();
+for (const file of readdirSync(join(DIST, "assets")).filter((f) => f.endsWith(".js"))) {
+  for (const m of readFileSync(join(DIST, "assets", file), "utf8").matchAll(/\bpackDir"?\s*:\s*["'`]([^"'`]*)["'`]/g)) packs.add(m[1]);
+}
+if (packs.size === 0) errors.push("no contract pack is embedded in the bundle");
+for (const p of packs) if (p !== "contracts/n") errors.push(`the bundle embeds the contract pack ${p}; only contracts/n may be published`);
+
 if (errors.length) {
   for (const e of errors) console.error(`check-bundle: ${e}`);
   process.exit(1);
 }
-console.log("Bundle OK: content security policy present, no browser LLM client.");
+console.log("Bundle OK: content security policy present, no browser LLM client, public contract pack only.");
