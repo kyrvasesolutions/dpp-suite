@@ -2,7 +2,7 @@
 
 Functional changes to the DPP suite, one entry per merged pull request, newest first.
 
-## Unreleased: Route readiness and recipient disclosure (21 November 2026)
+## [#10](https://github.com/kyrvasesolutions/dpp-suite/pull/10) Route readiness and recipient disclosure (21 November 2026)
 
 - New **Readiness** screen after Import. For each imported record it shows, per route, whether the route is ready or on hold, which required properties are present, missing, not accessible to the recipient or challenged, and why.
   - Every hold names a rule with its text, the property, and where the source values are. A missing value and the registry route's own hold are the only ones with no source value to point to.
