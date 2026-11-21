@@ -12,9 +12,14 @@ import {
 } from "../model/ingress";
 import { loadProfilePack, type ProfilePack } from "../model/profile";
 
-/** The synthetic N fixtures, served with the app so the operator can try a clean and a faulty import. */
-const FIXTURES = import.meta.glob("../../fixtures/n/*.{csv,json}", { query: "?url", import: "default", eager: true }) as Record<string, string>;
-const fixtureUrl = (name: string) => FIXTURES[`../../fixtures/n/${name}`];
+/** The synthetic N fixtures that match the embedded pack, served with the app so the operator can try a clean and a faulty import. */
+const FIXTURES = import.meta.glob(["@n-fixtures/*.{csv,json}", "!@n-fixtures/MANIFEST.json"], { query: "?url", import: "default", eager: true }) as Record<string, string>;
+const BY_NAME = new Map(Object.entries(FIXTURES).map(([path, url]) => [path.split("/").pop()!, url]));
+const fixtureUrl = (name: string) => {
+  const url = BY_NAME.get(name);
+  if (!url) throw new Error(`Sample file ${name} is not in the fixture pack`);
+  return url;
+};
 
 interface Sample {
   id: string;
@@ -170,12 +175,38 @@ export function ImportView() {
       )}
 
       {state && state.unattached.length > 0 && (
-        <div className="banner warn" data-testid="unattached">
-          <span>
-            The laboratory file reports on a model or batch that the ERP extract does not contain. Its {state.unattached.length} values are
-            kept but not attached to a record.
-          </span>
-        </div>
+        <section className="profile-section" aria-label="Values not attached to a record">
+          <div className="banner warn" data-testid="unattached">
+            <span>
+              The laboratory file reports on a model or batch that the ERP extract does not contain. Its {state.unattached.length} values
+              are kept below but not attached to a record.
+            </span>
+          </div>
+          <table className="profile-table import-table">
+            <thead>
+              <tr>
+                <th scope="col">Property</th>
+                <th scope="col">Value as in the source</th>
+                <th scope="col">Source</th>
+              </tr>
+            </thead>
+            <tbody>
+              {state.unattached.map((a, i) => (
+                <tr key={i} data-testid="unattached-value">
+                  <td>
+                    <strong>{a.property}</strong> {label.get(a.property)}
+                    {a.qualifier && <div className="small hint">{a.qualifier}</div>}
+                  </td>
+                  <td>
+                    <code>{a.raw}</code>
+                    {a.unit ? ` ${a.unit}` : ""}
+                  </td>
+                  <td className="small">{a.source.location}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
       )}
 
       {state?.records.map((r) => (

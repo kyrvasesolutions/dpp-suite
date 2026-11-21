@@ -21,6 +21,11 @@ export interface Capability {
   functions: string[];
   /** Plan functions this screen goes beyond, as an extension (F3, no completeness credit, criteria §2.6). */
   extends?: string[];
+  /**
+   * A label of its own for a delivered function whose slice is only partly met, so it never inherits the
+   * screen's "supported" (re-assessment R2-3).
+   */
+  functionLabels?: Record<string, CapabilityLabel>;
   /** One sentence on why the label is what it is. */
   basis: string;
 }
@@ -32,7 +37,7 @@ export const CAPABILITY_TEXT: Record<CapabilityLabel, string> = {
   untested: "Untested",
 };
 
-/** Labels from the Cycle 0 baseline (20 November 2026) and the Cycle 1 exit (21 November 2026), docs/assessment. */
+/** Labels from the Cycle 0 baseline (20 November 2026) and the Cycle 1 and 2 exits (21 November 2026), docs/assessment. */
 export const CAPABILITIES: Capability[] = [
   {
     id: "profile",
@@ -44,9 +49,10 @@ export const CAPABILITIES: Capability[] = [
   {
     id: "import",
     name: "Import",
-    label: "untested",
+    label: "supported",
     functions: ["FUNC-039", "FUNC-125", "FUNC-017", "FUNC-065"],
-    basis: "New in Cycle 2: strict import of the two N source files with the pinned code lists and units; not yet assessed at a cycle exit.",
+    functionLabels: { "FUNC-125": "experimental" },
+    basis: "Cycle 2 exit: strict import of the two N source files with verbatim source assertions, flags and challenged values. FUNC-125 is experimental: import side only.",
   },
   {
     id: "requirements",
@@ -91,4 +97,10 @@ export const capabilityOf = (id: Capability["id"]): Capability => {
   const found = CAPABILITIES.find((c) => c.id === id);
   if (!found) throw new Error(`No capability recorded for screen "${id}"`);
   return found;
+};
+
+/** The label a plan function carries in this build: its own label if it has one, otherwise its screen's. */
+export const labelOfFunction = (func: string): CapabilityLabel | undefined => {
+  const screen = CAPABILITIES.find((c) => c.functions.includes(func));
+  return screen ? (screen.functionLabels?.[func] ?? screen.label) : undefined;
 };

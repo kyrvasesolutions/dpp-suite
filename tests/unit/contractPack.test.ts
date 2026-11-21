@@ -85,6 +85,26 @@ describe("R1-3 the pack must carry the owner's signature", () => {
   });
 });
 
+describe("R1-4 nested members carry no unit in a mapping", () => {
+  const scratch = mkdtempSync(join(tmpdir(), "member-unit-"));
+  afterAll(() => rmSync(scratch, { recursive: true, force: true }));
+
+  it("refuses an ERP column that states a unit for a nested member", () => {
+    cpSync(PACK, scratch, { recursive: true });
+    const file = join(scratch, "inputs/erp-extract.csv.contract.yaml");
+    const text = readFileSync(file, "utf8");
+    const changed = text.replace(/(maps_to: ALU-D\d{3}\/FLD-Identifier-value\n\s+unit:) null/, "$1 mm");
+    expect(changed).not.toBe(text);
+    writeFileSync(file, changed);
+    try {
+      checker("--pack", scratch, "--write");
+    } catch {
+      // the manifest is written before the rules run
+    }
+    expect(() => checker("--pack", scratch)).toThrow(/nested member .* carries no unit/);
+  });
+});
+
 describe("C0-05 N fixtures follow the frozen contracts", () => {
   it("valid ERP extract has every contract column, known codes and values for required columns", () => {
     const { cols, rows: data } = rows(text("d03a-erp-extract.csv"));

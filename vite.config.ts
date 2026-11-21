@@ -2,7 +2,8 @@ import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 import { CONTENT_SECURITY_POLICY } from "./config/csp.ts";
-import { checkPack, packDir, readPack } from "./config/contractPack.ts";
+import { resolve } from "node:path";
+import { checkPack, fixtureDir, packDir, readPack } from "./config/contractPack.ts";
 
 /** Adds the content security policy to the built page only, so the dev server's HMR websocket keeps working. */
 const contentSecurityPolicy = (): Plugin => ({
@@ -78,6 +79,8 @@ export default defineConfig({
       },
     }),
   ],
+  // The Import screen's sample files are the fixtures that match the embedded contract pack.
+  resolve: { alias: { "@n-fixtures": resolve(fixtureDir()) } },
   build: {
     // Sample fixtures are fetched by the Import screen; a data: URL would be refused by connect-src 'self'.
     assetsInlineLimit: (file) => (file.includes("/fixtures/") ? false : undefined),

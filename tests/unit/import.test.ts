@@ -352,3 +352,91 @@ describe("C2-08 the operator notes explain every error and flag the screen can s
     for (const [flag, text] of Object.entries(FLAG_TEXT)) expect(notes, flag).toContain(`| \`${flag}\` | ${text} |`);
   });
 });
+
+describe("Cycle 2 re-assessment findings", () => {
+  const twoRows = () => {
+    const [head, row] = VALID_ERP().trimEnd().split("\n");
+    return enc(`${head}\n${row}\n${row.replace("B-2026-0417", "B-2026-0999").replace(";2412.5;", ";1999.0;")}\n`);
+  };
+
+  it("R2-1 attaches every ERP value to its own row's record, whatever the file is called", async () => {
+    for (const name of ["export row 9.csv", "tomorrow 3.csv", "row 2.csv"]) {
+      const one = await buildRecords([await erp(fixture("d03a-erp-extract.csv"), name)]);
+      expect(one.records[0].values.length, name).toBe(23);
+      const two = await buildRecords([await erp(twoRows(), name)]);
+      const [a, b] = two.records;
+      expect([a.batch, b.batch]).toEqual(["B-2026-0417", "B-2026-0999"]);
+      const mass = (r: (typeof two.records)[number]) => r.values.find((v) => v.assertions[0].source.location.endsWith("net_mass_kg"))!.assertions;
+      expect(mass(a).map((x) => x.raw)).toEqual(["2412.5"]);
+      expect(mass(b).map((x) => x.raw)).toEqual(["1999.0"]);
+    }
+  });
+
+  it("R2-2 refuses two rows for the same model and batch", async () => {
+    const [head, row] = VALID_ERP().trimEnd().split("\n");
+    const r = await erp(enc(`${head}\n${row}\n${row.replace(";2.0;", ";3.0;")}\n`));
+    expect(rejected(r)).toEqual({ stage: "semantics", codes: ["duplicate-record"] });
+  });
+
+  it.each([
+    ["evidence", '"evidence_id": "EV-CR-0099",\n      "issuer"', '"evidence_id": "EV-TR-0417",\n      "issuer"'],
+    ["observation", '"observation_id": "OBS-2"', '"observation_id": "OBS-1"'],
+  ])("R2-2 refuses two %s entries with the same identifier", async (_, from, to) => {
+    const text = VALID_LAB().replace(from, to);
+    expect(text).not.toBe(VALID_LAB());
+    expect(rejected(await lab(enc(text)))?.codes).toContain("duplicate-id");
+  });
+
+  it.each([
+    ["a required cell of only spaces", "product_model_id", "   ", "missing-value"],
+    ["zero thickness", "thickness_nominal_mm", "0", "out-of-range"],
+    ["negative zero thickness", "thickness_nominal_mm", "-0", "out-of-range"],
+    ["zero mass", "net_mass_kg", "0.0", "out-of-range"],
+    ["more digits than a double keeps", "net_mass_kg", "9007199254740993", "precision-loss"],
+    ["a long fraction", "thickness_nominal_mm", "2.00000000000000000001", "precision-loss"],
+  ])("R2-4/5 refuses %s", async (_, column, cell, code) => {
+    expect(rejected(await erp(withCell(column, cell)))?.codes).toContain(code);
+  });
+
+  it("R2-4 still accepts 0 % recycled content, a real value", async () => {
+    expect((await erp(withCell("post_consumer_pct", "0"))).ok).toBe(true);
+  });
+
+  it.each([
+    ["more digits than a double keeps", '"value": 228', '"value": 228.000000000000000001'],
+    ["an underflow to zero", '"value": 2.01', '"value": 1e-400'],
+  ])("R2-5 refuses a lab value with %s", async (_, from, to) => {
+    expect(rejected(await lab(enc(VALID_LAB().replace(from, to))))?.codes).toContain("precision-loss");
+  });
+
+  it("R2-7 accepts a .csv sent as an Excel type, and blank lines at the end", async () => {
+    expect((await erp(fixture("d03a-erp-extract.csv"), "erp.csv", "application/vnd.ms-excel")).ok).toBe(true);
+    expect((await erp(enc(`${VALID_ERP()}\n\n`))).ok).toBe(true);
+    const [head, row] = VALID_ERP().trimEnd().split("\n");
+    expect(rejected(await erp(enc(`${head}\n\n${row}\n`)))?.codes).toContain("ragged-row");
+  });
+
+  it("R2-6 keeps the values of a lab file about another model, unattached", async () => {
+    const other = await lab(enc(VALID_LAB().replace(/"model_id": "[^"]+"/, '"model_id": "PM-OTHER"')));
+    const state = await buildRecords([await erp(fixture("d03a-erp-extract.csv")), other]);
+    expect(state.unattached.map((a) => a.source.location)).toContain("lab.json, /observations/0/value");
+  });
+});
+
+describe("Cycle 2 re-assessment, round 2", () => {
+  it.each([
+    ["a trailing space", "B-2026-0417 "],
+    ["a leading space", " B-2026-0417"],
+    ["a zero-width space", "B-2026-0417​"],
+  ])("N1 refuses a batch ID with %s", async (_, cell) => {
+    expect(rejected(await erp(withCell("batch_id", cell)))?.codes).toContain("padded-identifier");
+  });
+
+  it("N1 refuses a padded code instead of flagging it unknown", async () => {
+    expect(rejected(await erp(withCell("alloy", "EN AW-5754 ")))?.codes).toContain("padded-identifier");
+  });
+
+  it("N2 treats a cell of only invisible characters as empty", async () => {
+    expect(rejected(await erp(withCell("product_name_en", "​")))?.codes).toContain("missing-value");
+  });
+});
