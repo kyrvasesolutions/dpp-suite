@@ -1,64 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
-import pack from "virtual:contract-pack";
-import {
-  FLAG_TEXT,
-  STAGES,
-  buildRecords,
-  importErpCsv,
-  importLabJson,
-  type ImportResult,
-  type RecordState,
-  type RecordValue,
-} from "../model/ingress";
-import { loadProfilePack, type ProfilePack } from "../model/profile";
-
-/** The synthetic N fixtures that match the embedded pack, served with the app so the operator can try a clean and a faulty import. */
-const FIXTURES = import.meta.glob(["@n-fixtures/*.{csv,json}", "!@n-fixtures/MANIFEST.json"], { query: "?url", import: "default", eager: true }) as Record<string, string>;
-const BY_NAME = new Map(Object.entries(FIXTURES).map(([path, url]) => [path.split("/").pop()!, url]));
-const fixtureUrl = (name: string) => {
-  const url = BY_NAME.get(name);
-  if (!url) throw new Error(`Sample file ${name} is not in the fixture pack`);
-  return url;
-};
-
-interface Sample {
-  id: string;
-  label: string;
-  erp?: string;
-  lab?: string;
-}
-
-const SAMPLES: Sample[] = [
-  { id: "clean", label: "Clean pair", erp: "d03a-erp-extract.csv", lab: "d03a-lab-assessment.json" },
-  { id: "conflict", label: "Sources disagree on the alloy", erp: "d03a-erp-extract.csv", lab: "lab-conflicting-alloy.json" },
-  { id: "unknown-code", label: "Unknown company code", erp: "erp-unknown-company-code.csv", lab: "d03a-lab-assessment.json" },
-  { id: "two-footprints", label: "Two footprint results", erp: "d03a-erp-extract.csv", lab: "lab-two-footprints.json" },
-  { id: "digest", label: "Evidence without digest", erp: "d03a-erp-extract.csv", lab: "lab-evidence-digest-missing.json" },
-  { id: "encoding", label: "ERP extract not UTF-8", erp: "erp-latin1.csv" },
-  { id: "missing-column", label: "ERP extract without the alloy column", erp: "erp-missing-alloy-column.csv" },
-  { id: "decimal-comma", label: "ERP value with a decimal comma", erp: "erp-decimal-comma.csv" },
-  { id: "duplicate-key", label: "Lab file with a duplicate key", lab: "lab-duplicate-key.json" },
-  { id: "non-finite", label: "Lab file with 1e999", lab: "lab-non-finite.json" },
-  { id: "missing-unit", label: "Lab value without a unit", lab: "lab-missing-unit.json" },
-  { id: "wrong-unit", label: "Lab value in inches", lab: "lab-wrong-unit.json" },
-  { id: "unit-alias", label: "Lab value in N/mm²", lab: "lab-unit-alias.json" },
-];
-
-interface Input {
-  bytes: Uint8Array;
-  name: string;
-  type: string;
-}
+import { useMemo, useState } from "react";
+import { FLAG_TEXT, STAGES, type ImportResult, type RecordValue } from "../model/ingress";
+import { useRecordStore } from "../model/recordStore";
+import { IMPORT_SAMPLES as SAMPLES, importInputs, importSample, type Input } from "./sampleFiles";
 
 const short = (digest: string) => `${digest.slice(0, 12)}…`;
 
 const readFile = async (file: File): Promise<Input> => ({ bytes: new Uint8Array(await file.arrayBuffer()), name: file.name, type: file.type });
-
-async function readFixture(name: string): Promise<Input> {
-  const response = await fetch(fixtureUrl(name));
-  // The served type of a fixture depends on the web server; the name stands for what the operator's browser would send.
-  return { bytes: new Uint8Array(await response.arrayBuffer()), name, type: name.endsWith(".csv") ? "text/csv" : "application/json" };
-}
 
 /**
  * Imports the ERP CSV extract and the laboratory/assessment JSON against their pinned contracts and shows the
@@ -66,26 +13,18 @@ async function readFixture(name: string): Promise<Input> {
  * typed error; accepted files show each value verbatim with its source location, status and flags.
  */
 export function ImportView() {
-  const [profile, setProfile] = useState<ProfilePack | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { profile, error, state, setState } = useRecordStore();
   const [inputs, setInputs] = useState<{ erp?: Input; lab?: Input }>({});
   const [results, setResults] = useState<{ erp?: ImportResult; lab?: ImportResult }>({});
-  const [state, setState] = useState<RecordState | null>(null);
   const [previousDigests, setPreviousDigests] = useState<string[] | null>(null);
   const [sample, setSample] = useState(SAMPLES[0].id);
 
-  useEffect(() => {
-    loadProfilePack(pack).then(setProfile, (e: unknown) => setError(e instanceof Error ? e.message : String(e)));
-  }, []);
-
   const run = async (next: { erp?: Input; lab?: Input }, again = false) => {
     if (!profile) return;
-    const erp = next.erp ? await importErpCsv(profile, next.erp) : undefined;
-    const lab = next.lab ? await importLabJson(profile, next.lab) : undefined;
-    const built = await buildRecords([erp, lab].filter((r): r is ImportResult => !!r));
+    const { results: imported, state: built } = await importInputs(profile, next);
     setPreviousDigests(again && state ? state.records.map((r) => r.digest) : null);
     setInputs(next);
-    setResults({ erp, lab });
+    setResults(imported);
     setState(built);
   };
 
@@ -151,8 +90,13 @@ export function ImportView() {
             type="button"
             className="ghost"
             onClick={async () => {
+              if (!profile) return;
               const s = SAMPLES.find((x) => x.id === sample)!;
-              await run({ erp: s.erp ? await readFixture(s.erp) : undefined, lab: s.lab ? await readFixture(s.lab) : undefined });
+              const loaded = await importSample(profile, s);
+              setPreviousDigests(null);
+              setInputs(loaded.inputs);
+              setResults(loaded.results);
+              setState(loaded.state);
             }}
           >
             Import sample
