@@ -11,6 +11,10 @@ nothing is sent anywhere.
 | ERP extract | CSV, UTF-8 without byte order mark, `;` between fields, `.` as decimal separator, one header row | One row per product batch: identifiers, alloy, temper, dimensions, mass, finish, recycled content, country of casting, production date, customer article number, supplier code |
 | Laboratory and assessment file | JSON, UTF-8 | One batch: measured values with uncertainty, the imported carbon footprint, the evidence records, and approved texts |
 
+A `.csv` that your browser sends as an Excel file (common on Windows) is accepted, and blank lines at the very end
+of the extract are ignored. A blank line between rows, or a cell that holds only spaces where a value is required,
+is an error. Lengths, masses and strengths must be greater than zero, and shares lie between 0 and 100 %.
+
 The exact columns and structure are fixed by the pinned input contracts. The Profile screen lists them, with the code lists.
 
 ## Importing
@@ -56,6 +60,9 @@ the place in the file, and the cause. Correct the file at its source (usually th
 | `missing-unit` | semantics | A measured value has no unit. It is not accepted as unitless. |
 | `wrong-unit` | semantics | A measured value has a unit the contract does not allow for this property. Nothing is converted. |
 | `unknown-evidence` | semantics | A value refers to an evidence record that the file does not contain. |
+| `precision-loss` | semantics | A number has more significant digits than can be kept exactly, or is too small to represent. |
+| `duplicate-record` | semantics | Two rows describe the same product model and batch. Keep one row per batch. |
+| `duplicate-id` | semantics | Two entries in the file have the same identifier, so it is unclear which one is meant. |
 | `not-authorised` | authorisation | This role may not import source files. |
 
 ## Status of a value

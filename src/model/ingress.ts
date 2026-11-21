@@ -40,6 +40,9 @@ export type IngressCode =
   | "missing-unit"
   | "wrong-unit"
   | "unknown-evidence"
+  | "precision-loss"
+  | "duplicate-record"
+  | "duplicate-id"
   | "not-authorised";
 
 /** What each error means for the operator, in the words of the operator notes (C2-08). */
@@ -66,6 +69,9 @@ export const ERROR_TEXT: Record<IngressCode, string> = {
   "missing-unit": "A measured value has no unit. It is not accepted as unitless.",
   "wrong-unit": "A measured value has a unit the contract does not allow for this property. Nothing is converted.",
   "unknown-evidence": "A value refers to an evidence record that the file does not contain.",
+  "precision-loss": "A number has more significant digits than can be kept exactly, or is too small to represent.",
+  "duplicate-record": "Two rows describe the same product model and batch. Keep one row per batch.",
+  "duplicate-id": "Two entries in the file have the same identifier, so it is unclear which one is meant.",
   "not-authorised": "This role may not import source files.",
 };
 
@@ -126,7 +132,8 @@ export interface Assertion {
   value: string | number | null;
   unit: string | null;
   details?: Record<string, string>;
-  source: { file: string; role: SourceFile["role"]; sha256: string; location: string };
+  /** Where the text is; `row` is the ERP data row (1 for the first after the header), never parsed from text. */
+  source: { file: string; role: SourceFile["role"]; sha256: string; location: string; row?: number };
   flags: Flag[];
 }
 
@@ -160,7 +167,9 @@ const failIf = (stage: Stage, errors: IngressIssue[]) => {
 async function bytesStage(bytes: Uint8Array, name: string, declaredType: string, role: SourceFile["role"]) {
   const expected = role === "erp" ? { type: "text/csv", ext: ".csv" } : { type: "application/json", ext: ".json" };
   // Browsers often send no type, or an Excel type for .csv, so the extension decides when the type is absent.
-  const typeOk = declaredType === expected.type || (declaredType === "" && name.toLowerCase().endsWith(expected.ext));
+  // Windows browsers send application/vnd.ms-excel for .csv when Excel is installed.
+  const tolerated = role === "erp" ? ["", "application/vnd.ms-excel"] : [""];
+  const typeOk = declaredType === expected.type || (tolerated.includes(declaredType) && name.toLowerCase().endsWith(expected.ext));
   const extOk = name.toLowerCase().endsWith(expected.ext);
   failIf("bytes", typeOk && extOk ? [] : [issue("bytes", "media-type", name, `Expected ${expected.type} (${expected.ext}), got "${declaredType || "no type"}".`)]);
   failIf("bytes", bytes.length === 0 ? [issue("bytes", "empty-file", name)] : []);
@@ -239,10 +248,29 @@ function csvRows(text: string, delimiter: string, name: string): string[][] {
     row.push(field);
     rows.push(row);
   }
+  // Blank lines at the very end of the file are padding, not rows; a blank line between rows stays an error.
+  while (rows.length && rows[rows.length - 1].length === 1 && rows[rows.length - 1][0] === "") rows.pop();
   return rows;
 }
 
 const DECIMAL = /^-?(?:0|[1-9]\d*)(?:\.\d+)?$/;
+
+/**
+ * Whether a number literal survives as a double without changing: at most 15 significant digits, and no
+ * nonzero literal that underflows to 0. Longer numbers would be silently rounded (re-assessment R2-5).
+ */
+function exact(raw: string) {
+  const mantissa = raw.replace(/^-/, "").split(/[eE]/)[0].replace(".", "").replace(/^0+/, "");
+  const digits = mantissa.replace(/0+$/, "").length;
+  return digits <= 15 && !(Number(raw) === 0 && /[1-9]/.test(mantissa));
+}
+
+/** Physical range of a value by unit: lengths, masses and strengths are positive; shares lie in 0..100 %. */
+function inRange(value: number, unit: string) {
+  if (unit === "%") return value >= 0 && value <= 100;
+  if (unit === "mm" || unit === "kg" || unit === "MPa") return value > 0;
+  return value >= 0;
+}
 const DECIMAL_COMMA = /^-?\d+,\d+$/;
 
 function isCalendarDate(s: string) {
@@ -294,15 +322,22 @@ export async function importErpCsv(
     const assertions: Assertion[] = [];
     const errors: IngressIssue[] = [];
     const records: Array<{ model: string; batch: string }> = [];
+    const seenRecords = new Map<string, number>();
     body.forEach((r, i) => {
       const rowNo = i + 2;
       const cell = Object.fromEntries(header.map((h, j) => [h, r[j]]));
+      const key = `${cell.product_model_id}|${cell.batch_id}`;
+      if (seenRecords.has(key)) {
+        errors.push(issue("semantics", "duplicate-record", `${name}, row ${rowNo}`, `Same model and batch as row ${seenRecords.get(key)}.`));
+      }
+      seenRecords.set(key, rowNo);
       records.push({ model: cell.product_model_id, batch: cell.batch_id });
       for (const c of contract.columns) {
         const raw = cell[c.name];
         const loc = at(rowNo, c.name);
-        if (raw === "") {
-          if (c.required) errors.push(issue("semantics", "missing-value", loc));
+        if (raw.trim() === "") {
+          // A value of only spaces is as empty as no value; an optional one is simply absent.
+          if (c.required) errors.push(issue("semantics", "missing-value", loc, raw === "" ? undefined : "The cell holds only spaces."));
           continue;
         }
         const [property, member] = c.maps_to.split("/");
@@ -317,8 +352,12 @@ export async function importErpCsv(
             errors.push(issue("semantics", "not-a-number", loc, `"${raw}".`));
             continue;
           }
+          if (!exact(raw)) {
+            errors.push(issue("semantics", "precision-loss", loc, `"${raw}".`));
+            continue;
+          }
           value = Number(raw);
-          if (value < 0 || (c.unit === "%" && value > 100)) {
+          if (!inRange(value, c.unit)) {
             errors.push(issue("semantics", "out-of-range", loc, `${raw} ${c.unit}.`));
             continue;
           }
@@ -345,7 +384,7 @@ export async function importErpCsv(
           raw,
           value,
           unit: c.unit,
-          source: { file: name, role: "erp", sha256: file.sha256, location: loc },
+          source: { file: name, role: "erp", sha256: file.sha256, location: loc, row: i + 1 },
           flags,
         });
       }
@@ -446,6 +485,19 @@ export async function importLabJson(
 
     const evidence = list(get(doc, "evidence"));
     const evidenceIds = new Set(evidence.map((e) => str(get(e, "evidence_id"))));
+    // Identifiers inside the file must be unique, or two entries would silently share one identity.
+    const unique = (items: JsonValue[], key: string, path: string) => {
+      const seen = new Map<string, number>();
+      items.forEach((x, i) => {
+        const id = str(get(x, key));
+        if (seen.has(id)) errors.push(issue("semantics", "duplicate-id", `${name}, ${path}/${i}/${key}`, `"${id}" also at ${path}/${seen.get(id)}.`));
+        seen.set(id, i);
+      });
+    };
+    unique(evidence, "evidence_id", "/evidence");
+    unique(list(get(doc, "observations")), "observation_id", "/observations");
+    unique(list(get(doc, "footprints")), "result_id", "/footprints");
+    unique(list(get(doc, "texts")), "text_id", "/texts");
     const linked = (e: JsonValue, path: string, flags: Flag[]) => {
       const id = str(get(e, "evidence_id"));
       if (!evidenceIds.has(id)) errors.push(issue("semantics", "unknown-evidence", `${name}, ${path}/evidence_id`, `"${id}".`));
@@ -473,7 +525,11 @@ export async function importLabJson(
       if (!unitOk) return;
       const v = get(o, "value");
       const u = get(o, "uncertainty");
-      if (v.kind === "number" && (v.value < 0 || (str(get(o, "unit")) === "%" && v.value > 100))) {
+      if (v.kind === "number" && !exact(v.raw)) {
+        errors.push(issue("semantics", "precision-loss", `${name}, ${path}/value`, `"${v.raw}".`));
+        return;
+      }
+      if (v.kind === "number" && !inRange(v.value, str(get(o, "unit")))) {
         errors.push(issue("semantics", "out-of-range", `${name}, ${path}/value`, `${v.raw} ${str(get(o, "unit"))}.`));
         return;
       }
@@ -507,6 +563,10 @@ export async function importLabJson(
       linked(f, path, flags);
       if (!unitOk) return;
       const v = get(f, "value");
+      if (v.kind === "number" && !exact(v.raw)) {
+        errors.push(issue("semantics", "precision-loss", `${name}, ${path}/value`, `"${v.raw}".`));
+        return;
+      }
       assertions.push({
         property,
         qualifier: str(get(f, "result_id")),
@@ -634,7 +694,7 @@ export async function buildRecords(results: ImportResult[]): Promise<RecordState
 
   for (const e of erp) {
     for (const ref of e.records) {
-      const rowAssertions = e.assertions.filter((a) => rowOf(a, e) === ref);
+      const rowAssertions = e.assertions.filter((a) => a.source.row !== undefined && e.records[a.source.row - 1] === ref);
       const labs = lab.filter((l) => l.records[0].model === ref.model && l.records[0].batch === ref.batch);
       labs.forEach((l) => attachedLab.add(l));
       const all = [...rowAssertions, ...labs.flatMap((l) => l.assertions)];
@@ -654,10 +714,4 @@ export async function buildRecords(results: ImportResult[]): Promise<RecordState
   }
   for (const l of lab) if (!attachedLab.has(l)) unattached.push(...l.assertions);
   return { records, unattached };
-}
-
-/** The ERP row an assertion came from, as the record reference of that row. */
-function rowOf(a: Assertion, e: Extract<ImportResult, { ok: true }>) {
-  const row = Number(/row (\d+)/.exec(a.source.location)?.[1] ?? 0);
-  return e.records[row - 2];
 }
