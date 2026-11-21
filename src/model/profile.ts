@@ -32,7 +32,7 @@ export class ProfileError extends Error {
   override name = "ProfileError";
 }
 
-const PIN = /^[A-Z][A-Z0-9-]*@\d+\.\d+\.\d+$/;
+const PIN = /^[A-Za-z][A-Za-z0-9-]*@\d+\.\d+\.\d+$/;
 const pin = z.string().regex(PIN, "must be an exact id@version, never a moving version such as latest");
 
 const ContextLabel = z.object({ lang: z.string().regex(/^[a-z]{2,3}$/), context: z.string().min(1), text: z.string().min(1) });
@@ -48,7 +48,7 @@ const ProfileDoc = z.object({
   languages: z.array(z.string()),
   sectors: pin,
   routes: z.tuple([z.literal(ROUTES[0]), z.literal(ROUTES[1]), z.literal(ROUTES[2])]),
-  pins: z.object({ terms: pin, legal: pin, units: pin, code_lists: z.array(pin) }),
+  pins: z.object({ terms: pin, legal: pin, units: pin, code_lists: z.array(pin), inputs: z.array(pin), route_contracts: z.array(pin) }),
   properties: z.array(
     z.object({
       id: z.string().regex(/^ALU-D\d{3}$/),
@@ -199,6 +199,25 @@ export async function loadProfilePack(source: PackSource): Promise<ProfilePack> 
     return { ...file, ...parseCodeList(files[file.path]) };
   });
 
+  // Mapping contracts and routes: each file states an exact version, and the profile pins exactly these (C1-02)
+  const contracts = (kind: string, prefix: string, refs: string[]): PinnedFile[] => {
+    const found = Object.keys(files)
+      .filter((path) => path.startsWith(prefix))
+      .map((path) => {
+        const doc = parse(files[path]) as { id?: unknown; version?: unknown };
+        const ref = `${String(doc.id)}@${String(doc.version)}`;
+        if (!PIN.test(ref)) throw new ProfileError(`${path}: ${ref} is not an exact id@version`);
+        return { ref, path, digest: digests.get(path)! };
+      });
+    const want = [...refs].sort().join(", ");
+    if (found.map((f) => f.ref).sort().join(", ") !== want) throw new ProfileError(`${kind} must be exactly ${want}`);
+    return found;
+  };
+  const mappingPins = [
+    ...contracts("inputs", "inputs/", profile.pins.inputs),
+    ...contracts("routes", "routes/", profile.pins.route_contracts),
+  ];
+
   const termById = new Map(terms.doc.terms.map((t) => [t.id, t]));
   const term = (owner: string, id: string) => {
     const found = termById.get(id);
@@ -247,6 +266,7 @@ export async function loadProfilePack(source: PackSource): Promise<ProfilePack> 
       terms.file,
       legal.file,
       units.file,
+      ...mappingPins,
       ...codeLists.map(({ ref, path, digest }) => ({ ref, path, digest })),
     ],
     termCount: terms.doc.terms.length,

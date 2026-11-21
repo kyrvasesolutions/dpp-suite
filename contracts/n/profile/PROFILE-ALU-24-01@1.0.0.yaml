@@ -32,6 +32,13 @@ pins:
     - CUSTOMER@1.0.0
     - SUPPLIER@1.0.0
     - SECTOR@1.0.0
+  inputs:
+    - INPUT-ERP-CSV@1.0.0
+    - INPUT-LAB-JSON@1.0.0
+  route_contracts:
+    - customer-pdf@1.0.0
+    - erp-staging-csv@1.0.0
+    - registry-prep-json@1.0.0
 properties:
   - id: ALU-D101
     definition_ref: urn:dpp-demo:standin:term:product-model-id

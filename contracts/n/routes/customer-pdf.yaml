@@ -1,6 +1,7 @@
 # Route customer-pdf. PUBLIC STAND-IN for the private N pack (decision D1-01, option b): synthetic, renumbered
 # identifiers, stand-in definitions and codes. Generated from the private specification; do not edit by hand.
 id: customer-pdf
+version: 1.0.0
 recipient: Business customer (ACT-06)
 format: application/pdf
 layout: one fixed layout

@@ -18,3 +18,6 @@ playwright-report/
 
 # Specification package and the filled contract pack stay private (decision D1-01, option b)
 /spec/
+
+# Local Python environment for scripts/assessment
+/.venv/
