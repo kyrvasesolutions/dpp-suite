@@ -1,7 +1,7 @@
 /** The capability registry covers every screen with one valid label (criterion Cn-G3). */
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { CAPABILITIES, CAPABILITY_LABELS, capabilityOf } from "../../src/model/capabilities";
+import { CAPABILITIES, CAPABILITY_LABELS, capabilityOf, labelOfFunction } from "../../src/model/capabilities";
 
 describe("capability registry", () => {
   it("has one entry per screen", () => {
@@ -36,6 +36,29 @@ describe("capability registry", () => {
   it("labels a screen supported only after a recorded cycle exit", () => {
     const supported = CAPABILITIES.filter((c) => c.label === "supported").map((c) => c.id);
     expect(supported.sort()).toEqual(Object.keys(SUPPORTED_AT_EXIT).sort());
+  });
+
+  it("gives a function its own label only among the functions its screen delivers", () => {
+    for (const c of CAPABILITIES) {
+      for (const [f, label] of Object.entries(c.functionLabels ?? {})) {
+        expect(c.functions).toContain(f);
+        expect(CAPABILITY_LABELS).toContain(label);
+      }
+    }
+  });
+
+  // The scored register is kept locally (D0-06): every function shown as supported must be at F2 there.
+  const SCORED = ["docs/assessment/cycle-2/register.csv", "docs/assessment/cycle-1/register.csv"].find((p) => existsSync(p));
+  it.runIf(SCORED)("labels supported only the functions the latest scored register puts at F2", () => {
+    const levels = new Map(
+      readFileSync(SCORED!, "utf8")
+        .split("\n")
+        .filter((l) => l.startsWith("FUNC,"))
+        .map((l) => [l.split(",")[1], (l.match(/,(F[0-3]|OOS),/) ?? [])[1]]),
+    );
+    for (const c of CAPABILITIES) {
+      for (const f of c.functions) if (labelOfFunction(f) === "supported") expect(levels.get(f), f).toBe("F2");
+    }
   });
 
   it("fails loudly for an unknown screen", () => {

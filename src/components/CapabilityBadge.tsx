@@ -3,7 +3,11 @@ import { CAPABILITY_TEXT, type Capability } from "../model/capabilities";
 /** States how far the current screen can be relied on, and which plan functions it relates to. */
 export function CapabilityBadge({ capability }: { capability: Capability }) {
   const text = CAPABILITY_TEXT[capability.label];
-  const functions = capability.functions.length ? capability.functions.join(", ") : "outside the plan";
+  const functions = capability.functions.length
+    ? capability.functions
+        .map((f) => (capability.functionLabels?.[f] ? `${f} (${CAPABILITY_TEXT[capability.functionLabels[f]]})` : f))
+        .join(", ")
+    : "outside the plan";
   const extension = capability.extends?.length ? ` Extension beyond: ${capability.extends.join(", ")}.` : "";
   return (
     <p
