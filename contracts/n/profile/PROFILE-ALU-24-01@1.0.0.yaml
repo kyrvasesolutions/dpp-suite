@@ -39,6 +39,9 @@ pins:
     - customer-pdf@1.0.0
     - erp-staging-csv@1.0.0
     - registry-prep-json@1.0.0
+  policy:
+    - READINESS-RULES@1.0.0
+    - DERIVED-RULES@1.0.0
 properties:
   - id: ALU-D101
     definition_ref: urn:dpp-demo:standin:term:product-model-id

@@ -244,6 +244,57 @@ if (profileFrozen) {
   pinnedDocs("inputs", pins.inputs, "inputs/");
   pinnedDocs("route_contracts", pins.route_contracts, "routes/");
 
+  // Policy files: the fixed readiness rules and the only permitted derived disclosures (Cycle 3)
+  const policyRefs = pins.policy ?? [];
+  const policyYaml = present.filter((p) => /^policy\/[^/]+\.yaml$/.test(p));
+  const policyFound = policyYaml.map((p) => readYaml(p)).map((d) => `${d.id}@${d.version}`).sort();
+  if (JSON.stringify([...policyRefs].sort()) !== JSON.stringify(policyFound)) {
+    fail(`${profilePath}: pins.policy must be exactly ${policyFound.join(", ")}`);
+  }
+  const readiness = pinnedYaml("policy", policyRefs.find((r) => r.startsWith("READINESS-RULES@")));
+  const derived = pinnedYaml("policy", policyRefs.find((r) => r.startsWith("DERIVED-RULES@")));
+  if (!readiness) fail(`${profilePath}: pins.policy must pin READINESS-RULES`);
+  if (!derived) fail(`${profilePath}: pins.policy must pin DERIVED-RULES`);
+  const unique = (what, list, pattern) => {
+    const ids = list.map((r) => r.id);
+    if (new Set(ids).size !== ids.length) fail(`${what}: duplicate rule IDs`);
+    for (const r of list) {
+      if (!pattern.test(r.id ?? "")) fail(`${what}: "${r.id}" is not a stable rule ID`);
+      if (!r.text && !r.output) fail(`${what}: ${r.id} has no text`);
+    }
+    return new Set(ids);
+  };
+  if (readiness) {
+    const ids = unique("readiness rules", readiness.rules ?? [], /^RR-[A-Z]+(-[A-Z]+)*$/);
+    for (const id of ["RR-MISSING", "RR-INACCESSIBLE", "RR-CHALLENGED", "RR-UNKNOWN-CODE", "RR-SEVERAL-RESULTS", "RR-DRAFT-TEXT", "RR-EVIDENCE-DIGEST", "RR-STANDING-HOLD"]) {
+      if (!ids.has(id)) fail(`readiness rules: ${id} is missing (C3-03)`);
+    }
+    unique("readiness checks", readiness.checks ?? [], /^CK-[A-Z]+(-[A-Z]+)*$/);
+  }
+  if (derived) {
+    unique("derived rules", derived.rules ?? [], /^DR-[A-Z]+(-[A-Z]+)*$/);
+    const derivedCells = new Set(matrix.body.filter((r) => r.slice(1).includes("derived")).map((r) => r[0]));
+    for (const id of derivedCells) {
+      const own = (derived.rules ?? []).filter((r) => r.property === id);
+      if (own.length !== 1) fail(`${id}: has a derived cell in the matrix and needs exactly one derived rule, found ${own.length} (C3-05)`);
+    }
+    for (const r of derived.rules ?? []) {
+      if (!derivedCells.has(r.property)) fail(`derived rule ${r.id}: ${r.property} has no derived cell in the matrix`);
+      if (!["limits-by-alloy-and-temper", "limits-by-alloy-and-element"].includes(r.method)) fail(`derived rule ${r.id}: unknown method "${r.method}"`);
+      if (!r.standard || !derived.limits?.[r.limits]?.entries?.length) fail(`derived rule ${r.id}: needs a standard and a limits table`);
+      if (r.illustrative !== true) fail(`derived rule ${r.id}: limits must be marked illustrative: true`);
+    }
+    if (derived.limits?.illustrative !== true) fail("derived rules: the limits table must be marked illustrative: true");
+    const alloys = new Set(codeLists.get("ALLOY@1.0.0") ?? []);
+    const tempers = new Set(codeLists.get("TEMPER@1.0.0") ?? []);
+    for (const e of derived.limits?.tensile?.entries ?? []) {
+      if (!alloys.has(e.alloy) || !tempers.has(e.temper)) fail(`derived limits: ${e.alloy} ${e.temper} is not in the alloy and temper code lists`);
+    }
+    for (const e of derived.limits?.composition?.entries ?? []) {
+      if (!alloys.has(e.alloy)) fail(`derived limits: ${e.alloy} is not in the alloy code list`);
+    }
+  }
+
   // Declared mappings point at a profile property and, for a member path, one of its members (FUNC-091)
   const membersOf = new Map(properties.map((p) => [p.id, p.members ?? []]));
   for (const c of erpInput.columns ?? []) {
