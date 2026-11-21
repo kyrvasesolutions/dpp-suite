@@ -149,9 +149,10 @@ export function assess(pack: ProfilePack, record: ProductRecord, options: Assess
       const access = decide(pack, route, property);
       if (access === "deny") {
         // The recipient may not see it: the route holds, and only locations of the assertions are named, never a value.
-        // With no assertion there is no source to name, so the hold is the missing value (RR-MISSING).
-        if (values.length) add("RR-INACCESSIBLE", property, undefined, values.flatMap((v) => v.assertions.map(sourceOf)));
-        else add("RR-MISSING", property, undefined, []);
+        // With no assertion there is no source to name; the hold is then both inaccessible and missing, so that the
+        // operator learns that supplying the value is not enough.
+        add("RR-INACCESSIBLE", property, undefined, values.flatMap((v) => v.assertions.map(sourceOf)));
+        if (!values.length) add("RR-MISSING", property, undefined, []);
         return { property, state: "inaccessible", assured: false, flags: [] };
       }
       if (!values.length) {

@@ -194,12 +194,15 @@ describe("inaccessible: the prohibited-disclosure route variant (C3-02 negative 
     expect(of(rs, "erp-staging-csv").status).toBe("ready");
   });
 
-  it("holds on the missing value when the denied property has no assertion to point to", async () => {
+  it("holds as both inaccessible and missing when the denied property has no assertion to point to", async () => {
     const record = await recordFor(pack, { erp: CLEAN.erp });
     const evidence = byRole(pack, "evidence");
     const r = of(assess(pack, record, { requires: { "customer-pdf": [evidence] } }), "customer-pdf");
     expect(stateOf(r, evidence)).toBe("inaccessible");
-    expect(r.holds.filter((h) => h.property === evidence)).toEqual([{ ruleId: "RR-MISSING", property: evidence, sources: [] }]);
+    expect(r.holds.filter((h) => h.property === evidence)).toEqual([
+      { ruleId: "RR-INACCESSIBLE", property: evidence, sources: [] },
+      { ruleId: "RR-MISSING", property: evidence, sources: [] },
+    ]);
   });
 
   it("changes nothing for the real routes", async () => {
@@ -217,7 +220,9 @@ describe("AT-T: every hold resolves to a rule and a source assertion", () => {
       for (const h of r.holds) {
         expect(ruleIds().has(h.ruleId), h.ruleId).toBe(true);
         expect(ruleText(pack, h.ruleId).length).toBeGreaterThan(10);
-        if (h.ruleId !== "RR-MISSING" && h.ruleId !== "RR-STANDING-HOLD") {
+        // empty sources: missing, the standing hold, and inaccessible only when the property is missing as well
+        const alsoMissing = h.ruleId === "RR-INACCESSIBLE" && r.holds.some((x) => x.ruleId === "RR-MISSING" && x.property === h.property);
+        if (h.ruleId !== "RR-MISSING" && h.ruleId !== "RR-STANDING-HOLD" && !alsoMissing) {
           expect(h.sources.length, `${r.route} ${h.ruleId} has a source`).toBeGreaterThan(0);
           expect(h.property).not.toBeNull();
         }
