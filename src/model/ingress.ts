@@ -44,6 +44,7 @@ export type IngressCode =
   | "duplicate-record"
   | "duplicate-id"
   | "padded-identifier"
+  | "subject-mismatch"
   | "not-authorised";
 
 /** What each error means for the operator, in the words of the operator notes (C2-08). */
@@ -74,6 +75,7 @@ export const ERROR_TEXT: Record<IngressCode, string> = {
   "duplicate-record": "Two rows describe the same product model and batch. Keep one row per batch.",
   "duplicate-id": "Two entries in the file have the same identifier, so it is unclear which one is meant.",
   "padded-identifier": "An identifier or code has spaces at its ends or invisible characters, so it would not match the same identifier written plainly.",
+  "subject-mismatch": "A text is about another product model than the one this laboratory file reports on.",
   "not-authorised": "This role may not import source files.",
 };
 
@@ -616,6 +618,8 @@ export async function importLabJson(
 
     const narrativeProperty = byRole(pack, "narrative");
     list(get(doc, "texts")).forEach((t, i) => {
+      const subject = str(get(t, "subject_ref"));
+      if (subject !== model) errors.push(issue("semantics", "subject-mismatch", `${name}, /texts/${i}/subject_ref`, `"${subject}" is not "${model}".`));
       const flags: Flag[] = ["declared"];
       if (str(get(t, "approval_state")) !== "approved") flags.push("draft-text");
       assertions.push({

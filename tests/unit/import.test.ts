@@ -354,6 +354,16 @@ describe("C2-08 the operator notes explain every error and flag the screen can s
   });
 });
 
+describe("Cycle 3 review: a text must be about the file's own product model", () => {
+  it("rejects a lab text whose subject_ref names another model, with the location", async () => {
+    const doc = JSON.parse(VALID_LAB());
+    doc.texts[1].subject_ref = "PM-OTHER-0001";
+    const r = await lab(enc(JSON.stringify(doc)));
+    expect(rejected(r)).toEqual({ stage: "semantics", codes: ["subject-mismatch"] });
+    if (!r.ok) expect(r.errors[0].location).toContain("/texts/1/subject_ref");
+  });
+});
+
 describe("Cycle 2 re-assessment findings", () => {
   const twoRows = () => {
     const [head, row] = VALID_ERP().trimEnd().split("\n");
@@ -418,7 +428,7 @@ describe("Cycle 2 re-assessment findings", () => {
   });
 
   it("R2-6 keeps the values of a lab file about another model, unattached", async () => {
-    const other = await lab(enc(VALID_LAB().replace(/"model_id": "[^"]+"/, '"model_id": "PM-OTHER"')));
+    const other = await lab(enc(VALID_LAB().replaceAll("PM-5754-H111-2000", "PM-OTHER")));
     const state = await buildRecords([await erp(fixture("d03a-erp-extract.csv")), other]);
     expect(state.unattached.map((a) => a.source.location)).toContain("lab.json, /observations/0/value");
   });
