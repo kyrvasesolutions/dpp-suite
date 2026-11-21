@@ -11,7 +11,7 @@ with the same structure, so CI checks the real rules on every change:
 - both input contracts (ERP CSV extract, laboratory/assessment JSON) with columns, code lists and a JSON Schema;
 - the field lists of the three routes, with the standing HOLD on the registry route;
 - the actor/field matrix;
-- the 13 synthetic failure classes, each with its fixture in `fixtures/n/`.
+- the 16 synthetic failure classes, each with its fixture in `fixtures/n/`.
 
 The stand-in uses identifiers ALU-D101 to ALU-D124, stand-in definitions under `urn:dpp-demo:standin:term:`
 and stand-in values for confidential code lists. It must not be read as the customer's profile.

@@ -33,7 +33,7 @@ export function readPack(dir: string) {
   };
 }
 
-/** Runs the contract checker on the pack; throws, and so fails the build, when the pack is not frozen and valid. */
+/** Runs the contract checker on the pack; throws, and so fails the build, unless the pack is frozen, valid and signed. */
 export function checkPack(dir: string) {
-  execFileSync("node", ["scripts/check-contracts.mjs", "--pack", dir, "--require-frozen"], { stdio: "pipe", encoding: "utf8" });
+  execFileSync("node", ["scripts/check-contracts.mjs", "--pack", dir, "--require-frozen", "--require-signed"], { stdio: "pipe", encoding: "utf8" });
 }

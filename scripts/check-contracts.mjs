@@ -5,6 +5,8 @@
  *   npm run check-contracts -- --write           rewrite MANIFEST.json from the files as they are
  *   npm run check-contracts -- --require-frozen  also fail while any part is still on HOLD
  *   npm run check-contracts -- --pack <dir>      check another pack, such as the private one (decision D1-01)
+ *   npm run check-contracts -- --require-signed  also fail unless sha256(MANIFEST.json) is the digest the owner
+ *                                                signed, in SIGNATURES.json next to the pack directory
  *
  * A part on HOLD must say why. The registry route stays on HOLD after the pack is frozen, until an
  * applicable external contract exists, so it never fails --require-frozen.
@@ -18,7 +20,7 @@
  */
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
 import { parse } from "yaml";
 import { PROVISIONS } from "../src/model/legislation.ts";
 
@@ -293,6 +295,7 @@ if (profileFrozen) {
     const target = unitOf.get(base);
     if (c.unit && !converts(c.unit, target)) fail(`ERP column ${c.name}: no conversion from ${c.unit} to ${target} (FUNC-030)`);
     if (!c.unit && target && !member) fail(`ERP column ${c.name}: ${base} has unit ${target}, the column states none (FUNC-030)`);
+    if (c.unit && member) fail(`ERP column ${c.name}: nested member ${member} carries no unit, the column states ${c.unit} (FUNC-030)`);
   }
   for (const [prop, list] of Object.entries(lab.allowed_units ?? {})) {
     if (!unitOf.has(prop)) fail(`lab allowed_units: ${prop} is not a profile property`);
@@ -330,6 +333,21 @@ if (holds.length) {
 if (errors.length) {
   for (const e of errors) console.error(`check-contracts: ${e}`);
   process.exit(1);
+}
+if (args.has("--require-signed")) {
+  // The owner signs the manifest digest; a changed pack with a rewritten manifest is refused until signed again.
+  const signaturesPath = join(dirname(ROOT), "SIGNATURES.json");
+  const digest = createHash("sha256").update(readFileSync(MANIFEST)).digest("hex");
+  const signed = existsSync(signaturesPath) ? JSON.parse(readFileSync(signaturesPath, "utf8"))[basename(ROOT)] : undefined;
+  if (!signed) {
+    console.error(`check-contracts: no signature for pack "${basename(ROOT)}" in ${signaturesPath}`);
+    process.exit(1);
+  }
+  if (signed.manifest_sha256 !== digest) {
+    console.error(`check-contracts: MANIFEST.json digest ${digest} is not the signed digest ${signed.manifest_sha256}; the owner must sign the change`);
+    process.exit(1);
+  }
+  console.log(`Signed by ${signed.signed_by} on ${signed.date}.`);
 }
 if (args.has("--require-frozen") && blocking.length) {
   console.error(`check-contracts: ${blocking.length} part(s) still on HOLD`);

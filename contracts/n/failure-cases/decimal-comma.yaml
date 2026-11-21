@@ -1,0 +1,8 @@
+id: FC-DECIMAL-COMMA
+class: decimal comma
+criterion: C2-04
+also_tested_by:
+  - C2-02
+input: A numeric ERP value uses a comma as decimal separator (2,0 instead of 2.0), as a German-locale export would.
+expected: Typed error decimal-comma at stage "semantics"; the value is never reinterpreted.
+fixture: fixtures/n/erp-decimal-comma.csv

@@ -62,6 +62,29 @@ describe("C0-01 frozen contract pack", () => {
   });
 });
 
+describe("R1-3 the pack must carry the owner's signature", () => {
+  const scratch = mkdtempSync(join(tmpdir(), "signed-"));
+  afterAll(() => rmSync(scratch, { recursive: true, force: true }));
+
+  it("passes --require-signed as committed", () => {
+    expect(checker("--require-frozen", "--require-signed")).toContain("Signed by");
+  });
+
+  it("refuses an edited pack whose manifest was rewritten but not signed again", () => {
+    cpSync(join(ROOT, "contracts"), scratch, { recursive: true });
+    const pack = join(scratch, "n");
+    const list = join(pack, "code-lists/TEMPER@1.0.0.csv");
+    writeFileSync(list, `${readFileSync(list, "utf8")}H14\n`);
+    try {
+      checker("--pack", pack, "--write");
+    } catch {
+      // the manifest is written before the rules run
+    }
+    expect(checker("--pack", pack, "--require-frozen")).toContain("Pack frozen");
+    expect(() => checker("--pack", pack, "--require-signed")).toThrow(/is not the signed digest/);
+  });
+});
+
 describe("C0-05 N fixtures follow the frozen contracts", () => {
   it("valid ERP extract has every contract column, known codes and values for required columns", () => {
     const { cols, rows: data } = rows(text("d03a-erp-extract.csv"));
