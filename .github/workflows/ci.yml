@@ -60,8 +60,22 @@ jobs:
       - name: End-to-end tests on the production build (egress guard included)
         run: npm run test:e2e
 
+      - name: Acceptance suite (failure classes on the three routes, through the UI)
+        run: npm run acceptance
+
       - name: Built bundle has the content security policy and no browser LLM client
         run: npm run check-bundle
+
+      - name: Keep the acceptance report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: acceptance-report
+          path: |
+            test-results/acceptance-report.json
+            test-results/acceptance-report.md
+          retention-days: 14
+          if-no-files-found: ignore
 
       - name: Keep the Playwright report
         if: ${{ !cancelled() }}

@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const ROOT = resolve(__dirname, "../../fixtures");
+// relative to this file, so it works under both vitest and Playwright
+const ROOT = fileURLToPath(new URL("../../fixtures", import.meta.url));
 
 /** Reads a fixture after checking it against its pack's MANIFEST.json; a drifted file fails the test. */
 export function fixtureBytes(pack: string, name: string): Uint8Array {
