@@ -272,15 +272,16 @@ export class SqlEvidenceStore {
   }
 
   /**
-   * Deletes an evidence object ONLY if its retention horizon has elapsed (`nowIso >= retentionUntil`),
-   * both timestamps are valid ISO dates, AND no legal hold is active (C6-05, F6-V2).
+   * Deletes an evidence object ONLY if its retention horizon has elapsed on the SERVER clock and no legal hold is
+   * active (C6-05). The caller supplies no time: the clock is the store's own (`now` is an in-process test seam, never
+   * reachable over HTTP). The database enforces the same rule again in a `BEFORE DELETE` trigger that compares against
+   * SQLite's own clock, so even a raw `DELETE` cannot remove evidence early.
    */
-  delete(sha256: string, nowIso?: string): boolean {
+  delete(sha256: string): boolean {
     const normalized = sha256.replace(/^sha256:/i, "").toLowerCase();
-    const effectiveNow = nowIso ?? this.now();
-    const nowMs = Date.parse(effectiveNow);
+    const nowMs = Date.parse(this.now());
     if (Number.isNaN(nowMs)) {
-      throw new RetentionViolationError("policy-invalid", `Invalid retention check timestamp: "${effectiveNow}"`);
+      throw new RetentionViolationError("policy-invalid", "The server clock returned an invalid timestamp");
     }
     return this.db.transaction(() => {
       const row = this.db.get<{ retention_until: string; legal_hold: number }>(
@@ -302,12 +303,20 @@ export class SqlEvidenceStore {
           `Evidence ${normalized} must be retained until ${row.retention_until}`,
         );
       }
-      const res = this.db.run(
-        "DELETE FROM evidence_store WHERE security_domain = ? AND sha256 = ?",
-        this.securityDomain,
-        normalized,
-      );
-      return res.changes > 0;
+      try {
+        const res = this.db.run(
+          "DELETE FROM evidence_store WHERE security_domain = ? AND sha256 = ?",
+          this.securityDomain,
+          normalized,
+        );
+        return res.changes > 0;
+      } catch (err) {
+        // The trigger uses the database clock; if it disagrees with the (test) clock above, retention wins.
+        if (err instanceof Error && /retention horizon|legal hold/.test(err.message)) {
+          throw new RetentionViolationError("retention-active", `Evidence ${normalized} is still inside its retention horizon`);
+        }
+        throw err;
+      }
     });
   }
 }

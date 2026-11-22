@@ -171,6 +171,9 @@ export class RetentionViolationError extends Error {
       | "retention-active"
       | "legal-hold-active"
       | "legal-hold-forbidden"
+      | "legal-hold-release-refused"
+      | "policy-untrusted"
+      | "policy-conflict"
       | "domain-missing",
     message: string,
   ) {
@@ -181,7 +184,7 @@ export class RetentionViolationError extends Error {
 export class ConcurrencyConflictError extends Error {
   override name = "ConcurrencyConflictError";
   constructor(
-    public readonly code: "version-conflict" | "idempotency-conflict",
+    public readonly code: "version-conflict" | "idempotency-conflict" | "idempotency-in-progress",
     message: string,
   ) {
     super(message);
@@ -233,6 +236,49 @@ export function validateEv5TimeEnvelope(envelope: Ev5TimeEnvelope): Ev5TimeEnvel
     }
   }
   return normalized;
+}
+
+/** Earliest source time a caller may claim for observedAt, declaredAt or validFrom. */
+export const EARLIEST_CALLER_TIME = "2000-01-01T00:00:00.000Z";
+/** How far past the server clock a caller-supplied time may be (clock skew between operator and server). */
+export const MAX_CALLER_SKEW_MS = 5 * 60_000;
+
+/**
+ * Builds the EV-5 time envelope of a write. The server assigns `recordedAt` (the retention anchor) from its own
+ * clock; a caller may only state when the data was observed, declared and valid from, within sane bounds. A caller's
+ * `recordedAt`, `publishedAt` and `validTo` are ignored, so no client can shorten a retention horizon or close an
+ * interval. The same function is used by the HTTP layer, the job runner and the correction path.
+ */
+export type CallerTimeEnvelope = Partial<Record<keyof Ev5TimeEnvelope, string | null>>;
+
+export function resolveCallerTimeEnvelope(
+  caller: CallerTimeEnvelope | null | undefined,
+  nowIso: string,
+): Ev5TimeEnvelope {
+  const now = canonicalUtcIso(nowIso);
+  const nowMs = Date.parse(now);
+  const bounded = (field: "observedAt" | "declaredAt" | "validFrom"): string | null => {
+    const raw = caller?.[field];
+    if (raw === undefined || raw === null) return null;
+    if (typeof raw !== "string") throw new TimeEnvelopeError("invalid-timestamp", `${field} must be an ISO-8601 timestamp`);
+    const iso = canonicalUtcIso(raw);
+    const ms = Date.parse(iso);
+    if (ms < Date.parse(EARLIEST_CALLER_TIME)) {
+      throw new TimeEnvelopeError("invalid-timestamp", `${field} is before ${EARLIEST_CALLER_TIME}`);
+    }
+    if (ms > nowMs + MAX_CALLER_SKEW_MS) {
+      throw new TimeEnvelopeError("invalid-timestamp", `${field} is in the future`);
+    }
+    return iso;
+  };
+  return validateEv5TimeEnvelope({
+    recordedAt: now,
+    observedAt: bounded("observedAt"),
+    declaredAt: bounded("declaredAt"),
+    publishedAt: null,
+    validFrom: bounded("validFrom") ?? now,
+    validTo: null,
+  });
 }
 
 /** Adds `retentionDays` to an ISO-8601 UTC timestamp deterministically. */

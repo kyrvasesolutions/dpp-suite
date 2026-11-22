@@ -4,9 +4,12 @@
  * Configuration via environment variables (no secrets):
  *   DPP_CONTRACT_PACK  contract pack directory (default: contracts/n)
  *   DPP_DB_PATH        SQLite WAL database path (default: ./data/dpp.sqlite)
- *   DPP_SERVER_HOST    bind address (default: 127.0.0.1 — local only)
+ *   DPP_SERVER_HOST    bind address (default: 127.0.0.1, local only; there is no authentication yet)
  *   DPP_SERVER_PORT    TCP port (default: 4174)
+ *   DPP_ALLOWED_ORIGIN extra browser origin(s) allowed to call the API, comma separated (default: none, same-origin only)
+ *   DPP_STATIC_DIR     built single-page app to serve on the same origin (default: dist, served if it exists)
  */
+import { existsSync } from "node:fs";
 import { readPack } from "../config/contractPack";
 import { loadProfilePack } from "../src/model/profile";
 import { SqliteAdapter } from "./db/adapter";
@@ -20,7 +23,12 @@ async function main(): Promise<void> {
   const dbPath = process.env.DPP_DB_PATH?.trim() || "data/dpp.sqlite";
   const host = process.env.DPP_SERVER_HOST?.trim() || "127.0.0.1";
   const port = Number(process.env.DPP_SERVER_PORT?.trim() || "4174");
-  const allowedOrigin = process.env.DPP_ALLOWED_ORIGIN?.trim() || undefined;
+  const allowedOrigin = (process.env.DPP_ALLOWED_ORIGIN ?? "")
+    .split(",")
+    .map((o) => o.trim())
+    .filter(Boolean);
+  const staticDirRaw = process.env.DPP_STATIC_DIR?.trim() || "dist";
+  const staticDir = existsSync(staticDirRaw) ? staticDirRaw : undefined;
 
   const pack = await loadProfilePack(readPack(packDir));
   const db = new SqliteAdapter({ path: dbPath });
@@ -30,12 +38,14 @@ async function main(): Promise<void> {
   const activePolicy = new PolicyStore(db).activate(pack.policy.retention);
 
   // Recover any interrupted staged jobs on startup (C6-04).
-  const recovery = new ImportJobRunner(db, pack).recoverPendingJobs();
+  // The server is the only process on its data file, so every job still running at start-up is from a crashed run.
+  const recovery = new ImportJobRunner(db, pack).recoverPendingJobs({ force: true });
 
-  const server = createDppServer({ db, pack, allowedOrigin });
+  const server = createDppServer({ db, pack, allowedOrigin, host, staticDir });
   server.listen(port, host, () => {
     console.log(
       `DPP server listening on http://${host}:${port} ` +
+        `(${staticDir ? `app served from ${staticDir}` : "API only, no built app found"}) ` +
         `(db=${dbPath}, schema=v${migrations[migrations.length - 1]?.version ?? 0}, ` +
         `policy=${activePolicy.policyPin}, recovered=${recovery.resumed.length} resumed / ${recovery.rolledBack.length} rolled back)`,
     );

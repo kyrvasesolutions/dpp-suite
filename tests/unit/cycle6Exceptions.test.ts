@@ -52,15 +52,35 @@ describe("Cycle 6 P01 data-quality exception catalogue replay (C6-01)", () => {
 
       for (const rule of catalogue.exceptions) {
         if (rule.id === "EX-UNCLASSIFIED-PAYLOAD") {
+          // An unlisted dataset is not an input dataset, so an import job refuses it before any job exists...
+          await expect(
+            runner.runImportJob({
+              idempotencyKey: `ex-${rule.id}-refused`,
+              dataset: "unlisted-customer-upload",
+              erp: { bytes: cleanErp, name: CLEAN.erp, type: "text/csv" },
+            }),
+          ).rejects.toMatchObject({ code: "dataset-not-allowed" });
+          // ...and an unclassified payload that does reach the store (supporting evidence) is restricted for the default 10 years.
           const out = await runner.runImportJob({
             idempotencyKey: `ex-${rule.id}`,
-            dataset: "unlisted-customer-upload",
             erp: { bytes: cleanErp, name: CLEAN.erp, type: "text/csv" },
             lab: { bytes: cleanLab, name: CLEAN.lab, type: "application/json" },
+            evidence: [
+              {
+                evidenceId: "EV-UNCLASSIFIED",
+                issuer: "Demo Lab",
+                revision: "1",
+                recordKind: "test-report",
+                dataset: "unlisted-customer-upload",
+                contentBytes: new TextEncoder().encode("unclassified supporting file"),
+              },
+            ],
           });
           expect(out.ok, rule.id).toBe(true);
           expect(out.job.classification, rule.id).toBe("restricted");
           expect(out.receipt?.classification, rule.id).toBe("restricted");
+          expect(out.evidence?.[0]?.classification, rule.id).toBe("restricted");
+          expect(out.evidence?.[0]?.retentionDays, rule.id).toBe(pack.policy.retention.default_retention_days);
           continue;
         }
 

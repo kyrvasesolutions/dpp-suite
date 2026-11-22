@@ -11,10 +11,10 @@ import { migrateUp } from "../../server/db/migrations";
 import { ImportJobRunner } from "../../server/jobs/importJobRunner";
 import { PolicyStore } from "../../server/store/policyStore";
 import { SqlEvidenceStore } from "../../server/store/sqlEvidenceStore";
-import { RetentionViolationError } from "../../src/model/pContracts";
+import { RetentionViolationError, resolveDatasetRetention } from "../../src/model/pContracts";
 import type { ProfilePack } from "../../src/model/profile";
 import { fixtureBytes } from "../support/fixtures";
-import { CLEAN, loadPack } from "../support/records";
+import { CLEAN, loadPack, loadPackWithRetention } from "../support/records";
 
 let pack: ProfilePack;
 beforeAll(async () => {
@@ -69,22 +69,31 @@ describe("Cycle 6 classification and evidence retention enforcement (C6-02, C6-0
       const active = policies.activate(pack.policy.retention);
       expect(active.policyPin).toBe("RETENTION@1.0.0");
 
-      const runner = new ImportJobRunner(db, pack);
+      const runner = new ImportJobRunner(db, pack, undefined, { now: FIXED_NOW });
 
-      // Unlisted dataset with no stated classification -> restricted default, 3650-day retention
+      // A dataset the policy does not list resolves to the restricted default and the 3650-day horizon...
+      expect(resolveDatasetRetention(pack.policy.retention, "unlisted-customer-feed")).toMatchObject({
+        classification: "restricted",
+        retentionDays: 3650,
+      });
+      // ...but an import job accepts only the two input datasets, so a caller cannot pick any other (not even a public one).
+      for (const dataset of ["unlisted-customer-feed", "execution-log", "central-record-snapshot"]) {
+        await expect(
+          runner.runImportJob({
+            idempotencyKey: `dataset-${dataset}`,
+            dataset,
+            erp: { bytes: fixtureBytes("n", CLEAN.erp), name: CLEAN.erp, type: "text/csv" },
+          }),
+        ).rejects.toMatchObject({ code: "dataset-not-allowed", statusCode: 400 });
+      }
+      expect(runner.listJobs()).toHaveLength(0);
+
+      // A lab file is restricted whatever dataset the caller states for it
       const unclassified = await runner.runImportJob({
         idempotencyKey: "unclassified-1",
-        dataset: "unlisted-customer-feed",
+        dataset: "erp-extract",
         erp: { bytes: fixtureBytes("n", CLEAN.erp), name: CLEAN.erp, type: "text/csv" },
         lab: { bytes: fixtureBytes("n", CLEAN.lab), name: CLEAN.lab, type: "application/json" },
-        timeEnvelope: {
-          recordedAt: "2026-11-22T00:00:00Z",
-          observedAt: null,
-          declaredAt: null,
-          publishedAt: null,
-          validFrom: "2026-11-22T00:00:00Z",
-          validTo: null,
-        },
       });
       expect(unclassified.ok).toBe(true);
       expect(unclassified.job.classification).toBe("restricted");
@@ -119,7 +128,8 @@ describe("Cycle 6 classification and evidence retention enforcement (C6-02, C6-0
     try {
       migrateUp(db);
       new PolicyStore(db).activate(pack.policy.retention);
-      const evStore = new SqlEvidenceStore(db, undefined, { now: FIXED_NOW });
+      let clock = "2026-11-22T00:00:00.000Z";
+      const evStore = new SqlEvidenceStore(db, undefined, { now: () => clock });
       const payload = new TextEncoder().encode("signed-mill-certificate-2026");
       const digest = sha(payload);
 
@@ -159,18 +169,23 @@ describe("Cycle 6 classification and evidence retention enforcement (C6-02, C6-0
       expect(evStore.list()).toHaveLength(1);
 
       // Deletion before 10-year retention expires is refused
-      expect(() => evStore.delete(digest, "2030-01-01T00:00:00Z")).toThrow(/must be retained until/);
+      clock = "2030-01-01T00:00:00.000Z";
+      expect(() => evStore.delete(digest)).toThrow(/must be retained until/);
 
       // Placing a legal hold blocks deletion even AFTER retention expires
       const held = evStore.setLegalHold(digest, true);
       expect(held?.legalHold).toBe(true);
-      expect(() => evStore.delete(digest, "2040-01-01T00:00:00Z")).toThrow(/legal hold/);
+      clock = "2040-01-01T00:00:00.000Z";
+      expect(() => evStore.delete(digest)).toThrow(/legal hold/);
 
-      // Releasing legal hold allows deletion strictly AFTER retention expires
+      // Releasing legal hold allows deletion strictly AFTER retention expires. The in-process clock is a test seam;
+      // the SQL trigger judges on the database clock (2026), so the delete itself is refused there until it is due.
       evStore.setLegalHold(digest, false);
-      expect(() => evStore.delete(digest, "2036-11-18T23:59:59Z")).toThrow(/must be retained until/);
-      expect(evStore.delete(digest, "2036-11-19T00:00:00Z")).toBe(true);
-      expect(evStore.get(digest)).toBeUndefined();
+      clock = "2036-11-18T23:59:59.000Z";
+      expect(() => evStore.delete(digest)).toThrow(/must be retained until/);
+      clock = "2036-11-19T00:00:00.000Z";
+      expect(() => evStore.delete(digest)).toThrow(/retention horizon/);
+      expect(evStore.get(digest)).toBeDefined();
 
       // Integrity corruption on disk is caught on read
       const payload2 = new TextEncoder().encode("intact-payload");
@@ -182,6 +197,8 @@ describe("Cycle 6 classification and evidence retention enforcement (C6-02, C6-0
         recordKind: "certificate",
         contentBytes: payload2,
       });
+      // storage-level corruption bypasses the application and its triggers, so the immutability trigger is lifted to simulate it
+      db.exec("DROP TRIGGER trg_evidence_immutable_content");
       db.run("UPDATE evidence_store SET content_blob = ? WHERE sha256 = ?", new TextEncoder().encode("tampered"), digest2);
       expect(() => evStore.get(digest2)).toThrow(/failed integrity verification/);
     } finally {
@@ -273,14 +290,14 @@ describe("Cycle 6 evidence retention hardening (anchoring, floors, legal-hold pe
     }
   });
 
-  it("refuses a legal hold on a dataset whose policy forbids it, on put and on setLegalHold", () => {
+  it("refuses a legal hold on a dataset whose policy forbids it, on put and on setLegalHold", async () => {
     const db = new SqliteAdapter({ path: ":memory:" });
     try {
       migrateUp(db);
-      const policy = structuredClone(pack.policy.retention);
-      const rule = policy.datasets.find((d) => d.dataset === "execution-log")!;
-      rule.legal_hold_permitted = false;
-      new PolicyStore(db).activate(policy);
+      const strict = await loadPackWithRetention((policy) => {
+        policy.datasets.find((d: { dataset: string }) => d.dataset === "execution-log").legal_hold_permitted = false;
+      });
+      new PolicyStore(db).activate(strict.policy.retention);
       const store = new SqlEvidenceStore(db, undefined, { now: FIXED_NOW });
       expect(() => put(store, { dataset: "execution-log", legalHold: true })).toThrow(
         expect.objectContaining({ code: "legal-hold-forbidden" }) as RetentionViolationError,
@@ -288,6 +305,116 @@ describe("Cycle 6 evidence retention hardening (anchoring, floors, legal-hold pe
       const stored = put(store, { evidenceId: "EV-NOHOLD", dataset: "execution-log" });
       expect(() => store.setLegalHold(stored.metadata.sha256, true)).toThrow(/does not permit legal holds/);
       expect(store.setLegalHold(stored.metadata.sha256, false)?.legalHold).toBe(false);
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe("Cycle 6 evidence retention cannot be bypassed (C6-05)", () => {
+  const bytes = new TextEncoder().encode("retained-certificate");
+  const digest = sha(bytes);
+  const fresh = () => {
+    const db = new SqliteAdapter({ path: ":memory:" });
+    migrateUp(db);
+    new PolicyStore(db).activate(pack.policy.retention);
+    return db;
+  };
+  const evidence = { evidenceId: "EV-RET", issuer: "Mill", revision: "1", recordKind: "certificate", contentBytes: bytes };
+
+  it("deletes expired evidence that is not held, and only then", () => {
+    const db = fresh();
+    try {
+      // stored when the server clock read 2000-01-01, so the 10-year horizon ended in 2010
+      new SqlEvidenceStore(db, undefined, { now: () => "2000-01-01T00:00:00.000Z" }).put(evidence);
+      const store = new SqlEvidenceStore(db);
+      expect(store.delete(digest)).toBe(true);
+      expect(store.get(digest)).toBeUndefined();
+    } finally {
+      db.close();
+    }
+  });
+
+  it("refuses a raw SQL DELETE inside the horizon or under a hold, whatever the caller says the time is", () => {
+    const db = fresh();
+    try {
+      const store = new SqlEvidenceStore(db);
+      store.put(evidence);
+      expect(() => db.run("DELETE FROM evidence_store WHERE sha256 = ?", digest)).toThrow(/legal hold or inside its retention horizon/);
+      // a store whose own clock is set far in the future still cannot delete: the database judges on its own clock
+      const wrongClock = new SqlEvidenceStore(db, undefined, { now: () => "2099-01-01T00:00:00.000Z" });
+      expect(() => wrongClock.delete(digest)).toThrow(RetentionViolationError);
+      expect(store.get(digest)).toBeDefined();
+
+      // a held object cannot be deleted even if its horizon has ended
+      const held = fresh();
+      try {
+        const old = new SqlEvidenceStore(held, undefined, { now: () => "2000-01-01T00:00:00.000Z" });
+        old.put({ ...evidence, legalHold: true });
+        expect(() => held.run("DELETE FROM evidence_store WHERE sha256 = ?", digest)).toThrow(/legal hold/);
+        expect(() => new SqlEvidenceStore(held).delete(digest)).toThrow(expect.objectContaining({ code: "legal-hold-active" }) as RetentionViolationError);
+      } finally {
+        held.close();
+      }
+    } finally {
+      db.close();
+    }
+  });
+
+  it("refuses to shorten a retention horizon, change content or move evidence with raw SQL", () => {
+    const db = fresh();
+    try {
+      new SqlEvidenceStore(db).put(evidence);
+      expect(() => db.run("UPDATE evidence_store SET retention_until = '2001-01-01T00:00:00.000Z' WHERE sha256 = ?", digest)).toThrow(/immutable/);
+      expect(() => db.run("UPDATE evidence_store SET content_blob = x'00' WHERE sha256 = ?", digest)).toThrow(/immutable/);
+      expect(() => db.run("UPDATE evidence_store SET stored_at = '1990-01-01T00:00:00.000Z' WHERE sha256 = ?", digest)).toThrow(/immutable/);
+      // the legal hold flag itself stays changeable
+      expect(() => db.run("UPDATE evidence_store SET legal_hold = 1 WHERE sha256 = ?", digest)).not.toThrow();
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe("Cycle 6 retention policy activation accepts only the signed policy (C6-02)", () => {
+  it("refuses a policy that did not come out of a verified pack, or was changed after loading", () => {
+    const db = new SqliteAdapter({ path: ":memory:" });
+    try {
+      migrateUp(db);
+      const store = new PolicyStore(db);
+      const weak = structuredClone(pack.policy.retention);
+      weak.default_retention_days = 1;
+      weak.datasets.forEach((d) => {
+        d.classification = "public";
+        d.retention_days = 1;
+      });
+      expect(() => store.activate(weak)).toThrow(expect.objectContaining({ code: "policy-untrusted" }) as RetentionViolationError);
+      const mutated = pack.policy.retention;
+      const original = mutated.default_retention_days;
+      mutated.default_retention_days = 1;
+      try {
+        expect(() => store.activate(mutated)).toThrow(expect.objectContaining({ code: "policy-untrusted" }) as RetentionViolationError);
+      } finally {
+        mutated.default_retention_days = original;
+      }
+      expect(store.getActive()).toBeNull();
+      expect(store.activate(pack.policy.retention).policyPin).toBe("RETENTION@1.0.0");
+    } finally {
+      db.close();
+    }
+  });
+
+  it("refuses different content under a pin the database already holds", async () => {
+    const db = new SqliteAdapter({ path: ":memory:" });
+    try {
+      migrateUp(db);
+      const store = new PolicyStore(db);
+      store.activate(pack.policy.retention);
+      const other = await loadPackWithRetention((policy) => {
+        policy.default_retention_days = 1;
+      });
+      expect(() => store.activate(other.policy.retention)).toThrow(expect.objectContaining({ code: "policy-conflict" }) as RetentionViolationError);
+      expect(store.requireActive().policy.default_retention_days).toBe(3650);
     } finally {
       db.close();
     }

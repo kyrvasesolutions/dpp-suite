@@ -9,15 +9,17 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { SqliteAdapter } from "../../server/db/adapter";
 import {
-  appliedMigrations,
   computeStoreChecksum,
   currentMigrationVersion,
   MIGRATIONS,
+  migrationChecksum,
   migrateDown,
   migrateUp,
 } from "../../server/db/migrations";
 import { ImportJobRunner } from "../../server/jobs/importJobRunner";
 import { PolicyStore } from "../../server/store/policyStore";
+import { SqlEvidenceStore } from "../../server/store/sqlEvidenceStore";
+import { createHash } from "node:crypto";
 import type { ProfilePack } from "../../src/model/profile";
 import { fixtureBytes } from "../support/fixtures";
 import { CLEAN, loadPack } from "../support/records";
@@ -29,6 +31,7 @@ const mkTmpDir = () => {
   return dir;
 };
 
+const sha = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
 let pack: ProfilePack;
 beforeAll(async () => {
   pack = await loadPack();
@@ -38,28 +41,25 @@ afterAll(() => {
 });
 
 describe("Cycle 6 relational migrations, EV-5 schema, and append-only triggers", () => {
-  it("runs forward/backward migrations (0 -> 2 -> 1 -> 2) while preserving exact store checksum", async () => {
+  it("runs forward/backward migrations (0 -> latest -> 1 -> latest) while preserving exact store checksum", async () => {
     const dir = mkTmpDir();
     const db = new SqliteAdapter({ path: join(dir, "store.sqlite") });
     try {
       expect(currentMigrationVersion(db)).toBe(0);
       const up = migrateUp(db);
       expect(up.map((m) => m.version)).toEqual(MIGRATIONS.map((m) => m.version));
-      expect(currentMigrationVersion(db)).toBe(2);
+      expect(currentMigrationVersion(db)).toBe(MIGRATIONS.length);
 
       new PolicyStore(db).activate(pack.policy.retention);
-      const runner = new ImportJobRunner(db, pack);
+      const runner = new ImportJobRunner(db, pack, undefined, { now: () => "2026-11-22T10:00:00.000Z" });
       const outcome = await runner.runImportJob({
         idempotencyKey: "mig-seed-1",
         erp: { bytes: fixtureBytes("n", CLEAN.erp), name: CLEAN.erp, type: "text/csv" },
         lab: { bytes: fixtureBytes("n", CLEAN.lab), name: CLEAN.lab, type: "application/json" },
         timeEnvelope: {
-          recordedAt: "2026-11-22T10:00:00Z",
           observedAt: "2026-11-18T08:30:00Z",
           declaredAt: "2026-11-19T14:00:00Z",
-          publishedAt: null,
           validFrom: "2026-11-22T10:00:00Z",
-          validTo: null,
         },
         evidence: [
           {
@@ -74,14 +74,14 @@ describe("Cycle 6 relational migrations, EV-5 schema, and append-only triggers",
       expect(outcome.ok).toBe(true);
       const beforeChecksum = computeStoreChecksum(db);
 
-      // Roll back v2 (indexes) -> v1: data & checksum must be byte-for-byte identical
+      // Roll back everything after v1 (indexes, retention guards, job input key) -> v1: data & checksum identical
       migrateDown(db, 1);
       expect(currentMigrationVersion(db)).toBe(1);
       expect(computeStoreChecksum(db)).toBe(beforeChecksum);
 
-      // Re-apply v1 -> v2: checksum still identical
+      // Re-apply -> latest: checksum still identical
       migrateUp(db);
-      expect(currentMigrationVersion(db)).toBe(2);
+      expect(currentMigrationVersion(db)).toBe(MIGRATIONS.length);
       expect(computeStoreChecksum(db)).toBe(beforeChecksum);
 
       // Hot WAL backup produces a standalone DB with identical checksum
@@ -89,18 +89,19 @@ describe("Cycle 6 relational migrations, EV-5 schema, and append-only triggers",
       db.backup(backupPath);
       const restored = new SqliteAdapter({ path: backupPath });
       try {
-        expect(currentMigrationVersion(restored)).toBe(2);
+        expect(currentMigrationVersion(restored)).toBe(MIGRATIONS.length);
         expect(computeStoreChecksum(restored)).toBe(beforeChecksum);
       } finally {
         restored.close();
       }
 
-      // Full rollback to v0 drops all domain tables cleanly, and migrateUp restores empty schema cleanly
-      migrateDown(db, 0);
-      expect(currentMigrationVersion(db)).toBe(0);
-      expect(appliedMigrations(db)).toHaveLength(0);
+      // A full rollback would drop tables that still hold retained snapshots and evidence: it is refused, and
+      // everything stays exactly as it was
+      expect(() => migrateDown(db, 0)).toThrow(/Rollback of migration v1 refused/);
+      expect(computeStoreChecksum(db)).toBe(beforeChecksum);
+      expect(runner.evidenceStore.list()).toHaveLength(1);
       migrateUp(db);
-      expect(currentMigrationVersion(db)).toBe(2);
+      expect(currentMigrationVersion(db)).toBe(MIGRATIONS.length);
     } finally {
       db.close();
     }
@@ -122,19 +123,20 @@ describe("Cycle 6 relational migrations, EV-5 schema, and append-only triggers",
     try {
       migrateUp(db);
       new PolicyStore(db).activate(pack.policy.retention);
-      const runner = new ImportJobRunner(db, pack);
+      const runner = new ImportJobRunner(db, pack, undefined, { now: () => "2026-11-22T10:00:00.000Z" });
       const v1 = await runner.runImportJob({
         idempotencyKey: "ev5-v1",
         erp: { bytes: fixtureBytes("n", CLEAN.erp), name: CLEAN.erp, type: "text/csv" },
         lab: { bytes: fixtureBytes("n", CLEAN.lab), name: CLEAN.lab, type: "application/json" },
+        // recordedAt, publishedAt and validTo are server business: a caller's values for them are ignored
         timeEnvelope: {
-          recordedAt: "2026-11-22T10:00:00Z",
+          recordedAt: "1990-01-01T00:00:00Z",
           observedAt: "2026-11-18T08:00:00Z",
           declaredAt: "2026-11-19T09:00:00Z",
           publishedAt: "2026-11-22T10:05:00Z",
           validFrom: "2026-11-22T10:00:00Z",
           validTo: null,
-        },
+        } as never,
       });
       expect(v1.ok).toBe(true);
       const { model, batch } = v1.snapshot!;
@@ -144,7 +146,7 @@ describe("Cycle 6 relational migrations, EV-5 schema, and append-only triggers",
       expect(meta1.timeEnvelope.recordedAt).toBe("2026-11-22T10:00:00.000Z");
       expect(meta1.timeEnvelope.observedAt).toBe("2026-11-18T08:00:00.000Z");
       expect(meta1.timeEnvelope.declaredAt).toBe("2026-11-19T09:00:00.000Z");
-      expect(meta1.timeEnvelope.publishedAt).toBe("2026-11-22T10:05:00.000Z");
+      expect(meta1.timeEnvelope.publishedAt).toBeNull();
       expect(meta1.timeEnvelope.validFrom).toBe("2026-11-22T10:00:00.000Z");
       expect(meta1.timeEnvelope.validTo).toBeNull();
 
@@ -180,6 +182,87 @@ describe("Cycle 6 relational migrations, EV-5 schema, and append-only triggers",
       expect(() =>
         db.run("UPDATE snapshots SET valid_to = '2026-11-22T12:00:00Z' WHERE version = 1"),
       ).toThrow(/append-only/);
+    } finally {
+      db.close();
+    }
+  });
+
+  // A database that has applied v1 or v2 holds that checksum in schema_migrations. Editing the SQL of an applied
+  // migration would strand every such database, so a change must be a new migration, never an edit.
+  it("freezes migrations v1 and v2: their SQL must never change", () => {
+    const frozen: Record<number, string> = {
+      1: "8fe3f2abe50340fcfd9578a5e5519422bbbcf4943737af500a9b8dc56e4336a2",
+      2: "4f39dbe025dc2da815fb0f3442fa52c63cb2a5bd34e47258c2c992f05c4e8c46",
+    };
+    for (const [version, checksum] of Object.entries(frozen)) {
+      const m = MIGRATIONS.find((x) => x.version === Number(version))!;
+      expect(migrationChecksum(m), `migration v${version} was edited`).toBe(checksum);
+    }
+  });
+
+  it("keeps job data through a migration that changes it (v4 backfills the input key, down drops it, up restores it)", async () => {
+    const db = new SqliteAdapter({ path: ":memory:" });
+    try {
+      migrateUp(db, 3);
+      expect(currentMigrationVersion(db)).toBe(3);
+      const insertJob = (id: string, erp: string, lab: string | null) =>
+        db.run(
+          `INSERT INTO import_jobs (job_id, security_domain, idempotency_key, actor, state, stage, classification,
+             retention_policy_pin, erp_sha256, lab_sha256, created_at, updated_at)
+           VALUES (?, 'default', ?, 'ACT-01', 'committed', 'committed', 'restricted', 'RETENTION@1.0.0', ?, ?, ?, ?)`,
+          id,
+          `key-${id}`,
+          erp,
+          lab,
+          "2026-11-22T10:00:00.000Z",
+          "2026-11-22T10:00:00.000Z",
+        );
+      insertJob("J-ERP", "e".repeat(64), null);
+      insertJob("J-BOTH", "a".repeat(64), "b".repeat(64));
+      const jobs = () =>
+        db.query<Record<string, unknown>>("SELECT job_id, idempotency_key, state, erp_sha256, lab_sha256, created_at FROM import_jobs ORDER BY job_id");
+      const before = JSON.stringify(jobs());
+
+      migrateUp(db);
+      const keys = db.query<{ job_id: string; input_key: string }>("SELECT job_id, input_key FROM import_jobs ORDER BY job_id");
+      expect(keys).toEqual([
+        { job_id: "J-BOTH", input_key: `${"a".repeat(64)}:${"b".repeat(64)}:lab-assessment` },
+        { job_id: "J-ERP", input_key: `${"e".repeat(64)}:-:erp-extract` },
+      ]);
+      expect(JSON.stringify(jobs())).toBe(before);
+
+      migrateDown(db, 3);
+      expect(() => db.query("SELECT input_key FROM import_jobs")).toThrow(/no such column/);
+      expect(JSON.stringify(jobs())).toBe(before);
+
+      migrateUp(db);
+      expect(db.query("SELECT job_id, input_key FROM import_jobs ORDER BY job_id")).toEqual(keys);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("refuses to roll back over retained or legal-hold evidence, and allows it over expired, unheld rows or none", () => {
+    const db = new SqliteAdapter({ path: ":memory:" });
+    try {
+      migrateUp(db);
+      new PolicyStore(db).activate(pack.policy.retention);
+      const bytes = new TextEncoder().encode("held-evidence");
+      // stored when the clock read 2000-01-01: the horizon ended in 2010, but the hold keeps it retained
+      new SqlEvidenceStore(db, undefined, { now: () => "2000-01-01T00:00:00.000Z" }).put({
+        evidenceId: "EV-HELD",
+        issuer: "Lab",
+        revision: "1",
+        recordKind: "report",
+        contentBytes: bytes,
+        legalHold: true,
+      });
+      expect(() => migrateDown(db, 0)).toThrow(/evidence_store still holds 1 retained or legal-hold row/);
+      expect(db.get("SELECT COUNT(*) AS n FROM evidence_store")).toEqual({ n: 1 });
+      // released and past its horizon: nothing is retained any more, so the rollback may drop the table
+      new SqlEvidenceStore(db).setLegalHold(sha(bytes), false);
+      migrateDown(db, 0);
+      expect(currentMigrationVersion(db)).toBe(0);
     } finally {
       db.close();
     }

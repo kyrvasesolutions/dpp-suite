@@ -5,7 +5,10 @@
  * Binds to `127.0.0.1` by default, makes zero outbound network calls, sets strict security headers,
  * and exposes an OIDC-ready request principal boundary prepared for Cycle 7 authentication/RBAC.
  */
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { extname, join, normalize, resolve, sep } from "node:path";
+import { LogError } from "../../src/model/log";
 import { CorrectionError, type CorrectionRequest } from "../../src/model/correction";
 import { releaseEvents } from "../../src/model/log";
 import { generateRelease } from "../../src/model/outputs/release";
@@ -13,9 +16,10 @@ import type { SoftwareInfo } from "../../src/model/outputs/software";
 import {
   ConcurrencyConflictError,
   DEFAULT_SECURITY_DOMAIN,
+  resolveCallerTimeEnvelope,
+  type CallerTimeEnvelope,
   RetentionViolationError,
   TimeEnvelopeError,
-  type Ev5TimeEnvelope,
 } from "../../src/model/pContracts";
 import type { ProfilePack } from "../../src/model/profile";
 import { OPERATOR, RepositoryError } from "../../src/model/recordRepository";
@@ -37,8 +41,17 @@ export interface DppServerOptions {
   pack: ProfilePack;
   securityDomain?: string;
   software?: SoftwareInfo;
-  /** Optional explicit CORS origin for local Vite dev client (never wildcard). */
-  allowedOrigin?: string;
+  /**
+   * Extra browser origins allowed to call the API besides the server's own (never a wildcard). Empty by default:
+   * only same-origin requests (the SPA this server serves) and clients that send no Origin (curl, scripts).
+   */
+  allowedOrigin?: string | string[];
+  /** The address the server is bound to; its name is accepted in the Host header besides the loopback names. */
+  host?: string;
+  /** Directory of the built single-page app (`dist/`) to serve on the same origin; omitted: API only. */
+  staticDir?: string;
+  /** Test seam: the server clock for retention and time envelopes. Nothing in a request can set it. */
+  now?: () => string;
   /** OIDC-ready request context extractor (wired to IdP JWT verification in Cycle 7). */
   extractPrincipal?: PrincipalExtractor;
 }
@@ -111,7 +124,14 @@ function mapError(err: unknown): { status: number; code: string; message: string
     return { status: e.statusCode, code: e.code ?? "bad-request", message: e.message ?? "Bad request" };
   }
   if (err instanceof RetentionViolationError) {
-    const status = err.code === "retention-active" || err.code === "legal-hold-active" ? 409 : err.code === "policy-missing" ? 412 : 400;
+    const status =
+      err.code === "retention-active" || err.code === "legal-hold-active" || err.code === "policy-conflict"
+        ? 409
+        : err.code === "legal-hold-release-refused"
+          ? 403
+          : err.code === "policy-missing"
+            ? 412
+            : 400;
     return { status, code: err.code, message: err.message };
   }
   if (err instanceof ConcurrencyConflictError) {
@@ -126,7 +146,72 @@ function mapError(err: unknown): { status: number; code: string; message: string
   if (err instanceof RepositoryError) {
     return { status: 409, code: "repository-error", message: err.message };
   }
+  if (err instanceof LogError) {
+    return { status: 400, code: "log-entry-invalid", message: err.message };
+  }
+  // A database constraint that fired is a conflict with what is stored, never a server fault.
+  if (err instanceof Error && /constraint (failed|violation)|UNIQUE|CHECK constraint|FOREIGN KEY/i.test(err.message)) {
+    return { status: 409, code: "constraint-conflict", message: "The request conflicts with data already stored" };
+  }
+  if (err instanceof Error && /append-only|immutable|retention horizon/i.test(err.message)) {
+    return { status: 409, code: "retention-active", message: "The stored data is protected and cannot be changed" };
+  }
   return { status: 500, code: "internal-error", message: "Internal server error" };
+}
+
+const LOOPBACK_HOSTS = ["127.0.0.1", "localhost", "[::1]"];
+
+/** The host name of a Host header value without its port (`[::1]:4174` becomes `[::1]`). */
+function hostName(header: string | undefined): string {
+  const h = (header ?? "").trim().toLowerCase();
+  if (h.startsWith("[")) return h.slice(0, h.indexOf("]") + 1);
+  return h.split(":")[0] ?? "";
+}
+
+const STATIC_TYPES: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".webmanifest": "application/manifest+json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".ico": "image/x-icon",
+  ".wasm": "application/wasm",
+  ".txt": "text/plain; charset=utf-8",
+  ".woff2": "font/woff2",
+};
+
+/** Serves a file of the built SPA, falling back to `index.html` for client-side routes. Returns false if there is none. */
+function serveStatic(staticDir: string, pathname: string, method: string, res: ServerResponse): boolean {
+  if (method !== "GET" && method !== "HEAD") return false;
+  const root = resolve(staticDir);
+  let rel: string;
+  try {
+    rel = normalize(decodeURIComponent(pathname)).replace(/^[/\\]+/, "");
+  } catch {
+    return false;
+  }
+  let file = join(root, rel);
+  if (file !== root && !file.startsWith(root + sep)) return false;
+  const isFile = (f: string) => existsSync(f) && statSync(f).isFile();
+  if (!isFile(file)) {
+    if (extname(rel)) return false; // a missing asset is a 404, not the app shell
+    file = join(root, "index.html");
+    if (!isFile(file)) return false;
+  }
+  const body = readFileSync(file);
+  res.writeHead(200, {
+    "Content-Type": STATIC_TYPES[extname(file).toLowerCase()] ?? "application/octet-stream",
+    "Content-Length": String(body.byteLength),
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Cache-Control": file.endsWith("index.html") || file.endsWith("sw.js") ? "no-cache" : "public, max-age=3600",
+  });
+  res.end(method === "HEAD" ? undefined : body);
+  return true;
 }
 
 export function createDppServer(options: DppServerOptions): Server {
@@ -142,13 +227,39 @@ export function createDppServer(options: DppServerOptions): Server {
       return { actor: OPERATOR, securityDomain, authMode: "local-trusted" };
     });
 
-  const runnerFor = (domain: string) => new ImportJobRunner(options.db, options.pack, domain);
+  const runnerFor = (domain: string) => new ImportJobRunner(options.db, options.pack, domain, { now: options.now });
+  const extraOrigins = (Array.isArray(options.allowedOrigin) ? options.allowedOrigin : options.allowedOrigin ? [options.allowedOrigin] : []).map((o) =>
+    o.replace(/\/+$/, "").toLowerCase(),
+  );
+  const allowedHosts = new Set([...LOOPBACK_HOSTS, ...(options.host ? [hostName(options.host)] : [])]);
 
   return createServer(async (req, res) => {
     const method = req.method ?? "GET";
-    const allowedOrigin = options.allowedOrigin;
 
-    if (method === "OPTIONS" && allowedOrigin) {
+    // DNS-rebinding guard: only the loopback names and the bound host are accepted as Host.
+    if (!allowedHosts.has(hostName(req.headers.host))) {
+      sendJson(res, 403, { code: "host-not-allowed", message: "The Host header is not one this server answers to" });
+      return;
+    }
+    // Cross-site guard: an Origin must be this server itself or an explicitly allowed origin (default: none).
+    const origin = typeof req.headers.origin === "string" ? req.headers.origin.replace(/\/+$/, "").toLowerCase() : undefined;
+    const sameOrigin = origin !== undefined && origin === `http://${(req.headers.host ?? "").toLowerCase()}`;
+    const crossOriginAllowed = origin !== undefined && extraOrigins.includes(origin);
+    if (origin !== undefined && !sameOrigin && !crossOriginAllowed) {
+      sendJson(res, 403, { code: "origin-not-allowed", message: "Cross-origin requests are not accepted from this origin" });
+      return;
+    }
+    if (origin === undefined && method !== "GET" && method !== "HEAD" && req.headers["sec-fetch-site"] === "cross-site") {
+      sendJson(res, 403, { code: "origin-not-allowed", message: "Cross-site writes are not accepted" });
+      return;
+    }
+    const allowedOrigin = crossOriginAllowed ? origin : undefined;
+
+    if (method === "OPTIONS") {
+      if (!allowedOrigin) {
+        sendJson(res, 403, { code: "origin-not-allowed", message: "No cross-origin access is configured" });
+        return;
+      }
       res.writeHead(204, {
         "Access-Control-Allow-Origin": allowedOrigin,
         "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
@@ -159,9 +270,21 @@ export function createDppServer(options: DppServerOptions): Server {
       return;
     }
 
+    // Every write names its body type: a form post or a text/plain beacon from another page cannot be a request.
+    if (method === "POST") {
+      const type = (req.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase();
+      if (type !== "application/json") {
+        sendJson(res, 415, { code: "unsupported-media-type", message: "Writes must be sent as application/json" }, allowedOrigin);
+        return;
+      }
+    }
+
     try {
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
       const pathname = url.pathname;
+
+      if (!pathname.startsWith("/api/") && options.staticDir && serveStatic(options.staticDir, pathname, method, res)) return;
+
       const principal = extractPrincipal(req);
       const runner = runnerFor(principal.securityDomain);
 
@@ -206,7 +329,7 @@ export function createDppServer(options: DppServerOptions): Server {
           statedClassification?: string | null;
           expectedVersion?: number | null;
           reason?: string;
-          timeEnvelope?: Ev5TimeEnvelope;
+          timeEnvelope?: CallerTimeEnvelope;
           erp?: { name?: string; type?: string; base64?: string; text?: string };
           lab?: { name?: string; type?: string; base64?: string; text?: string };
           evidence?: Array<{
@@ -318,23 +441,9 @@ export function createDppServer(options: DppServerOptions): Server {
         return;
       }
 
-      // POST /api/records/:model/:batch/snapshots (RecordRepository.put endpoint for RemoteRecordRepository)
-      const snapPutMatch = pathname.match(/^\/api\/records\/([^/]+)\/([^/]+)\/snapshots$/);
-      if (method === "POST" && snapPutMatch) {
-        const model = decodeParam(snapPutMatch[1]!);
-        const batch = decodeParam(snapPutMatch[2]!);
-        const body = (await readJsonBody(req, maxBodyBytes)) as { snapshot?: unknown; timeEnvelope?: Ev5TimeEnvelope };
-        if (!body.snapshot || typeof body.snapshot !== "object") {
-          sendJson(res, 400, { code: "invalid-payload", message: "snapshot object is required" }, allowedOrigin);
-          return;
-        }
-        const snap = body.snapshot as Parameters<typeof runner.repository.putSync>[0];
-        if (snap.model !== model || snap.batch !== batch) {
-          sendJson(res, 400, { code: "mismatch", message: "Snapshot model/batch does not match URL" }, allowedOrigin);
-          return;
-        }
-        const metadata = runner.repository.putSync(snap, { timeEnvelope: body.timeEnvelope });
-        sendJson(res, 201, { stored: true, metadata }, allowedOrigin);
+      // Snapshots are written only by import jobs and corrections: there is no raw snapshot write endpoint.
+      if (/^\/api\/records\/[^/]+\/[^/]+\/snapshots$/.test(pathname)) {
+        sendJson(res, 405, { code: "method-not-allowed", message: "Snapshots are created only by import jobs and corrections" }, allowedOrigin);
         return;
       }
 
@@ -350,7 +459,7 @@ export function createDppServer(options: DppServerOptions): Server {
           raw?: string;
           reason?: string;
           expectedVersion?: number | null;
-          timeEnvelope?: Ev5TimeEnvelope;
+          timeEnvelope?: CallerTimeEnvelope;
         };
         if (!body.property || typeof body.raw !== "string" || typeof body.reason !== "string") {
           sendJson(res, 400, { code: "invalid-payload", message: "property, raw, and reason are required" }, allowedOrigin);
@@ -368,7 +477,7 @@ export function createDppServer(options: DppServerOptions): Server {
         const { snapshot, metadata } = runner.repository.correctRecordAtomic(options.pack, reqData, {
           actor: principal.actor,
           expectedVersion: body.expectedVersion,
-          timeEnvelope: body.timeEnvelope,
+          timeEnvelope: resolveCallerTimeEnvelope(body.timeEnvelope, (options.now ?? (() => new Date().toISOString()))()),
         });
         await runner.logCorrection(model, batch, snapshot.version);
         sendJson(res, 200, { snapshot, metadata }, allowedOrigin);
@@ -442,7 +551,14 @@ export function createDppServer(options: DppServerOptions): Server {
           sendJson(res, 400, { code: "invalid-payload", message: "legalHold boolean is required" }, allowedOrigin);
           return;
         }
-        const updated = runner.evidenceStore.setLegalHold(evHoldMatch[1]!, body.legalHold);
+        if (!body.legalHold) {
+          // Releasing a hold is a privileged act; without authenticated operators it cannot be over HTTP.
+          throw new RetentionViolationError(
+            "legal-hold-release-refused",
+            "A legal hold cannot be released over the API until operators are authenticated",
+          );
+        }
+        const updated = runner.evidenceStore.setLegalHold(evHoldMatch[1]!, true);
         if (!updated) {
           sendJson(res, 404, { code: "not-found", message: "Evidence object not found" }, allowedOrigin);
           return;
@@ -454,8 +570,11 @@ export function createDppServer(options: DppServerOptions): Server {
       // DELETE /api/evidence/:sha256
       const evDelMatch = pathname.match(/^\/api\/evidence\/([0-9a-fA-F]{64})$/);
       if (method === "DELETE" && evDelMatch) {
-        const asOf = url.searchParams.get("asOf") ?? new Date().toISOString();
-        const deleted = runner.evidenceStore.delete(evDelMatch[1]!, asOf);
+        if (url.searchParams.has("asOf")) {
+          sendJson(res, 400, { code: "as-of-not-accepted", message: "Retention is judged on the server clock only" }, allowedOrigin);
+          return;
+        }
+        const deleted = runner.evidenceStore.delete(evDelMatch[1]!);
         sendJson(res, deleted ? 200 : 404, { deleted }, allowedOrigin);
         return;
       }
@@ -465,14 +584,8 @@ export function createDppServer(options: DppServerOptions): Server {
         sendJson(res, 200, { entries: runner.logStore.allSync() }, allowedOrigin);
         return;
       }
-      if (method === "POST" && pathname === "/api/log") {
-        const body = (await readJsonBody(req, maxBodyBytes)) as { entry?: Record<string, unknown> };
-        if (!body.entry || typeof body.entry !== "object") {
-          sendJson(res, 400, { code: "invalid-payload", message: "entry object is required" }, allowedOrigin);
-          return;
-        }
-        const seq = runner.logStore.addSync(body.entry);
-        sendJson(res, 201, { seq }, allowedOrigin);
+      if (pathname === "/api/log" && method !== "GET") {
+        sendJson(res, 405, { code: "method-not-allowed", message: "Log entries are written by the server only" }, allowedOrigin);
         return;
       }
 

@@ -25,8 +25,9 @@ import {
   ConcurrencyConflictError,
   DEFAULT_SECURITY_DOMAIN,
   resolveDatasetRetention,
+  resolveCallerTimeEnvelope,
   RetentionViolationError,
-  validateEv5TimeEnvelope,
+  type CallerTimeEnvelope,
   type CrashPoint,
   type Ev5TimeEnvelope,
   type EvidenceRetentionMetadata,
@@ -38,17 +39,32 @@ import {
 import type { ProfilePack } from "../../src/model/profile";
 import { assess, type RouteReadiness } from "../../src/model/readiness";
 import { OPERATOR, REASON_FIRST, REASON_REIMPORT, type Snapshot } from "../../src/model/recordRepository";
-import type { DbAdapter } from "../db/adapter";
+import type { DbAdapter, SqlParam } from "../db/adapter";
 import { PolicyStore } from "../store/policyStore";
 import { SqlEvidenceStore, type PutEvidenceRequest } from "../store/sqlEvidenceStore";
 import { SqlLogStore } from "../store/sqlLogStore";
-import { defaultTimeEnvelope, recordDigestSync, sha256Sync, SqlRecordRepository } from "../store/sqlRepository";
+import { CLASSIFICATIONS } from "../../src/model/classification";
+import { recordDigestSync, sha256Sync, SqlRecordRepository } from "../store/sqlRepository";
 
 export class SimulatedCrashError extends Error {
   override name = "SimulatedCrashError";
   constructor(public readonly crashPoint: CrashPoint) {
     super(`Simulated crash injected at ${crashPoint}`);
   }
+}
+
+/** The only datasets an import job accepts as input; anything else is refused before a job exists. */
+export const IMPORT_DATASETS = ["erp-extract", "lab-assessment"] as const;
+
+/** Identifies this process: a running job last touched by it, and not executing now, is a crashed run of its own. */
+const PROCESS_ID = randomUUID();
+/** A running job of another process is left alone until it has been silent this long (the 30 s job deadline, doubled). */
+export const JOB_LEASE_MS = 60_000;
+/** Jobs executing now in this process, so a duplicate request waits for them instead of taking them over. */
+const INFLIGHT = new Map<string, Promise<ImportJobOutcome>>();
+
+function badRequest(code: string, message: string): Error {
+  return Object.assign(new Error(message), { statusCode: 400, code });
 }
 
 export interface ImportEvidenceUpload {
@@ -74,7 +90,8 @@ export interface RunImportJobRequest {
   /** Explicit optimistic lock on current latest version (`0` for first import). Omit to serialize automatically. */
   expectedVersion?: number | null;
   reason?: string;
-  timeEnvelope?: Ev5TimeEnvelope;
+  /** What the caller may say about time (observedAt, declaredAt, validFrom); the server assigns the rest. */
+  timeEnvelope?: CallerTimeEnvelope;
   evidence?: ImportEvidenceUpload[];
   /** Deterministic crash-injection hook for AT-U recovery tests (C6-04). */
   injectCrashAt?: CrashPoint;
@@ -111,6 +128,8 @@ interface JobRow {
   retention_policy_pin: string;
   erp_sha256: string | null;
   lab_sha256: string | null;
+  input_key: string | null;
+  owner: string | null;
   model: string | null;
   batch: string | null;
   expected_version: number | null;
@@ -122,6 +141,14 @@ interface JobRow {
   created_at: string;
   updated_at: string;
   committed_at: string | null;
+}
+
+interface CommitResult {
+  snapshot: Snapshot;
+  receipt: UpdateReceipt;
+  storedEvidence: EvidenceRetentionMetadata[];
+  carried: number;
+  disputed: number;
 }
 
 interface StagedPayload {
@@ -180,18 +207,22 @@ export class ImportJobRunner {
   public readonly repository: SqlRecordRepository;
   public readonly evidenceStore: SqlEvidenceStore;
   public readonly logStore: SqlLogStore;
+  /** The server clock. Only an in-process test can replace it; nothing in a request can. */
+  private readonly now: () => string;
 
   constructor(
     private readonly db: DbAdapter,
     private readonly pack: ProfilePack,
     public readonly securityDomain: string = DEFAULT_SECURITY_DOMAIN,
+    options: { now?: () => string } = {},
   ) {
     if (!securityDomain.trim()) {
       throw new RetentionViolationError("domain-missing", "securityDomain is required for ImportJobRunner");
     }
+    this.now = options.now ?? (() => new Date().toISOString());
     this.policies = new PolicyStore(db);
     this.repository = new SqlRecordRepository(db, securityDomain);
-    this.evidenceStore = new SqlEvidenceStore(db, securityDomain);
+    this.evidenceStore = new SqlEvidenceStore(db, securityDomain, { now: this.now });
     this.logStore = new SqlLogStore(db, securityDomain);
   }
 
@@ -295,114 +326,233 @@ export class ImportJobRunner {
       stage,
       outcome,
       code,
-      new Date().toISOString(),
+      this.now(),
     );
   }
 
   /**
+   * Moves a claimed job forward and records the event, in one transaction. Every transition is guarded by the
+   * `running` state and the input key the job was claimed for, so a job that was rolled back, taken over or
+   * committed meanwhile can never be moved again (C6-03).
+   */
+  private advance(
+    jobId: string,
+    inputKey: string,
+    set: string,
+    params: SqlParam[],
+    event: { stage: JobStage; outcome: JobEvent["outcome"]; code?: string | null },
+  ): void {
+    this.db.transaction(() => {
+      const res = this.db.run(
+        `UPDATE import_jobs SET ${set}, updated_at = ? WHERE job_id = ? AND state = 'running' AND input_key = ?`,
+        ...params,
+        this.now(),
+        jobId,
+        inputKey,
+      );
+      if (res.changes !== 1) {
+        throw new ConcurrencyConflictError("idempotency-conflict", `Job ${jobId} is no longer running for the input it was claimed with`);
+      }
+      this.recordEvent(jobId, event.stage, event.outcome, event.code ?? null);
+    });
+  }
+
+  private failJob(jobId: string, inputKey: string, code: string, stage: string, extra: { model?: string; batch?: string } = {}, logInputs: Array<Record<string, unknown>> = []): void {
+    this.db.transaction(() => {
+      for (const ev of logInputs) this.logStore.addSync(ev as never, this.now());
+      this.advance(
+        jobId,
+        inputKey,
+        `state = 'failed', stage = 'failed', error_code = ?, error_stage = ?${extra.model ? ", model = ?, batch = ?" : ""}`,
+        [code, stage, ...(extra.model ? [extra.model, extra.batch ?? ""] : [])],
+        { stage: "failed", outcome: "error", code },
+      );
+    });
+  }
+
+  private replayOutcome(row: JobRow): ImportJobOutcome {
+    const receipt = this.getReceiptForJob(row.job_id);
+    const snapshot =
+      row.model && row.batch && row.result_version
+        ? this.repository.getSync(row.model, row.batch, Number(row.result_version))
+        : undefined;
+    return {
+      ok: true,
+      job: rowToJob(row),
+      events: this.getJobEvents(row.job_id),
+      receipt: receipt ? { ...receipt, stored: false } : undefined,
+      snapshot,
+      readiness: snapshot ? assess(this.pack, snapshot.record) : undefined,
+    };
+  }
+
+  /**
+   * Claims `(securityDomain, idempotencyKey)` atomically inside one `BEGIN IMMEDIATE` transaction:
+   * `INSERT ... ON CONFLICT DO NOTHING` decides who owns the key. The other side gets the existing job's outcome,
+   * waits for it if it is executing in this process, or is refused with a conflict when its payload digest differs.
+   */
+  private claim(
+    req: RunImportJobRequest,
+    c: { actor: string; inputKey: string; erpSha: string; labSha: string | null; classification: string; policyPin: string },
+  ):
+    | { kind: "owned"; jobId: string; resumeStaged: boolean }
+    | { kind: "replay"; row: JobRow }
+    | { kind: "inflight"; promise: Promise<ImportJobOutcome> } {
+    return this.db.transaction(() => {
+      const nowIso = this.now();
+      const newId = `JOB-${randomUUID()}`;
+      const ins = this.db.run(
+        `INSERT INTO import_jobs (
+          job_id, security_domain, idempotency_key, actor, state, stage,
+          classification, retention_policy_pin, erp_sha256, lab_sha256, input_key, owner,
+          expected_version, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, 'running', 'received', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (security_domain, idempotency_key) DO NOTHING`,
+        newId,
+        this.securityDomain,
+        req.idempotencyKey,
+        c.actor,
+        c.classification,
+        c.policyPin,
+        c.erpSha,
+        c.labSha,
+        c.inputKey,
+        PROCESS_ID,
+        req.expectedVersion ?? null,
+        nowIso,
+        nowIso,
+      );
+      if (ins.changes === 1) {
+        this.recordEvent(newId, "received", "ok");
+        return { kind: "owned" as const, jobId: newId, resumeStaged: false };
+      }
+
+      const existing = this.db.get<JobRow>(
+        "SELECT * FROM import_jobs WHERE security_domain = ? AND idempotency_key = ?",
+        this.securityDomain,
+        req.idempotencyKey,
+      )!;
+      if (existing.input_key !== c.inputKey) {
+        throw new ConcurrencyConflictError(
+          "idempotency-conflict",
+          `Idempotency key "${req.idempotencyKey}" is already claimed for a different payload`,
+        );
+      }
+      if (existing.state === "committed") return { kind: "replay" as const, row: existing };
+
+      if (existing.state === "running") {
+        const live = INFLIGHT.get(existing.job_id);
+        if (live) return { kind: "inflight" as const, promise: live };
+        const idleMs = Date.now() - Date.parse(existing.updated_at);
+        if (existing.owner !== PROCESS_ID && idleMs < JOB_LEASE_MS) {
+          throw new ConcurrencyConflictError(
+            "idempotency-in-progress",
+            `Idempotency key "${req.idempotencyKey}" is being processed by another server process`,
+          );
+        }
+        // A crashed run of this process, or a run silent past its lease: resume from durable staged state if there is one.
+        if (existing.stage === "staged" && existing.staged_payload_json && !req.injectCrashAt) {
+          this.db.run("UPDATE import_jobs SET owner = ?, updated_at = ? WHERE job_id = ? AND state = 'running'", PROCESS_ID, nowIso, existing.job_id);
+          return { kind: "owned" as const, jobId: existing.job_id, resumeStaged: true };
+        }
+      }
+
+      // running (taken over), failed or rolled back: start the same job again from `received`
+      const upd = this.db.run(
+        `UPDATE import_jobs
+         SET state = 'running', stage = 'received', actor = ?, classification = ?, retention_policy_pin = ?,
+             owner = ?, expected_version = ?, staged_payload_json = NULL, error_code = NULL, error_stage = NULL, updated_at = ?
+         WHERE job_id = ? AND input_key = ? AND state IN ('running', 'failed', 'rolled_back')`,
+        c.actor,
+        c.classification,
+        c.policyPin,
+        PROCESS_ID,
+        req.expectedVersion ?? null,
+        nowIso,
+        existing.job_id,
+        c.inputKey,
+      );
+      if (upd.changes !== 1) {
+        throw new ConcurrencyConflictError("idempotency-conflict", `Idempotency key "${req.idempotencyKey}" changed while it was being claimed`);
+      }
+      this.recordEvent(existing.job_id, "received", "ok");
+      return { kind: "owned" as const, jobId: existing.job_id, resumeStaged: false };
+    });
+  }
+
+  /**
    * Executes a staged, crash-recoverable, transactional import job.
-   * Refuses immediately if no active classification/retention policy is loaded (C6-02).
+   * Refuses immediately if no active classification/retention policy is loaded (C6-02), if the dataset is not one of
+   * the two input datasets, and claims the idempotency key atomically before any work starts (C6-03).
    */
   async runImportJob(req: RunImportJobRequest): Promise<ImportJobOutcome> {
     // C6-02 hard precondition: retention & classification policy MUST be active before any payload is processed
     const activePolicy = this.policies.requireActive();
 
     if (!req.idempotencyKey || !req.idempotencyKey.trim()) {
-      throw new ConcurrencyConflictError("idempotency-conflict", "idempotencyKey is required for every import job");
+      throw badRequest("idempotency-key-missing", "idempotencyKey is required for every import job");
+    }
+    if (req.dataset !== undefined && !(IMPORT_DATASETS as readonly string[]).includes(req.dataset)) {
+      throw badRequest("dataset-not-allowed", `An import job accepts only the datasets ${IMPORT_DATASETS.join(", ")}`);
     }
 
     const actor = req.actor ?? OPERATOR;
-    const dataset = req.dataset ?? (req.lab ? "lab-assessment" : "erp-extract");
+    // The input decides the class: a lab file can never be filed under the weaker ERP dataset.
+    const derived = req.lab ? "lab-assessment" : "erp-extract";
+    const requested = req.dataset ?? derived;
+    const rank = (d: string) => CLASSIFICATIONS.indexOf(resolveDatasetRetention(activePolicy.policy, d).classification);
+    const dataset = rank(requested) >= rank(derived) ? requested : derived;
     const erpSha = sha256Sync(req.erp.bytes);
     const labSha = req.lab ? sha256Sync(req.lab.bytes) : null;
-    const nowIso = new Date().toISOString();
+    const inputKey = `${erpSha}:${labSha ?? "-"}:${dataset}`;
+    const retention = resolveDatasetRetention(activePolicy.policy, dataset, req.statedClassification);
 
-    // Check existing job with the same (securityDomain, idempotencyKey)
-    const existingRow = this.db.get<JobRow>(
-      "SELECT * FROM import_jobs WHERE security_domain = ? AND idempotency_key = ?",
-      this.securityDomain,
-      req.idempotencyKey,
-    );
-
-    if (existingRow) {
-      if (existingRow.state === "committed") {
-        if (existingRow.erp_sha256 !== erpSha || existingRow.lab_sha256 !== labSha) {
-          throw new ConcurrencyConflictError(
-            "idempotency-conflict",
-            `Idempotency key "${req.idempotencyKey}" was already committed for different input digests`,
-          );
-        }
-        const receipt = this.getReceiptForJob(existingRow.job_id);
-        const snapshot =
-          existingRow.model && existingRow.batch && existingRow.result_version
-            ? this.repository.getSync(existingRow.model, existingRow.batch, Number(existingRow.result_version))
-            : undefined;
-        const readiness = snapshot ? assess(this.pack, snapshot.record) : undefined;
-        return {
-          ok: true,
-          job: rowToJob(existingRow),
-          events: this.getJobEvents(existingRow.job_id),
-          receipt: receipt ? { ...receipt, stored: false } : undefined,
-          snapshot,
-          readiness,
-        };
-      }
-
-      // If an interrupted job reached `staged` with matching digests, resume directly from durable staged state!
-      if (
-        existingRow.state === "running" &&
-        existingRow.stage === "staged" &&
-        existingRow.staged_payload_json &&
-        existingRow.erp_sha256 === erpSha &&
-        existingRow.lab_sha256 === labSha &&
-        !req.injectCrashAt
-      ) {
-        return this.commitStagedJob(existingRow.job_id, true);
-      }
-    }
-
-    // Stage 1: received
-    const jobId = existingRow ? existingRow.job_id : `JOB-${randomUUID()}`;
-    const defaultClass = activePolicy.policy.default_classification;
-    this.db.transaction(() => {
-      if (existingRow) {
-        this.db.run(
-          `UPDATE import_jobs
-           SET state = 'running', stage = 'received', actor = ?, classification = ?, retention_policy_pin = ?,
-               erp_sha256 = ?, lab_sha256 = ?, expected_version = ?, staged_payload_json = NULL,
-               error_code = NULL, error_stage = NULL, updated_at = ?
-           WHERE job_id = ?`,
-          actor,
-          defaultClass,
-          activePolicy.policyPin,
-          erpSha,
-          labSha,
-          req.expectedVersion ?? null,
-          nowIso,
-          jobId,
-        );
-      } else {
-        this.db.run(
-          `INSERT INTO import_jobs (
-            job_id, security_domain, idempotency_key, actor, state, stage,
-            classification, retention_policy_pin, erp_sha256, lab_sha256,
-            expected_version, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, 'running', 'received', ?, ?, ?, ?, ?, ?, ?)`,
-          jobId,
-          this.securityDomain,
-          req.idempotencyKey,
-          actor,
-          defaultClass,
-          activePolicy.policyPin,
-          erpSha,
-          labSha,
-          req.expectedVersion ?? null,
-          nowIso,
-          nowIso,
-        );
-      }
-      this.recordEvent(jobId, "received", "ok");
+    const claimed = this.claim(req, {
+      actor,
+      inputKey,
+      erpSha,
+      labSha,
+      classification: retention.classification,
+      policyPin: retention.policyPin,
     });
+    if (claimed.kind === "replay") return this.replayOutcome(claimed.row);
+    if (claimed.kind === "inflight") return claimed.promise;
+
+    // No await between the claim and registering the promise: a duplicate request sees it, never a gap.
+    const promise = this.executeClaimed(claimed.jobId, claimed.resumeStaged, req, { actor, dataset, inputKey });
+    INFLIGHT.set(claimed.jobId, promise);
+    try {
+      return await promise;
+    } finally {
+      INFLIGHT.delete(claimed.jobId);
+    }
+  }
+
+  private async executeClaimed(
+    jobId: string,
+    resumeStaged: boolean,
+    req: RunImportJobRequest,
+    ctx: { actor: typeof OPERATOR; dataset: string; inputKey: string },
+  ): Promise<ImportJobOutcome> {
+    try {
+      if (resumeStaged) return this.commitStagedJob(jobId, true);
+      return await this.pipeline(jobId, req, ctx);
+    } catch (err) {
+      if (!(err instanceof SimulatedCrashError)) {
+        // Anything else leaves nothing half-done: a job still running is rolled back (a failed one stays failed).
+        this.markJobRolledBack(jobId, err instanceof ConcurrencyConflictError ? err.code : "internal-error");
+      }
+      throw err;
+    }
+  }
+
+  private async pipeline(
+    jobId: string,
+    req: RunImportJobRequest,
+    ctx: { actor: typeof OPERATOR; dataset: string; inputKey: string },
+  ): Promise<ImportJobOutcome> {
+    const { actor, dataset, inputKey } = ctx;
+    const activePolicy = this.policies.requireActive();
 
     if (req.injectCrashAt === "after-receive") {
       throw new SimulatedCrashError("after-receive");
@@ -410,24 +560,17 @@ export class ImportJobRunner {
 
     // Stage 2: classified (C6-02 / LEAN-DEF-12)
     const retention = resolveDatasetRetention(activePolicy.policy, dataset, req.statedClassification);
-    this.db.transaction(() => {
-      this.db.run(
-        `UPDATE import_jobs SET stage = 'classified', classification = ?, retention_policy_pin = ?, updated_at = ?
-         WHERE job_id = ?`,
-        retention.classification,
-        retention.policyPin,
-        new Date().toISOString(),
-        jobId,
-      );
-      this.recordEvent(jobId, "classified", "ok");
+    this.advance(jobId, inputKey, "stage = 'classified', classification = ?, retention_policy_pin = ?", [retention.classification, retention.policyPin], {
+      stage: "classified",
+      outcome: "ok",
     });
 
     if (req.injectCrashAt === "after-classify") {
       throw new SimulatedCrashError("after-classify");
     }
 
-    // Stage 3: validated (strict N ingress + EV-5 time envelope check + shared job deadline)
-    const envelope = validateEv5TimeEnvelope(req.timeEnvelope ?? defaultTimeEnvelope());
+    // Stage 3: validated (strict N ingress + EV-5 time envelope + shared job deadline). The server assigns recordedAt.
+    const envelope = resolveCallerTimeEnvelope(req.timeEnvelope, this.now());
     const startedAt = Date.now();
     const erpRes: ImportResult = await importErpCsv(
       this.pack,
@@ -449,18 +592,7 @@ export class ImportJobRunner {
       ];
       const first = errors[0];
       const logInputs = [...importEvents(erpRes), ...(labRes ? importEvents(labRes) : [])];
-      this.db.transaction(() => {
-        for (const ev of logInputs) this.logStore.addSync(ev);
-        this.db.run(
-          `UPDATE import_jobs SET state = 'failed', stage = 'failed', error_code = ?, error_stage = ?, updated_at = ?
-           WHERE job_id = ?`,
-          first?.code ?? "ingress-error",
-          first?.stage ?? "semantics",
-          new Date().toISOString(),
-          jobId,
-        );
-        this.recordEvent(jobId, "failed", "error", first?.code ?? "ingress-error");
-      });
+      this.failJob(jobId, inputKey, first?.code ?? "ingress-error", first?.stage ?? "semantics", {}, logInputs as never);
       return {
         ok: false,
         job: this.getJob(jobId)!,
@@ -472,15 +604,7 @@ export class ImportJobRunner {
     const built = await buildRecords(labRes ? [erpRes, labRes] : [erpRes]);
     const incoming = built.records[0];
     if (!incoming) {
-      this.db.transaction(() => {
-        this.db.run(
-          `UPDATE import_jobs SET state = 'failed', stage = 'failed', error_code = 'no-rows', error_stage = 'structure', updated_at = ?
-           WHERE job_id = ?`,
-          new Date().toISOString(),
-          jobId,
-        );
-        this.recordEvent(jobId, "failed", "error", "no-rows");
-      });
+      this.failJob(jobId, inputKey, "no-rows", "structure");
       return {
         ok: false,
         job: this.getJob(jobId)!,
@@ -493,19 +617,7 @@ export class ImportJobRunner {
     if (unattachedLab) {
       // Do not silently merge an unattached lab file onto an unrelated ERP batch (P01 exception EX-UNATTACHED-LAB-BATCH)
       const logInputs = [...importEvents(erpRes), ...(labRes ? importEvents(labRes) : [])];
-      this.db.transaction(() => {
-        for (const ev of logInputs) this.logStore.addSync(ev);
-        this.db.run(
-          `UPDATE import_jobs
-           SET state = 'failed', stage = 'failed', model = ?, batch = ?, error_code = 'unattached-lab', error_stage = 'semantics', updated_at = ?
-           WHERE job_id = ?`,
-          incoming.model,
-          incoming.batch,
-          new Date().toISOString(),
-          jobId,
-        );
-        this.recordEvent(jobId, "failed", "error", "unattached-lab");
-      });
+      this.failJob(jobId, inputKey, "unattached-lab", "semantics", { model: incoming.model, batch: incoming.batch }, logInputs as never);
       return {
         ok: false,
         job: this.getJob(jobId)!,
@@ -528,15 +640,7 @@ export class ImportJobRunner {
       if (ev.declaredSha256 !== undefined) {
         const norm = ev.declaredSha256.replace(/^sha256:/i, "").toLowerCase();
         if (norm !== actualSha) {
-          this.db.transaction(() => {
-            this.db.run(
-              `UPDATE import_jobs SET state = 'failed', stage = 'failed', error_code = 'digest-mismatch', error_stage = 'retention', updated_at = ?
-               WHERE job_id = ?`,
-              new Date().toISOString(),
-              jobId,
-            );
-            this.recordEvent(jobId, "failed", "error", "digest-mismatch");
-          });
+          this.failJob(jobId, inputKey, "digest-mismatch", "retention");
           throw new RetentionViolationError(
             "digest-mismatch",
             `Evidence ${ev.evidenceId}: declared digest ${norm} does not match computed ${actualSha}`,
@@ -545,15 +649,9 @@ export class ImportJobRunner {
       }
     }
 
-    this.db.transaction(() => {
-      this.db.run(
-        `UPDATE import_jobs SET stage = 'validated', model = ?, batch = ?, updated_at = ? WHERE job_id = ?`,
-        incoming.model,
-        incoming.batch,
-        new Date().toISOString(),
-        jobId,
-      );
-      this.recordEvent(jobId, "validated", "ok");
+    this.advance(jobId, inputKey, "stage = 'validated', model = ?, batch = ?", [incoming.model, incoming.batch], {
+      stage: "validated",
+      outcome: "ok",
     });
 
     if (req.injectCrashAt === "after-validate") {
@@ -570,15 +668,7 @@ export class ImportJobRunner {
         req.expectedVersion !== null &&
         req.expectedVersion !== seenVersion
       ) {
-        this.db.transaction(() => {
-          this.db.run(
-            `UPDATE import_jobs SET state = 'failed', stage = 'failed', error_code = 'version-conflict', error_stage = 'route', updated_at = ?
-             WHERE job_id = ?`,
-            new Date().toISOString(),
-            jobId,
-          );
-          this.recordEvent(jobId, "failed", "error", "version-conflict");
-        });
+        this.failJob(jobId, inputKey, "version-conflict", "route");
         throw new ConcurrencyConflictError(
           "version-conflict",
           `Record ${incoming.model} / ${incoming.batch}: expected version ${req.expectedVersion} but latest is ${seenVersion}`,
@@ -630,25 +720,20 @@ export class ImportJobRunner {
         logEntries,
       };
 
-      this.db.transaction(() => {
-        this.db.run(
-          `UPDATE import_jobs SET stage = 'staged', staged_payload_json = ?, updated_at = ? WHERE job_id = ?`,
-          JSON.stringify(staged),
-          new Date().toISOString(),
-          jobId,
-        );
-        this.recordEvent(jobId, "staged", "ok");
+      this.advance(jobId, inputKey, "stage = 'staged', staged_payload_json = ?", [JSON.stringify(staged)], {
+        stage: "staged",
+        outcome: "ok",
       });
 
+      // after-stage: the payload is durable but no commit has begun.
       if (req.injectCrashAt === "after-stage") {
         throw new SimulatedCrashError("after-stage");
       }
-      if (req.injectCrashAt === "before-commit") {
-        throw new SimulatedCrashError("before-commit");
-      }
 
       try {
-        const outcome = this.commitStagedJob(jobId, false);
+        // before-commit crashes INSIDE the commit transaction, after every row is written and before COMMIT:
+        // everything rolls back and only the staged payload remains.
+        const outcome = this.commitStagedJob(jobId, false, req.injectCrashAt === "before-commit");
         if (req.injectCrashAt === "after-commit") {
           throw new SimulatedCrashError("after-commit");
         }
@@ -676,14 +761,14 @@ export class ImportJobRunner {
 
   private markJobRolledBack(jobId: string, code: string): void {
     this.db.transaction(() => {
-      this.db.run(
+      const res = this.db.run(
         `UPDATE import_jobs SET state = 'rolled_back', stage = 'rolled_back', staged_payload_json = NULL,
          error_code = ?, updated_at = ? WHERE job_id = ? AND state = 'running'`,
         code,
-        new Date().toISOString(),
+        this.now(),
         jobId,
       );
-      this.recordEvent(jobId, "rolled_back", "rolled_back", code);
+      if (res.changes === 1) this.recordEvent(jobId, "rolled_back", "rolled_back", code);
     });
   }
 
@@ -691,19 +776,23 @@ export class ImportJobRunner {
    * Atomically commits a job currently in `stage = 'staged'` inside a single `BEGIN IMMEDIATE`
    * transaction. Used both for normal completion and for crash recovery (`recovered = true`).
    */
-  private commitStagedJob(jobId: string, recovered: boolean): ImportJobOutcome {
+  private commitStagedJob(jobId: string, recovered: boolean, crashBeforeCommit = false): ImportJobOutcome {
     const activePolicy = this.policies.requireActive();
 
     let committed;
     try {
-      committed = this.db.transaction(() => {
+      committed = this.db.transaction((): CommitResult | { replay: JobRow } => {
         const row = this.db.get<JobRow>(
           "SELECT * FROM import_jobs WHERE security_domain = ? AND job_id = ?",
           this.securityDomain,
           jobId,
         );
-        if (!row || !row.staged_payload_json) {
-          throw new Error(`Job ${jobId} has no durable staged payload to commit`);
+        if (row?.state === "committed") return { replay: row };
+        if (!row || row.state !== "running" || !row.staged_payload_json) {
+          throw new ConcurrencyConflictError(
+            "idempotency-conflict",
+            `Job ${jobId} is not a running job with a durable staged payload, so it cannot be committed`,
+          );
         }
 
         const staged = JSON.parse(row.staged_payload_json) as StagedPayload;
@@ -755,9 +844,10 @@ export class ImportJobRunner {
           this.logStore.addSync(entry, staged.timeEnvelope.recordedAt);
         }
 
-        const committedAt = new Date().toISOString();
+        const committedAt = this.now();
         const retention = resolveDatasetRetention(activePolicy.policy, staged.dataset, staged.statedClassification);
-        const retentionUntil = computeRetentionUntil(staged.timeEnvelope.recordedAt, retention.retentionDays);
+        // An unchanged record keeps the horizon of the version it already is; a new one runs from its own recording time.
+        const retentionUntil = stored ? computeRetentionUntil(staged.timeEnvelope.recordedAt, retention.retentionDays) : metadata.retentionUntil;
 
         const receipt: UpdateReceipt = {
           receiptId: `RCPT-${randomUUID()}`,
@@ -797,19 +887,24 @@ export class ImportJobRunner {
           receipt.policyPin,
         );
 
-        this.db.run(
+        const done = this.db.run(
           `UPDATE import_jobs
            SET state = 'committed', stage = 'committed', result_version = ?, result_snapshot_digest = ?,
                staged_payload_json = NULL, error_code = NULL, error_stage = NULL,
                updated_at = ?, committed_at = ?
-           WHERE job_id = ?`,
+           WHERE job_id = ? AND state = 'running' AND stage = 'staged'`,
           snapshot.version,
           snapshot.digest,
           committedAt,
           committedAt,
           jobId,
         );
+        if (done.changes !== 1) {
+          throw new ConcurrencyConflictError("idempotency-conflict", `Job ${jobId} was no longer staged when its commit finished`);
+        }
         this.recordEvent(jobId, "committed", recovered ? "recovered" : "ok");
+
+        if (crashBeforeCommit) throw new SimulatedCrashError("before-commit");
 
         return {
           snapshot,
@@ -830,6 +925,7 @@ export class ImportJobRunner {
       throw err;
     }
 
+    if ("replay" in committed) return this.replayOutcome(committed.replay);
     return {
       ok: true,
       job: this.getJob(jobId)!,
@@ -850,11 +946,19 @@ export class ImportJobRunner {
    * - Jobs interrupted earlier (`received`, `classified`, `validated`) roll back cleanly to `rolled_back`
    *   with zero partial snapshots or evidence rows.
    */
-  recoverPendingJobs(): RecoveryReport {
-    const pending = this.db.query<JobRow>(
-      "SELECT * FROM import_jobs WHERE security_domain = ? AND state = 'running' ORDER BY created_at ASC",
-      this.securityDomain,
-    );
+  recoverPendingJobs(options: { force?: boolean } = {}): RecoveryReport {
+    // Jobs executing now are never touched. A job of another process is left alone until its lease has run out,
+    // unless `force` is set (server start-up, which assumes it is the only process on the data file).
+    const pending = this.db
+      .query<JobRow>(
+        "SELECT * FROM import_jobs WHERE security_domain = ? AND state = 'running' ORDER BY created_at ASC",
+        this.securityDomain,
+      )
+      .filter((row) => {
+        if (INFLIGHT.has(row.job_id)) return false;
+        if (options.force || row.owner === PROCESS_ID) return true;
+        return Date.now() - Date.parse(row.updated_at) >= JOB_LEASE_MS;
+      });
 
     const resumed: string[] = [];
     const rolledBack: string[] = [];
@@ -874,7 +978,7 @@ export class ImportJobRunner {
                  SET state = 'rolled_back', stage = 'rolled_back', staged_payload_json = NULL,
                      error_code = 'recovery-rollback', updated_at = ?
                  WHERE job_id = ?`,
-                new Date().toISOString(),
+                this.now(),
                 row.job_id,
               );
               this.recordEvent(row.job_id, "rolled_back", "rolled_back", "recovery-rollback");
@@ -889,7 +993,7 @@ export class ImportJobRunner {
              SET state = 'rolled_back', stage = 'rolled_back', staged_payload_json = NULL,
                  error_code = 'interrupted-before-stage', updated_at = ?
              WHERE job_id = ?`,
-            new Date().toISOString(),
+            this.now(),
             row.job_id,
           );
           this.recordEvent(row.job_id, "rolled_back", "rolled_back", "interrupted-before-stage");

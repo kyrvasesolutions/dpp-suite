@@ -8,6 +8,7 @@
  */
 import { parse } from "yaml";
 import { z } from "zod";
+import { canonical } from "./canonical";
 import { ExceptionCatalogueSchema, RetentionPolicySchema, type ExceptionCatalogue, type RetentionPolicy } from "./pContracts";
 
 export const ROUTES = ["customer-pdf", "erp-staging-csv", "registry-prep-json"] as const;
@@ -306,6 +307,16 @@ function parseMatrix(text: string, propertyIds: string[]): ProfilePack["matrix"]
   return matrix;
 }
 
+/**
+ * Retention policies that came out of a verified pack load, with the digest of their canonical content at load time.
+ * The durable store activates a policy only if it is one of these objects and still has that content, so a weaker
+ * policy cannot be activated under a signed pin (C6-02).
+ */
+const LOADED_RETENTION = new WeakMap<object, string>();
+
+/** The canonical-content digest recorded when `policy` was loaded from a verified pack, or undefined if it was not. */
+export const loadedRetentionDigest = (policy: object): string | undefined => LOADED_RETENTION.get(policy);
+
 export async function sha256Hex(text: string): Promise<string> {
   const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -399,6 +410,7 @@ export async function loadProfilePack(source: PackSource): Promise<ProfilePack> 
   const limits = pinnedDoc("policy", "LIMITS@1.0.0", LimitsDoc);
   const retention = pinnedDoc("policy", "RETENTION@1.0.0", RetentionPolicySchema);
   const exceptions = pinnedDoc("policy", "EXCEPTIONS@1.0.0", ExceptionCatalogueSchema);
+  LOADED_RETENTION.set(retention.doc, await sha256Hex(canonical(retention.doc)));
   const policyRefs = ["READINESS-RULES@1.0.0", "DERIVED-RULES@1.0.0", "LIMITS@1.0.0", "RETENTION@1.0.0", "EXCEPTIONS@1.0.0"];
   for (const ref of profile.pins.policy) {
     if (!policyRefs.includes(ref)) throw new ProfileError(`${ref} is not a policy file this build reads`);

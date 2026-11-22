@@ -9,7 +9,12 @@ import {
   RetentionViolationError,
   type RetentionPolicy,
 } from "../../src/model/pContracts";
+import { canonical } from "../../src/model/canonical";
+import { loadedRetentionDigest } from "../../src/model/profile";
 import type { DbAdapter } from "../db/adapter";
+import { createHash } from "node:crypto";
+
+const sha256Sync = (text: string): string => createHash("sha256").update(text).digest("hex");
 
 export interface StoredPolicy {
   policyPin: string;
@@ -21,7 +26,13 @@ export interface StoredPolicy {
 export class PolicyStore {
   constructor(private readonly db: DbAdapter) {}
 
-  /** Validates and activates a pinned retention policy atomically (deactivating any earlier pin). */
+  /**
+   * Activates a pinned retention policy atomically (deactivating any earlier pin).
+   *
+   * Only a policy exactly as loaded from a verified, signed contract pack is accepted: the object must come out of
+   * `loadProfilePack` and still have the canonical content digest recorded then. Different content under a pin the
+   * database already holds is refused, so a weaker policy can never replace the signed one (C6-02).
+   */
   activate(policy: RetentionPolicy, loadedAt: string = new Date().toISOString()): StoredPolicy {
     const parsed = RetentionPolicySchema.safeParse(policy);
     if (!parsed.success) {
@@ -30,20 +41,40 @@ export class PolicyStore {
         `Invalid retention policy: ${parsed.error.issues[0]?.message ?? "schema mismatch"}`,
       );
     }
+    const pinnedDigest = loadedRetentionDigest(policy);
+    if (!pinnedDigest) {
+      throw new RetentionViolationError(
+        "policy-untrusted",
+        "A retention policy can be activated only as loaded from a verified contract pack",
+      );
+    }
+    if (sha256Sync(canonical(policy)) !== pinnedDigest) {
+      throw new RetentionViolationError(
+        "policy-untrusted",
+        "The retention policy no longer matches the content of the signed contract pack",
+      );
+    }
     const pin = `${parsed.data.id}@${parsed.data.version}`;
     const serialized = JSON.stringify(parsed.data);
     this.db.transaction(() => {
+      const held = this.db.get<{ policy_json: string }>("SELECT policy_json FROM retention_policies WHERE policy_pin = ?", pin);
+      if (held && canonical(JSON.parse(held.policy_json)) !== canonical(parsed.data)) {
+        throw new RetentionViolationError(
+          "policy-conflict",
+          `Retention policy ${pin} is already held with different content; a pin is immutable`,
+        );
+      }
       this.db.run("UPDATE retention_policies SET active = 0 WHERE active = 1");
       this.db.run(
         `INSERT INTO retention_policies (policy_pin, policy_json, loaded_at, active)
          VALUES (?, ?, ?, 1)
-         ON CONFLICT(policy_pin) DO UPDATE SET policy_json = excluded.policy_json, loaded_at = excluded.loaded_at, active = 1`,
+         ON CONFLICT(policy_pin) DO UPDATE SET active = 1`,
         pin,
         serialized,
         loadedAt,
       );
     });
-    return { policyPin: pin, policy: parsed.data, loadedAt, active: true };
+    return this.requireActive();
   }
 
   /** Returns the currently active pinned retention policy, or null if none has been activated yet. */

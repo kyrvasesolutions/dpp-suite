@@ -266,6 +266,61 @@ export const MIGRATIONS: readonly Migration[] = [
       DROP INDEX IF EXISTS idx_snapshots_domain_model_batch;
     `,
   },
+  {
+    version: 3,
+    name: "0003_evidence_retention_guards",
+    up: `
+      CREATE TRIGGER IF NOT EXISTS trg_evidence_no_early_delete
+      BEFORE DELETE ON evidence_store
+      WHEN OLD.legal_hold = 1 OR OLD.retention_until > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      BEGIN
+        SELECT RAISE(ABORT, 'evidence is under legal hold or inside its retention horizon and cannot be deleted');
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_evidence_immutable_content
+      BEFORE UPDATE ON evidence_store
+      WHEN
+        NEW.security_domain != OLD.security_domain OR
+        NEW.sha256 != OLD.sha256 OR
+        NEW.evidence_id != OLD.evidence_id OR
+        NEW.issuer != OLD.issuer OR
+        NEW.revision != OLD.revision OR
+        NEW.record_kind != OLD.record_kind OR
+        NEW.dataset != OLD.dataset OR
+        NEW.classification != OLD.classification OR
+        NEW.policy_pin != OLD.policy_pin OR
+        NEW.retention_days != OLD.retention_days OR
+        NEW.stored_at != OLD.stored_at OR
+        NEW.retention_until != OLD.retention_until OR
+        NEW.size_bytes != OLD.size_bytes OR
+        NEW.media_type != OLD.media_type OR
+        NEW.content_blob != OLD.content_blob
+      BEGIN
+        SELECT RAISE(ABORT, 'evidence is immutable; only the legal hold flag may change');
+      END;
+    `,
+    down: `
+      DROP TRIGGER IF EXISTS trg_evidence_immutable_content;
+      DROP TRIGGER IF EXISTS trg_evidence_no_early_delete;
+    `,
+  },
+  {
+    // A migration that changes data: every existing job gets the composite key of what it was claimed for
+    // (both file digests and the dataset), derived by the rule the runner used before the column existed.
+    version: 4,
+    name: "0004_job_input_key",
+    up: `
+      ALTER TABLE import_jobs ADD COLUMN input_key TEXT;
+      ALTER TABLE import_jobs ADD COLUMN owner TEXT;
+      UPDATE import_jobs
+         SET input_key = COALESCE(erp_sha256, '-') || ':' || COALESCE(lab_sha256, '-') || ':' ||
+                         CASE WHEN lab_sha256 IS NULL THEN 'erp-extract' ELSE 'lab-assessment' END;
+    `,
+    down: `
+      ALTER TABLE import_jobs DROP COLUMN owner;
+      ALTER TABLE import_jobs DROP COLUMN input_key;
+    `,
+  },
 ];
 
 export function migrationChecksum(m: Migration): string {
@@ -333,6 +388,30 @@ export function migrateUp(db: DbAdapter, targetVersion: number = MIGRATIONS[MIGR
   return appliedMigrations(db);
 }
 
+/** Tables whose rows are kept for a retention horizon; a rollback may not drop them while anything is still retained. */
+const RETAINED_TABLES: Record<string, string> = {
+  evidence_store: "legal_hold = 1 OR retention_until > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+  snapshots: "retention_until > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+  update_receipts: "retention_until > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+};
+
+/** Refuses a rollback that would drop a table still holding retained or legal-hold evidence, snapshots or receipts. */
+function assertNothingRetainedIsDropped(db: DbAdapter, def: Migration): void {
+  for (const match of def.down.matchAll(/DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?([A-Za-z_]+)/gi)) {
+    const table = match[1]!;
+    const retained = RETAINED_TABLES[table];
+    if (!retained) continue;
+    const exists = db.get("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", table);
+    if (!exists) continue;
+    const row = db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM ${table} WHERE ${retained}`);
+    if (Number(row?.n) > 0) {
+      throw new Error(
+        `Rollback of migration v${def.version} refused: ${table} still holds ${row!.n} retained or legal-hold row(s)`,
+      );
+    }
+  }
+}
+
 /**
  * Rolls back applied migrations down to `targetVersion` (inclusive: `targetVersion = 1` keeps v1 and rolls back v2;
  * `targetVersion = 0` rolls back all migrations).
@@ -347,6 +426,7 @@ export function migrateDown(db: DbAdapter, targetVersion: number): AppliedMigrat
     const def = byVersion.get(row.version);
     if (!def) throw new Error(`Cannot roll back unknown migration version ${row.version}`);
     db.transaction(() => {
+      assertNothingRetainedIsDropped(db, def);
       db.exec(def.down);
       db.run("DELETE FROM schema_migrations WHERE version = ?", row.version);
     });

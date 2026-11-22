@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { SqliteAdapter } from "../../server/db/adapter";
-import { migrateUp } from "../../server/db/migrations";
+import { MIGRATIONS, migrateUp } from "../../server/db/migrations";
 import { createDppServer } from "../../server/http/api";
 import { PolicyStore } from "../../server/store/policyStore";
 import { ExecutionLog } from "../../src/model/log";
@@ -34,7 +34,7 @@ beforeAll(async () => {
   migrateUp(db);
   new PolicyStore(db).activate(pack.policy.retention);
 
-  const server = createDppServer({ db, pack, software: TEST_SOFTWARE });
+  const server = createDppServer({ db, pack, software: TEST_SOFTWARE, now: () => "2026-11-22T12:00:00.000Z" });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const addr = server.address() as AddressInfo;
   baseUrl = `http://127.0.0.1:${addr.port}`;
@@ -63,7 +63,7 @@ describe("Cycle 6 Node 24 HTTP API and client adapter", () => {
       packManifestDigest: string;
     };
     expect(health.status).toBe("ok");
-    expect(health.schemaVersion).toBe(2);
+    expect(health.schemaVersion).toBe(MIGRATIONS.length);
     expect(health.activeRetentionPolicy).toBe("RETENTION@1.0.0");
     expect(health.packManifestDigest).toBe(pack.manifestDigest);
 
@@ -94,12 +94,9 @@ describe("Cycle 6 Node 24 HTTP API and client adapter", () => {
       body: JSON.stringify({
         expectedVersion: 0,
         timeEnvelope: {
-          recordedAt: "2026-11-22T12:00:00Z",
           observedAt: "2026-11-20T09:00:00Z",
           declaredAt: "2026-11-21T15:00:00Z",
-          publishedAt: null,
           validFrom: "2026-11-22T12:00:00Z",
-          validTo: null,
         },
         erp: { name: CLEAN.erp, type: "text/csv", base64: erpB64 },
         lab: { name: CLEAN.lab, type: "application/json", base64: labB64 },
@@ -197,8 +194,9 @@ describe("Cycle 6 Node 24 HTTP API and client adapter", () => {
     // 6. Evidence retention and legal-hold endpoints
     const evGet = await fetch(`${baseUrl}/api/evidence/${evSha}`);
     expect(evGet.status).toBe(200);
-    const delEarly = await fetch(`${baseUrl}/api/evidence/${evSha}?asOf=2028-01-01T00:00:00Z`, { method: "DELETE" });
+    const delEarly = await fetch(`${baseUrl}/api/evidence/${evSha}`, { method: "DELETE" });
     expect(delEarly.status).toBe(409);
+    expect(((await delEarly.json()) as { code: string }).code).toBe("retention-active");
 
     const holdRes = await fetch(`${baseUrl}/api/evidence/${evSha}/legal-hold`, {
       method: "POST",
@@ -206,15 +204,17 @@ describe("Cycle 6 Node 24 HTTP API and client adapter", () => {
       body: JSON.stringify({ legalHold: true }),
     });
     expect(holdRes.status).toBe(200);
-    const delHeld = await fetch(`${baseUrl}/api/evidence/${evSha}?asOf=2045-01-01T00:00:00Z`, { method: "DELETE" });
+    const delHeld = await fetch(`${baseUrl}/api/evidence/${evSha}`, { method: "DELETE" });
     expect(delHeld.status).toBe(409);
+    expect(((await delHeld.json()) as { code: string }).code).toBe("legal-hold-active");
 
-    // 7. RemoteRecordRepository & RemoteLogStore client adapters read the same durable state
+    // 7. RemoteRecordRepository & RemoteLogStore client adapters read the same durable state (and cannot write it)
     const remoteRepo = new RemoteRecordRepository(baseUrl);
     const hist = await remoteRepo.history(model, batch);
     expect(hist).toHaveLength(2);
     expect((await remoteRepo.latest(model, batch))?.version).toBe(2);
     expect(await remoteRepo.records()).toEqual([{ model, batch }]);
+    await expect(remoteRepo.put(hist[0]!)).rejects.toThrow(/import jobs/);
 
     const remoteLog = new ExecutionLog(new RemoteLogStore(baseUrl));
     const entries = await remoteLog.entries();
