@@ -4,15 +4,18 @@ const DB_NAME = "dpp-trace";
 const STORE = "files";
 /** The central record's snapshots (Cycle 4), keyed by [model, batch, version]. Added in database version 2. */
 const SNAPSHOTS = "snapshots";
+/** The execution log (Cycle 5), keyed by its own sequence number. Added in database version 3. */
+const LOG = "log";
 
 function open(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 2);
-    // Version 1 had only `files`; the upgrade keeps it and adds `snapshots`.
+    const req = indexedDB.open(DB_NAME, 3);
+    // Version 1 had only `files`, version 2 added `snapshots`; each upgrade keeps what exists and adds what is missing.
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
       if (!db.objectStoreNames.contains(SNAPSHOTS)) db.createObjectStore(SNAPSHOTS);
+      if (!db.objectStoreNames.contains(LOG)) db.createObjectStore(LOG, { keyPath: "seq", autoIncrement: true });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -65,3 +68,8 @@ export const idbSnapshotRange = (model: string, batch: string) =>
   inStore<unknown[]>(SNAPSHOTS, "readonly", (s) => s.getAll(IDBKeyRange.bound([model, batch, 0], [model, batch, Number.MAX_SAFE_INTEGER])));
 
 export const idbSnapshotKeys = () => inStore<IDBValidKey[]>(SNAPSHOTS, "readonly", (s) => s.getAllKeys());
+
+/** Appends a log entry and returns the sequence number the store gave it. Entries are never updated or removed. */
+export const idbLogAdd = (entry: unknown) => inStore<IDBValidKey>(LOG, "readwrite", (s) => s.add(entry)).then((key) => Number(key));
+
+export const idbLogAll = () => inStore<unknown[]>(LOG, "readonly", (s) => s.getAll());

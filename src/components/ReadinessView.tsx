@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { importEvents, readinessEvents } from "../model/log";
 import { project, type Projection } from "../model/disclosure";
 import type { ProductRecord } from "../model/ingress";
 import { assess, ruleText, structuralChecks, type RouteReadiness } from "../model/readiness";
@@ -18,7 +19,7 @@ const STATE_TEXT = { present: "Present", missing: "Missing", inaccessible: "Not 
  * what `project` returns, so it cannot show a value the matrix does not permit for that recipient.
  */
 export function ReadinessView() {
-  const { profile, error, state, setState } = useRecordStore();
+  const { profile, error, state, setState, record } = useRecordStore();
   const [sample, setSample] = useState(READINESS_SAMPLES[0].id);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -68,6 +69,7 @@ export function ReadinessView() {
             setLoadError(null);
             try {
               const loaded = await importSample(profile, READINESS_SAMPLES.find((x) => x.id === sample)!);
+              await record([loaded.results.erp, loaded.results.lab].flatMap((r) => (r ? importEvents(r) : [])));
               setState(loaded.state);
             } catch (e) {
               setLoadError(e instanceof Error ? e.message : String(e));
@@ -97,6 +99,11 @@ export function ReadinessView() {
 
 function RecordReadiness({ profile, record }: { profile: ProfilePack; record: ProductRecord }) {
   const readiness = useMemo(() => assess(profile, record), [profile, record]);
+  const { record: log } = useRecordStore();
+  // Each assessment of a record state is logged once: the verdict per route and the rules that hold it, never a value.
+  useEffect(() => {
+    void log(readinessEvents(record.model, record.batch, readiness));
+  }, [log, record, readiness]);
   const checks = useMemo(() => structuralChecks(profile, record), [profile, record]);
   const label = useMemo(() => new Map(profile.properties.map((p) => [p.id, p.labels.en])), [profile]);
   const [viewRoute, setViewRoute] = useState<Route>("customer-pdf");

@@ -1,4 +1,6 @@
 import { useMemo, useState } from "react";
+import { LogPanel } from "./LogPanel";
+import { importEvents } from "../model/log";
 import { FLAG_TEXT, STAGES, type ImportResult, type RecordValue } from "../model/ingress";
 import { useRecordStore, type StoredNote } from "../model/recordStore";
 import { IMPORT_SAMPLES as SAMPLES, importInputs, importSample, type Input } from "./sampleFiles";
@@ -13,7 +15,7 @@ const readFile = async (file: File): Promise<Input> => ({ bytes: new Uint8Array(
  * typed error; accepted files show each value verbatim with its source location, status and flags.
  */
 export function ImportView() {
-  const { profile, error, state, setState, saveImport } = useRecordStore();
+  const { profile, error, state, setState, saveImport, record } = useRecordStore();
   const [inputs, setInputs] = useState<{ erp?: Input; lab?: Input }>({});
   const [results, setResults] = useState<{ erp?: ImportResult; lab?: ImportResult }>({});
   const [previousDigests, setPreviousDigests] = useState<string[] | null>(null);
@@ -34,6 +36,7 @@ export function ImportView() {
   const run = async (next: { erp?: Input; lab?: Input }, again = false) => {
     if (!profile) return;
     const { results: imported, state: built } = await importInputs(profile, next);
+    await record([imported.erp, imported.lab].flatMap((r) => (r ? importEvents(r) : [])));
     setPreviousDigests(again && state ? state.records.map((r) => r.digest) : null);
     setInputs(next);
     setResults(imported);
@@ -106,6 +109,7 @@ export function ImportView() {
               if (!profile) return;
               const s = SAMPLES.find((x) => x.id === sample)!;
               const loaded = await importSample(profile, s);
+              await record([loaded.results.erp, loaded.results.lab].flatMap((r) => (r ? importEvents(r) : [])));
               setPreviousDigests(null);
               setInputs(loaded.inputs);
               setResults(loaded.results);
@@ -213,6 +217,8 @@ export function ImportView() {
           </table>
         </section>
       ))}
+
+      <LogPanel />
     </div>
   );
 }

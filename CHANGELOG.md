@@ -8,6 +8,10 @@ Functional changes to the DPP suite, one entry per merged pull request, newest f
   - An ERP extract with more than one data row is rejected at the structure stage (`multiple-records`) with nothing imported; this replaces the earlier acceptance of several rows.
   - A file over the size limit is rejected at the bytes stage before it is decoded (`too-large`). JSON nested deeper than the limit is rejected at the parse stage (`too-deep`), checked inside the strict parser so a hostile text cannot overflow the stack. An import that runs past the deadline stops with `deadline` and no output.
 
+- **Execution and error log.** A local, append-only log in this browser records import accepted or rejected, readiness assessed, output made or refused, release, record export, record import and correction. It is shown on the Import and Outputs screens and can be downloaded as one JSON file.
+  - The public field set is fixed: sequence, event, stage, code, route, rule, step, record (model and batch as digests only), version, file role, file digest and outcome. A value, a code value, a file name or free text is never logged; any other field, or content of the wrong shape, is dropped, and content without a confidentiality class is treated as restricted. Error messages on the screen may still show the operator's own values.
+  - A test runs every fixture and failure fixture through import, readiness, outputs and export and checks that no source value or file name is in the log.
+
 ## [#13](https://github.com/kyrvasesolutions/dpp-suite/pull/13) Outputs screen supported (22 November 2026)
 
 - The Outputs screen is labelled Supported. The three outputs, the central record with its versions, lineage and the release manifest passed an independent review in three rounds. In about 100 attempts, no denied field, raw derived value, live spreadsheet formula or undetected change reached an output.

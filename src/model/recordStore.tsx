@@ -6,6 +6,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import pack from "virtual:contract-pack";
 import type { RecordState } from "./ingress";
+import { ExecutionLog, IdbLogStore, MemoryLogStore, type LogInput } from "./log";
 import { loadProfilePack, type ProfilePack } from "./profile";
 import { IdbRepository, MemoryRepository, storeRecord, type RecordRepository } from "./recordRepository";
 
@@ -28,6 +29,11 @@ interface RecordStore {
   repository: RecordRepository;
   /** Stores each record of an accepted import as a snapshot (the Import screen calls this; nothing else does). */
   saveImport: (state: RecordState) => Promise<StoredNote[]>;
+  /** The local execution log (public fields only) and a counter that changes whenever an entry is appended. */
+  log: ExecutionLog;
+  logVersion: number;
+  /** Appends entries to the log. Logging never stops the work it records: a failure is swallowed. */
+  record: (events: LogInput[] | Promise<LogInput[]>) => Promise<void>;
 }
 
 const Context = createContext<RecordStore | null>(null);
@@ -43,6 +49,19 @@ export function RecordStoreProvider({ children }: { children: ReactNode }) {
 
   // IndexedDB where the browser has it; otherwise the central record lives for this page session only
   const repository = useMemo<RecordRepository>(() => (typeof indexedDB === "undefined" ? new MemoryRepository() : new IdbRepository()), []);
+  const log = useMemo(() => new ExecutionLog(typeof indexedDB === "undefined" ? new MemoryLogStore() : new IdbLogStore()), []);
+  const [logVersion, setLogVersion] = useState(0);
+  const record = useCallback(
+    async (events: LogInput[] | Promise<LogInput[]>) => {
+      try {
+        for (const e of await events) await log.append(e);
+      } catch {
+        // the log is bookkeeping: it must never stop an import or an export
+      }
+      setLogVersion((n) => n + 1);
+    },
+    [log],
+  );
   const saveImport = useCallback(
     async (next: RecordState): Promise<StoredNote[]> => {
       const notes: StoredNote[] = [];
@@ -55,7 +74,10 @@ export function RecordStoreProvider({ children }: { children: ReactNode }) {
     [repository],
   );
 
-  const value = useMemo(() => ({ profile, error, state, setState, repository, saveImport }), [profile, error, state, repository, saveImport]);
+  const value = useMemo(
+    () => ({ profile, error, state, setState, repository, saveImport, log, logVersion, record }),
+    [profile, error, state, repository, saveImport, log, logVersion, record],
+  );
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }
 
