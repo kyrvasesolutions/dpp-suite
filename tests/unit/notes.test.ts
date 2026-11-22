@@ -100,7 +100,7 @@ describe.runIf(existsSync("docs/operator/record-notes.md"))("record notes", () =
   });
 
   it("explains the re-import rule, the two digests and the honest labels", () => {
-    for (const t of ["carried forward", "source-changed", "Record digest", "Version digest", "First import", "Re-import", "Imported from a central-record file", "Store the accepted record without the other file", "same value", "Earlier"]) {
+    for (const t of ["carried forward", "confirms", "drops the value", "An earlier version of this file", "attached", "source-changed", "Record digest", "Version digest", "First import", "Re-import", "Imported from a central-record file", "Store the accepted record without the other file", "same value", "Earlier"]) {
       expect(notes.toLowerCase(), t).toContain(t.toLowerCase().replace("same value", "stating the value the record already has"));
     }
     expect(read("src/components/ImportView.tsx")).toContain("Store the accepted record without the other file");
@@ -135,6 +135,22 @@ describe.runIf(existsSync("docs/developer/handover.md"))("developer handover", (
   it("names every module of the model the data flow passes through", () => {
     for (const m of ["ingress", "strictJson", "recordRepository", "correction", "centralRecord", "policy", "disclosure", "readiness", "derived", "lineage", "log", "profile"]) {
       expect(notes, m).toContain(`src/model/${m}.ts`);
+    }
+  });
+});
+
+describe("public ADRs and documentation boundaries", () => {
+  it("tracks public ADRs in adr/ while keeping docs/ and working documentation git-ignored", () => {
+    for (const file of [
+      "adr/0001-browser-only-pipeline-and-contract-packs.md",
+      "adr/0002-deterministic-contract-testing-and-three-layer-verification.md",
+      "adr/0003-reimport-and-correction-semantics.md",
+    ]) {
+      expect(existsSync(file), file).toBe(true);
+    }
+    const gitignore = read(".gitignore");
+    for (const ignored of ["/docs/", "/docs/assessment/", "/scripts/assessment/", "/spec/", "/CLAUDE.md", "/.claude/"]) {
+      expect(gitignore, ignored).toContain(ignored);
     }
   });
 });
