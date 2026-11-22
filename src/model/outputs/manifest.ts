@@ -61,6 +61,7 @@ export const ManifestSchema = z.object({
       property: z.string(),
       member: z.string().optional(),
       qualifier: z.string().optional(),
+      detail: z.string().optional(),
       assertion: z.object({ role: z.enum(["erp", "lab"]), file: z.string(), sha256: Sha, location: z.string() }),
     }),
   ),

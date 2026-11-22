@@ -6,7 +6,7 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { buildLineage, trace, outputRef } from "../../src/model/lineage";
 import { byRole } from "../../src/model/ingress";
-import { RouteRefusedError } from "../../src/model/outputs/items";
+import { detailPosition, RouteRefusedError } from "../../src/model/outputs/items";
 import { buildErpCsv, csvCell } from "../../src/model/outputs/erpCsv";
 import { buildRegistryJson } from "../../src/model/outputs/registryJson";
 import { decide } from "../../src/model/policy";
@@ -184,7 +184,9 @@ describe("lineage", () => {
         expect(chain.length, `${route} ${item.step}`).toBeGreaterThan(0);
         for (const e of chain) {
           expect(e.stepId).toBe(item.step);
-          const a = record.values.flatMap((v) => v.assertions).find((x) => x.source.file === e.assertion.file && x.source.location === e.assertion.location);
+          // a detail (a footprint's method, say) is read from another key of the object the assertion stands for
+          const where = (loc: string) => (e.detail ? `${e.assertion.file}, ${detailPosition(loc.slice(e.assertion.file.length + 2), e.detail)}` : loc);
+          const a = record.values.flatMap((v) => v.assertions).find((x) => x.source.file === e.assertion.file && where(x.source.location) === e.assertion.location);
           expect(a, `${e.outputRef} ${e.assertion.location}`).toBeDefined();
           expect(e.assertion.sha256).toBe(a!.source.sha256);
           expect(e.property).toBe(a!.property);
@@ -239,5 +241,87 @@ describe("every route", () => {
     expect(() => buildErpCsv(pack, record)).not.toThrow();
     expect(ROUTES).toHaveLength(3);
     expect(ACCEPTED_ERP.length * (ACCEPTED_LAB.length + 1)).toBe(COMBINATIONS.length);
+  });
+});
+
+describe("lineage of the footprint context points at the key that was read", () => {
+  const KEYS: Record<string, string> = { "footprint_method": "method", "footprint_system_boundary": "system_boundary", "footprint_reference_year": "reference_year", "footprint_calculated_by": "calculated_by" };
+
+  it("names /footprints/0/method, /system_boundary, /reference_year and /calculated_by, with the detail key", async () => {
+    const record = await recordFor(pack, CLEAN);
+    const f = buildErpCsv(pack, record);
+    const mapping = pack.routes["erp-staging-csv"].output;
+    let seen = 0;
+    f.items.forEach((item, i) => {
+      const key = KEYS[mapping[i].csv!.header];
+      if (!key) return;
+      seen++;
+      const chain = trace(f.lineage, outputRef("erp-staging-csv", item.step));
+      expect(chain).toHaveLength(1);
+      expect(chain[0].detail).toBe(key);
+      expect(chain[0].assertion.location).toBe(`d03a-lab-assessment.json, /footprints/0/${key}`);
+      // the value item itself still points at the value
+      expect(item.sources[0].position).toBe(`/footprints/0/${key}`);
+    });
+    expect(seen).toBe(4);
+    const value = f.items.find((it) => it.property === propertyBySlug(pack, "carbon-footprint") && it.role === "field")!;
+    expect(trace(f.lineage, outputRef("erp-staging-csv", value.step))[0]).toMatchObject({ assertion: { location: "d03a-lab-assessment.json, /footprints/0/value" } });
+    expect(trace(f.lineage, outputRef("erp-staging-csv", value.step))[0].detail).toBeUndefined();
+  });
+
+  it("shows the right position in the PDF and in the manifest", async () => {
+    const { release } = await (await import("../support/release")).releaseFor(CLEAN, pack);
+    const pdf = release.files.find((f) => f.route === "customer-pdf")!;
+    const t = await (await import("../support/pdfText")).pdfText(pdf.bytes);
+    for (const key of Object.values(KEYS)) expect(t).toContain(`Source: Laboratory file, /footprints/0/${key}`);
+    const details = release.manifest.lineage.filter((e) => e.detail);
+    expect(details.map((e) => e.detail).sort()).toEqual([...Object.values(KEYS), ...Object.values(KEYS)].sort());
+    for (const e of details) expect(e.assertion.location).toBe(`d03a-lab-assessment.json, /footprints/0/${e.detail}`);
+  });
+});
+
+describe("separators in combined cells are escaped", () => {
+  /** Splits on `|` that is not escaped, then reads each part's `key=` the way the escaping defines it. */
+  const parts = (cell: string) => cell.split(/(?<!\\)\|/);
+  const unescape = (s: string) => s.replace(/\\(.)/g, "$1");
+  const cellOf = (csv: string, header: string) => {
+    const [h, r] = parse(csv);
+    return r[h.indexOf(header)];
+  };
+
+  it("keeps a crafted issuer inside its own evidence entry: no fake digest and no fake entry", async () => {
+    const evil = "Lab), digest=sha256:" + "0".repeat(64) + "|EV-FAKE (issuer=x";
+    const record = await recordFor(pack, { ...CLEAN, editLab: (d) => (d.evidence[0].issuer = evil) });
+    const csv = buildErpCsv(pack, record).text;
+    const cell = cellOf(csv, "evidence_references");
+    expect(parts(cell)).toHaveLength(2); // the two evidence records and no more
+    expect(cell).not.toContain("EV-FAKE (issuer=x");
+    const entry = parts(cell).find((p) => p.includes("issuer=Lab"))!;
+    // exactly one unescaped digest= in the entry, and it is the real one
+    expect(entry.match(/(?<!\\)digest=sha256:[0-9a-f]{64}/g)).toHaveLength(1);
+    expect(entry).not.toContain("digest=sha256:" + "0".repeat(64) + ",");
+    expect(unescape(entry)).toContain(evil);
+  });
+
+  it("keeps an element named like a separator inside its own part", async () => {
+    const record = await recordFor(pack, { ...CLEAN, editLab: (d) => (d.observations[2].element = "Mg=9.99|Fe") });
+    const cell = cellOf(buildErpCsv(pack, record).text, "chemical_composition_pct");
+    expect(parts(cell)).toHaveLength(2);
+    expect(cell).toContain("Mg\\=9.99\\|Fe=3.05");
+    expect(unescape(parts(cell)[0].split(/(?<!\\)=/)[0])).toBe("Mg=9.99|Fe");
+  });
+
+  it("escapes a backslash and a pipe in text parts, and leaves a single plain value exactly as the source wrote it", async () => {
+    const record = await recordFor(pack, { ...CLEAN, editErp: (csv) => csv.replace("KA-778812", "KA|1\\2") });
+    const f = buildErpCsv(pack, record);
+    const cell = cellOf(f.text, "customer_article_number");
+    expect(cell).toContain("value=KA\\|1\\\\2");
+    expect(cellOf(f.text, "net_mass_kg")).toBe("2412.5");
+    expect(cellOf(f.text, "commodity_code")).toBe("76061293");
+  });
+
+  it("is deterministic", async () => {
+    const mk = async () => buildErpCsv(pack, await recordFor(pack, { ...CLEAN, editLab: (d) => (d.evidence[0].issuer = "a|b=(c),\\d") })).text;
+    expect(await mk()).toBe(await mk());
   });
 });

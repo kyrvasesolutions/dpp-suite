@@ -9,7 +9,7 @@
 import { derive } from "./derived";
 import type { Assertion, ProductRecord } from "./ingress";
 import type { ProfilePack, Route } from "./profile";
-import type { OutputValue } from "./outputs/items";
+import { detailPosition, type OutputValue } from "./outputs/items";
 
 export interface LineageEntry {
   /** `<route>/<step ID>`: names one value of one output. */
@@ -19,19 +19,23 @@ export interface LineageEntry {
   property: string;
   member?: string;
   qualifier?: string;
+  /** The part of the source object that was read, when it is not the value (a footprint's method, for example). */
+  detail?: string;
   assertion: { role: Assertion["source"]["role"]; file: string; sha256: string; location: string };
 }
 
 export const outputRef = (route: Route, stepId: string) => `${route}/${stepId}`;
 
-const entryOf = (ref: string, item: OutputValue, a: Assertion): LineageEntry => ({
+const entryOf = (ref: string, item: OutputValue, a: Assertion, detail?: string): LineageEntry => ({
   outputRef: ref,
   stepId: item.step,
   ...(item.ruleId ? { ruleId: item.ruleId } : {}),
   property: a.property,
   ...(a.member ? { member: a.member } : {}),
   ...(a.qualifier ? { qualifier: a.qualifier } : {}),
-  assertion: { role: a.source.role, file: a.source.file, sha256: a.source.sha256, location: a.source.location },
+  ...(detail ? { detail } : {}),
+  // the exact place: for a detail, the key of the source object that holds it
+  assertion: { role: a.source.role, file: a.source.file, sha256: a.source.sha256, location: detail ? `${a.source.file}, ${detailPosition(a.source.location.slice(a.source.file.length + 2), detail)}` : a.source.location },
 });
 
 /**
@@ -54,7 +58,7 @@ export function buildLineage(pack: ProfilePack, record: ProductRecord, route: Ro
       const value = record.values.find((v) => v.property === r.property && v.member === r.member && v.qualifier === r.qualifier);
       const a = value?.assertions[r.index];
       if (!a) throw new Error(`${ref}: ${r.property} is not in the record`);
-      entries.push(entryOf(ref, item, a));
+      entries.push(entryOf(ref, item, a, r.detail));
     }
   }
   return entries;

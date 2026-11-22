@@ -33,7 +33,15 @@ export interface AssertionRef {
   qualifier?: string;
   /** Position among the assertions of that record value. */
   index: number;
+  /** The part of the source object the output reads (for example `method` of a footprint result), when not its value. */
+  detail?: string;
 }
+
+/**
+ * Moves a position in a JSON source from an object's value to one of its other keys: /footprints/0/value becomes
+ * /footprints/0/method. A position that is not a JSON pointer (an ERP row and column) is left as it is.
+ */
+export const detailPosition = (position: string, key: string) => (/(^|, )\//.test(position) ? position.replace(/\/[^/]+$/, `/${key}`) : position);
 
 export interface OutputValue {
   step: string;
@@ -59,6 +67,14 @@ export interface OutputValue {
   /** Where the values are in the record, for lineage. A derived statement has none: lineage asks the derived rule. */
   refs: AssertionRef[];
 }
+
+/**
+ * Compound cells join parts with `|` and name them with `key=`. So that no value can pass for a separator or another part,
+ * `\\` and `|` are written `\\\\` and `\\|` inside every part, and in keys and in the details of a reference also `=`, `(`, `)` and `,`
+ * (the characters the layout uses there). A single value in a plain cell is never changed.
+ */
+export const escapePart = (s: string) => s.replace(/[\\|]/g, "\\$&");
+export const escapeKey = (s: string) => s.replace(/[\\|=(),]/g, "\\$&");
 
 const tail = (member: string) => member.replace(/^FLD-[A-Za-z]+-/, "");
 const NUMBER = /^-?\d+(\.\d+)?$/;
@@ -115,7 +131,7 @@ export function buildItems(pack: ProfilePack, projection: Projection): OutputVal
         refs.push(...v.assertions.map((_, i) => refOf(v, i)));
       }
       if (!lines.length) return absent(challenged);
-      return { ...base, present: true, challenged, text: lines.map((l) => `${l.key}=${l.text}`).join("|"), lines, numeric: false, sources, refs };
+      return { ...base, present: true, challenged, text: lines.map((l) => `${escapeKey(l.key!)}=${escapePart(l.text)}`).join("|"), lines, numeric: false, sources, refs };
     }
 
     if (item.reads.kind === "member") {
@@ -132,11 +148,12 @@ export function buildItems(pack: ProfilePack, projection: Projection): OutputVal
         const text = v.assertions[0].details?.[key];
         if (text === undefined) continue;
         lines.push({ ...(v.qualifier ? { key: v.qualifier } : {}), text });
-        sources.push(source(v, 0));
-        refs.push(refOf(v, 0));
+        const at = source(v, 0);
+        sources.push({ ...at, position: detailPosition(at.position, key) });
+        refs.push({ ...refOf(v, 0), detail: key });
       }
       if (!lines.length) return absent(challenged);
-      const text = lines.length === 1 ? lines[0].text : lines.map((l) => (l.key ? `${l.key}=${l.text}` : l.text)).join("|");
+      const text = lines.length === 1 ? lines[0].text : lines.map((l) => (l.key ? `${escapeKey(l.key)}=${escapePart(l.text)}` : escapePart(l.text))).join("|");
       return { ...base, present: true, challenged, text, lines, numeric: format === "number" && lines.length === 1 && NUMBER.test(text), sources, refs };
     }
 
@@ -144,6 +161,7 @@ export function buildItems(pack: ProfilePack, projection: Projection): OutputVal
     const lines: OutputValue["lines"] = [];
     const sources: PublicSource[] = [];
     const refs: AssertionRef[] = [];
+    const cells: string[] = [];
     let challenged = false;
     let numberLike = false;
     for (const v of own.filter((x) => !x.member)) {
@@ -153,18 +171,23 @@ export function buildItems(pack: ProfilePack, projection: Projection): OutputVal
       }
       let text = shown(v.assertions[0]);
       const details = item.reads.details ?? [];
+      let cell = text;
       if (details.length) {
-        const parts = details.map((m) => `${tail(m)}=${v.assertions[0].details?.[tail(m)] ?? ""}`);
-        text = `${text} (${parts.join(", ")})`;
+        const parts = details.map((m) => [tail(m), v.assertions[0].details?.[tail(m)] ?? ""] as const);
+        text = `${text} (${parts.map(([k, d]) => `${k}=${d}`).join(", ")})`;
+        cell = `${escapeKey(shown(v.assertions[0]))} (${parts.map(([k, d]) => `${k}=${escapeKey(d)}`).join(", ")})`;
       }
-      lines.push({ ...(v.qualifier && !details.length ? { key: v.qualifier } : {}), text });
+      const key = v.qualifier && !details.length ? v.qualifier : undefined;
+      lines.push({ ...(key ? { key } : {}), text });
+      cells.push(key ? `${escapeKey(key)}=${escapePart(cell)}` : details.length ? cell : escapePart(cell));
       sources.push(...v.assertions.map((_, i) => source(v, i)));
       refs.push(...v.assertions.map((_, i) => refOf(v, i)));
       numberLike = typeof v.assertions[0].value === "number";
     }
     if (!lines.length) return absent(challenged);
     const single = lines.length === 1;
-    const text = single ? lines[0].text : lines.map((l) => (l.key ? `${l.key}=${l.text}` : l.text)).join("|");
+    // a single plain value is the source's own text; anything compound has its separators escaped
+    const text = single && !(item.reads.details ?? []).length ? lines[0].text : cells.join("|");
     // A cell is numeric only when the source's own text is a number: never because a text looks like one by accident
     return { ...base, present: true, challenged, text, lines, numeric: format === "number" && single && numberLike && NUMBER.test(lines[0].text), sources, refs };
   });
