@@ -55,6 +55,13 @@ describe.runIf(existsSync("docs/operator/install-notes.md"))("install notes", ()
     for (const claim of ["hosted", "availability", "disaster recovery", "never submits", "synthetic"]) expect(notes.toLowerCase(), claim).toContain(claim.toLowerCase());
   });
 
+  it("describes the rail as it is, and the pair rule", () => {
+    const rail = ["Profile", "Import", "Record", "Readiness", "Outputs", "Requirements", "Prepare", "Validation", "Mapping", "Graph compliance"];
+    expect(notes).toContain("ten screens");
+    for (const r of rail) expect(notes, r).toContain(r);
+    expect(notes).toMatch(/only once both files are in and accepted/);
+  });
+
   it("names the sample files and results that exist", () => {
     expect(notes).toContain("Clean pair");
     expect(notes).toContain("ERP value with a decimal comma");
@@ -65,12 +72,23 @@ describe.runIf(existsSync("docs/operator/install-notes.md"))("install notes", ()
   });
 });
 
+describe.runIf(existsSync("docs/operator/outputs-notes.md"))("outputs notes", () => {
+  const notes = existsSync("docs/operator/outputs-notes.md") ? read("docs/operator/outputs-notes.md") : "";
+  it("says the manifest has a generated time that is in no digest, and that a value is corrected on the Record screen", () => {
+    expect(notes).toContain("generated");
+    expect(notes).toContain("substantive digest");
+    expect(notes).not.toContain("holds no date or time");
+    expect(notes).not.toContain("edits no record");
+    expect(notes).toContain("Record** screen");
+  });
+});
+
 describe.runIf(existsSync("docs/operator/record-notes.md"))("record notes", () => {
   const notes = existsSync("docs/operator/record-notes.md") ? read("docs/operator/record-notes.md") : "";
 
   it("explains every value status and the correction flag in the words of the screen", () => {
     for (const status of ["single", "agreeing", "challenged", "corrected"]) expect(notes, status).toContain(`\`${status}\``);
-    expect(notes).toContain(FLAG_TEXT["operator-corrected"].replace(": the earlier value stays visible", ""));
+    expect(notes).toContain(FLAG_TEXT["corrected"].replace(": the earlier value stays visible", ""));
   });
 
   it("states the correction rules", () => {
@@ -79,6 +97,13 @@ describe.runIf(existsSync("docs/operator/record-notes.md"))("record notes", () =
     }
     expect(notes).toMatch(/lineage and the release manifest name the correction/);
     expect(notes).toMatch(/never holds the value or the reason/);
+  });
+
+  it("explains the re-import rule, the two digests and the honest labels", () => {
+    for (const t of ["carried forward", "source-changed", "Record digest", "Version digest", "First import", "Re-import", "Imported from a central-record file", "Store the accepted record without the other file", "same value", "Earlier"]) {
+      expect(notes.toLowerCase(), t).toContain(t.toLowerCase().replace("same value", "stating the value the record already has"));
+    }
+    expect(read("src/components/ImportView.tsx")).toContain("Store the accepted record without the other file");
   });
 
   it("names the parts of the screen and the buttons it has", () => {

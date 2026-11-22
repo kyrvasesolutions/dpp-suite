@@ -110,7 +110,8 @@ export type Flag =
   | "several-results"
   | "draft-text"
   | "challenged"
-  | "operator-corrected";
+  | "corrected"
+  | "source-changed";
 
 export const FLAG_TEXT: Record<Flag, string> = {
   declared: "Declared in the ERP extract",
@@ -126,8 +127,13 @@ export const FLAG_TEXT: Record<Flag, string> = {
   "several-results": "Several results and no rule to select one",
   "draft-text": "Text not yet approved",
   challenged: "The sources disagree: both values are kept",
-  "operator-corrected": "Corrected by the operator: the earlier value stays visible",
+  "corrected": "Corrected by the operator: the earlier value stays visible",
+  "source-changed": "The source now says something else than the value the operator corrected: both are kept until the operator decides",
 };
+
+/** The flag's text for the kind of file the value came from (the ERP text says "ERP extract", which is wrong for a laboratory value). */
+export const flagTextFor = (flag: Flag, role: SourceRole): string =>
+  flag === "declared" && role === "lab" ? "Declared in the laboratory file" : flag === "declared" && role === "correction" ? "Stated by the operator" : FLAG_TEXT[flag];
 
 /** Where a source assertion comes from: an imported file, or an operator correction (Cycle 5). */
 export type SourceRole = "erp" | "lab" | "correction";
@@ -191,8 +197,10 @@ class Deadline {
     private readonly limitMs: number,
     private readonly clock: () => number,
     private readonly name: string,
+    startedAt?: number,
   ) {
-    this.start = clock();
+    // the deadline belongs to the job (the whole import of the pair), so a second file inherits the time the first one used
+    this.start = startedAt ?? clock();
   }
   check(stage: Stage) {
     if (this.clock() - this.start > this.limitMs) {
@@ -207,6 +215,8 @@ export interface ImportInput {
   name: string;
   type: string;
   now?: () => number;
+  /** When the job began, on the same clock: the deadline counts from here, not from this file. */
+  startedAt?: number;
 }
 
 async function bytesStage(bytes: Uint8Array, name: string, declaredType: string, role: SourceFile["role"], maxBytes: number) {
@@ -341,7 +351,7 @@ export async function importErpCsv(
 ): Promise<ImportResult> {
   const contract = pack.inputs.erp;
   const limits = pack.policy.limits;
-  const deadline = new Deadline(limits.job_deadline_ms, input.now ?? (() => performance.now()), input.name);
+  const deadline = new Deadline(limits.job_deadline_ms, input.now ?? (() => performance.now()), input.name, input.startedAt);
   let file: SourceFile = { name: input.name, role: "erp", mediaType: input.type, sha256: "", size: input.bytes.length };
   try {
     deadline.check("bytes");
@@ -514,7 +524,7 @@ export async function importLabJson(
 ): Promise<ImportResult> {
   const contract = pack.inputs.lab;
   const limits = pack.policy.limits;
-  const deadline = new Deadline(limits.job_deadline_ms, input.now ?? (() => performance.now()), input.name);
+  const deadline = new Deadline(limits.job_deadline_ms, input.now ?? (() => performance.now()), input.name, input.startedAt);
   let file: SourceFile = { name: input.name, role: "lab", mediaType: input.type, sha256: "", size: input.bytes.length };
   try {
     deadline.check("bytes");
@@ -756,6 +766,8 @@ export interface RecordState {
 
 const keyOf = (a: { property: string; member?: string; qualifier?: string }) => `${a.property}|${a.member ?? ""}|${a.qualifier ?? ""}`;
 
+export const sameAssertion = (a: Assertion, b: Assertion) =>
+  typeof a.value === "number" && typeof b.value === "number" ? a.value === b.value : a.raw === b.raw;
 const same = (a: Assertion, b: Assertion) => (typeof a.value === "number" && typeof b.value === "number" ? a.value === b.value : a.raw === b.raw);
 
 /**
@@ -796,7 +808,7 @@ export async function buildRecords(results: ImportResult[]): Promise<RecordState
 
 /** How many assertions say the same: one value, several that agree, or several that differ (C2-05). */
 export const valueStatus = (assertions: Assertion[]): ValueStatus =>
-  assertions.some((a) => a.flags.includes("operator-corrected")) ? "corrected" : assertions.length === 1 ? "single" : assertions.every((a) => same(a, assertions[0])) ? "agreeing" : "challenged";
+  assertions.some((a) => a.flags.includes("source-changed")) ? "challenged" : assertions.some((a) => a.flags.includes("corrected")) ? "corrected" : assertions.length === 1 ? "single" : assertions.every((a) => same(a, assertions[0])) ? "agreeing" : "challenged";
 
 /**
  * Re-checks a stored record against the pinned pack the way ingress checked the files (Cycle 4, central-record import):
@@ -829,7 +841,7 @@ export function recheckRecord(pack: ProfilePack, record: ProductRecord): string[
     for (const a of v.assertions) {
       const at = `${where} at ${a.source.location}`;
       if (a.property !== v.property || a.member !== v.member || a.qualifier !== v.qualifier) problems.push(`${at}: the assertion is filed under another key`);
-      if (status !== "corrected" && a.flags.includes("challenged") !== (status === "challenged")) problems.push(`${at}: the challenged flag does not match the status`);
+      if (!v.assertions.some((x) => x.source.role === "correction") && a.flags.includes("challenged") !== (status === "challenged")) problems.push(`${at}: the challenged flag does not match the status`);
       if (!record.sources.some((s) => s.name === a.source.file && s.role === a.source.role && s.sha256 === a.source.sha256)) problems.push(`${at}: its source file is not listed in the record`);
       if (!a.source.location.startsWith(`${a.source.file}, `)) problems.push(`${at}: the location is not in its source file`);
       if (a.source.role === "correction") {
@@ -967,7 +979,7 @@ export function recheckRecord(pack: ProfilePack, record: ProductRecord): string[
           if (a.qualifier !== `${a.details?.language}/${a.details?.sector}/${a.details?.market}`) problems.push(`${at}: the qualifier does not match the text's language, sector and market`);
         }
       }
-      const have = a.flags.filter((f) => f !== "challenged");
+      const have = a.flags.filter((f) => f !== "challenged" && f !== "source-changed");
       const sameFlags = have.length === expected.size && have.every((f) => expected.has(f));
       if (!sameFlags) problems.push(`${at}: the flags are [${have.join(", ")}], the contract gives [${[...expected].join(", ")}]`);
     }
@@ -1019,7 +1031,7 @@ function recheckCorrection(pack: ProfilePack, v: RecordValue, a: Assertion, at: 
   const c = a.correction;
   if (!c || !Number.isInteger(c.version) || c.version < 2 || c.actor !== "ACT-01" || c.reason.trim() === "") return [`${at}: a correction needs its version, its actor and a reason`];
   if (a.source.file !== `Operator correction v${c.version}`) problems.push(`${at}: the correction is named for another version`);
-  if (a.flags.length !== 1 || a.flags[0] !== "operator-corrected") problems.push(`${at}: a correction carries exactly the operator-corrected flag`);
+  if (a.flags.length !== 1 || a.flags[0] !== "corrected") problems.push(`${at}: a correction carries exactly the corrected flag`);
   if (v.assertions[0] !== a && v.assertions.findIndex((x) => x.source.role !== "correction") < v.assertions.indexOf(a)) problems.push(`${at}: a correction comes before the values it replaces`);
   const base = baseAssertion(v);
   if (!base) return [...problems, `${at}: a correction with nothing to correct`];

@@ -34,9 +34,8 @@ const bytesOf = async (f: File) => ({ name: f.name, bytes: new Uint8Array(await 
  * always a HOLD draft and is never sent).
  */
 export function OutputsView() {
-  const { profile, error, repository, state, setState, saveImport, record: log } = useRecordStore();
+  const { profile, error, repository, state, setState, saveImport, record: log, selected, setSelected, repoVersion } = useRecordStore();
   const [records, setRecords] = useState<Array<{ model: string; batch: string }>>([]);
-  const [selected, setSelected] = useState<{ model: string; batch: string } | null>(null);
   const [history, setHistory] = useState<Snapshot[]>([]);
   const [version, setVersion] = useState<number | null>(null);
   const [release, setRelease] = useState<Release | null>(null);
@@ -51,7 +50,7 @@ export function OutputsView() {
     return () => {
       live = false;
     };
-  }, [repository, tick]);
+  }, [repository, tick, repoVersion]);
 
   // The record shown: the chosen one, else the one just imported or loaded, else the first stored
   useEffect(() => {
@@ -75,7 +74,7 @@ export function OutputsView() {
     return () => {
       live = false;
     };
-  }, [repository, selected, tick]);
+  }, [repository, selected, tick, repoVersion]);
 
   const snapshot = history.find((s) => s.version === version) ?? null;
 
@@ -191,7 +190,7 @@ export function OutputsView() {
         <>
           <p className="hint small" data-testid="outputs-record">
             Record {snapshot.model}, batch {snapshot.batch}, version {snapshot.version} of {latest?.version}
-            {snapshot.version !== latest?.version ? " (an earlier version, read only)" : ""}. Digest <code title={snapshot.digest}>{short(snapshot.digest)}</code>.
+            {snapshot.version !== latest?.version ? " (an earlier version, read only)" : ""}. Version digest <code title={snapshot.digest}>{short(snapshot.digest)}</code> (the record digest on the customer sheet is on the Record screen).
           </p>
 
           <section className="profile-section" aria-label="Outputs by route">

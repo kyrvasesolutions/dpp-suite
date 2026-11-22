@@ -153,7 +153,8 @@ test("the central record survives a reload; a correction makes version 2 linked 
   await expect(page.locator('[data-testid="snapshot"][data-version="1"] code')).toHaveAttribute("title", v1!);
 
   await page.goto("/#import");
-  // a corrected ERP extract on its own is a changed record for the same model and batch
+  // after a reload the picked files are gone: the pair is picked again, the laboratory file first, with a corrected ERP extract
+  await page.getByTestId("pick-lab").setInputFiles(clean.lab);
   await page.getByTestId("pick-erp").setInputFiles({ name: "d03a-erp-extract.csv", mimeType: "text/csv", buffer: Buffer.from(corrected) });
   await expect(page.getByTestId("snapshot-status")).toHaveAttribute("data-version", "2");
 
@@ -162,7 +163,7 @@ test("the central record survives a reload; a correction makes version 2 linked 
   await expect(page.getByTestId("snapshot")).toHaveCount(2);
   const v2 = page.locator('[data-testid="snapshot"][data-version="2"]');
   await expect(v2).toContainText(`version 1 (${v1!.slice(0, 12)}`);
-  await expect(v2).toContainText("Corrected import");
+  await expect(v2).toContainText("Re-import");
   await expect(page.locator('[data-testid="snapshot"][data-version="1"] code')).toHaveAttribute("title", v1!);
 
   // version 1 is still viewable, read only, with its own values
@@ -188,7 +189,7 @@ test("the central record exports and imports again with every version", async ({
   // importing what is already here adds nothing; a changed file is refused
   await page.getByTestId("pick-central").setInputFiles({ name: "central.json", mimeType: "application/json", buffer: file });
   await expect(page.getByTestId("outputs-message")).toContainText("0 versions added, 2 already here");
-  await page.getByTestId("pick-central").setInputFiles({ name: "central.json", mimeType: "application/json", buffer: Buffer.from(file.toString("utf8").replace("Corrected import", "Corrected  import")) });
+  await page.getByTestId("pick-central").setInputFiles({ name: "central.json", mimeType: "application/json", buffer: Buffer.from(file.toString("utf8").replace("Re-import", "Re-import  changed")) });
   await expect(page.getByTestId("outputs-message")).toContainText("changed");
   await expect(page.getByTestId("snapshot")).toHaveCount(2);
 });

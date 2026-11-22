@@ -42,6 +42,10 @@ export interface Snapshot {
   record: ProductRecord;
 }
 
+/** The honest labels of a version: the first import, a later import of changed files, a correction (the operator's own reason), or a file. */
+export const REASON_FIRST = "First import";
+export const REASON_REIMPORT = "Re-import";
+
 /** The origin recorded for a version restored from a central-record file. */
 export const ORIGIN_IMPORTED = "Imported from a central-record file";
 
@@ -167,7 +171,7 @@ export async function storeRecord(
     version: latest ? latest.version + 1 : 1,
     ...(latest ? { supersedes: { version: latest.version, digest: latest.digest } } : {}),
     actor: OPERATOR,
-    reason: reason ?? (latest ? "Corrected import" : "First import"),
+    reason: reason ?? (latest ? REASON_REIMPORT : REASON_FIRST),
     sources: record.sources.map((s) => ({ role: s.role, name: s.name, sha256: s.sha256 })),
     record: structuredClone(record),
   } satisfies Omit<Snapshot, "digest">;

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CorrectionError, correctRecord, diffSnapshots, REASON_MAX } from "../model/correction";
-import { FLAG_TEXT, type RecordValue } from "../model/ingress";
+import { byRole, flagTextFor, type Flag, type RecordValue } from "../model/ingress";
 import { correctionEvent } from "../model/log";
 import { generateRelease, type Release } from "../model/outputs/release";
 import { decide } from "../model/policy";
@@ -15,7 +15,7 @@ const ACCESS_TEXT = { permit: "Permitted", deny: "Withheld", derived: "Derived o
 /** The kind of a value, from the flags of the assertion that stands for it. */
 function kindOf(v: RecordValue): string {
   const a = v.assertions[0];
-  if (a.flags.includes("operator-corrected")) return "corrected by the operator";
+  if (a.flags.includes("corrected")) return "corrected by the operator";
   if (a.flags.includes("measured")) return "measured";
   if (a.flags.includes("calculated-externally")) return "calculated externally";
   return "declared";
@@ -30,9 +30,8 @@ const keyOf = (v: { property: string; member?: string; qualifier?: string }) => 
  * version with a reason, and shows the field-level difference between any two versions.
  */
 export function RecordView() {
-  const { profile, error, repository, state, imports, record: log, logVersion } = useRecordStore();
+  const { profile, error, repository, state, imports, record: log, logVersion, selected, setSelected, repoVersion, touch } = useRecordStore();
   const [records, setRecords] = useState<Array<{ model: string; batch: string }>>([]);
-  const [selected, setSelected] = useState<{ model: string; batch: string } | null>(null);
   const [history, setHistory] = useState<Snapshot[]>([]);
   const [version, setVersion] = useState<number | null>(null);
   const [release, setRelease] = useState<Release | null>(null);
@@ -51,7 +50,7 @@ export function RecordView() {
     return () => {
       live = false;
     };
-  }, [repository, tick, logVersion]);
+  }, [repository, tick, repoVersion, logVersion]);
 
   useEffect(() => {
     if (selected && records.some((r) => r.model === selected.model && r.batch === selected.batch)) return;
@@ -74,7 +73,7 @@ export function RecordView() {
     return () => {
       live = false;
     };
-  }, [repository, selected, tick]);
+  }, [repository, selected, tick, repoVersion]);
 
   const snapshot = history.find((s) => s.version === version) ?? null;
   const latest = history[history.length - 1];
@@ -135,6 +134,7 @@ export function RecordView() {
       setDiffFrom(null);
       setDiffTo(null);
       refresh();
+      touch();
       setMessage({ kind: "info", text: `Corrected: version ${made.version} of the record was made. The earlier value stays visible.` });
     } catch (e) {
       setMessage({ kind: "warn", text: e instanceof CorrectionError || e instanceof Error ? e.message : String(e) });
@@ -188,7 +188,15 @@ export function RecordView() {
         <>
           <p className="hint small" data-testid="record-head">
             Record {snapshot.model}, batch {snapshot.batch}, version {snapshot.version} of {latest?.version}
-            {snapshot.version !== latest?.version ? " (an earlier version, read only)" : ""}. Digest <code title={snapshot.digest}>{short(snapshot.digest)}</code>.
+            {snapshot.version !== latest?.version ? " (an earlier version, read only)" : ""}. Record digest (the one on the customer sheet):{" "}
+            <code data-testid="record-digest-shown" title={snapshot.record.digest}>
+              {short(snapshot.record.digest)}
+            </code>
+            . Version digest (this version with its sources, actor and reason):{" "}
+            <code data-testid="version-digest" title={snapshot.digest}>
+              {short(snapshot.digest)}
+            </code>
+            .
           </p>
 
           <section className="profile-section" aria-label="Sources">
@@ -248,8 +256,11 @@ export function RecordView() {
                   const k = keyOf(v);
                   const [now, ...earlier] = v.assertions;
                   const shown = v.status === "challenged" ? v.assertions : [now];
-                  const past = v.status === "challenged" ? [] : earlier;
-                  const editable = snapshot.version === latest?.version;
+                  // only a value a correction replaced is "earlier" and struck through; sources that agree are simply also stated
+                  const past = v.status === "corrected" ? earlier : [];
+                  const alsoStated = v.status === "agreeing" ? earlier : [];
+                  // only the latest version, and only a value a correction may change (not an identifier or an evidence reference)
+                  const editable = snapshot.version === latest?.version && ![byRole(profile, "model"), byRole(profile, "batch"), byRole(profile, "evidence")].includes(v.property);
                   return (
                     <tr key={k} data-testid="record-value" data-property={v.property} data-status={v.status} data-key={k}>
                       <td>
@@ -262,6 +273,11 @@ export function RecordView() {
                           <div key={i}>
                             <code data-testid="current-value">{a.raw}</code>
                             {a.unit ? ` ${a.unit}` : ""}
+                          </div>
+                        ))}
+                        {alsoStated.map((a, i) => (
+                          <div key={`also-${i}`} className="small hint" data-testid="also-stated">
+                            Also stated by {a.source.role === "erp" ? "the ERP extract" : "the laboratory file"}: {a.raw} ({a.source.location})
                           </div>
                         ))}
                         {past.map((a, i) => (
@@ -280,9 +296,9 @@ export function RecordView() {
                         </div>
                       </td>
                       <td className="small">
-                        {[...new Set(v.assertions.flatMap((a) => a.flags))].map((f) => (
+                        {[...new Set(v.assertions.flatMap((a) => a.flags))].map((f: Flag) => (
                           <div key={f} data-flag={f}>
-                            {FLAG_TEXT[f]}
+                            {flagTextFor(f, v.assertions.find((a) => a.flags.includes(f))!.source.role)}
                           </div>
                         ))}
                         {v.assertions.filter((a) => a.correction).map((a) => (

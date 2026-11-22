@@ -133,12 +133,21 @@ export interface ImportedCentralRecord {
  * Reads a central-record file. Refuses it, with the reason, on bad JSON (a duplicate key included), a schema break, a changed
  * digest anywhere, a broken chain of versions, or a contract pack other than `pack`. Nothing is stored here.
  */
-export async function importCentralRecord(bytes: Uint8Array, pack: ProfilePack, role: string = OPERATOR): Promise<ImportedCentralRecord> {
+export async function importCentralRecord(bytes: Uint8Array, pack: ProfilePack, role: string = OPERATOR, now: () => number = () => performance.now()): Promise<ImportedCentralRecord> {
   requireOperator(role, "import");
+  // the declared limits apply here as to every source file: size before decoding, nesting depth, and the job deadline
+  const limits = pack.policy.limits;
+  if (bytes.length > limits.max_file_bytes) throw new CentralRecordError(`The file is larger than the declared limit of ${limits.max_file_bytes} bytes (${bytes.length} bytes), so it was not read.`);
+  const started = now();
+  const tick = () => {
+    if (now() - started > limits.job_deadline_ms) throw new CentralRecordError(`The import ran past its time limit of ${limits.job_deadline_ms / 1000} s and was stopped. Nothing is imported.`);
+  };
   let plain: unknown;
   try {
-    plain = toPlain(parseStrictJson(new TextDecoder("utf-8", { fatal: true }).decode(bytes)));
+    tick();
+    plain = toPlain(parseStrictJson(new TextDecoder("utf-8", { fatal: true }).decode(bytes), { maxDepth: limits.max_json_depth, tick }));
   } catch (e) {
+    if (e instanceof CentralRecordError) throw e;
     throw new CentralRecordError(`The file is not valid JSON: ${e instanceof Error ? e.message : String(e)}`);
   }
   const parsed = ExportSchema.safeParse(plain);

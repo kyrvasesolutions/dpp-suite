@@ -146,3 +146,38 @@ describe("job deadline", () => {
     expect((await importErpCsv(pack, { ...erpFile(), now: () => 0 })).ok).toBe(true);
   });
 });
+
+describe("the deadline belongs to the job, not to a file", () => {
+  it("counts the time the first file used against the second", async () => {
+    // the job began 31 s ago on this clock, so even a quick second file is past the deadline
+    const r = await importLabJson(pack, { ...labFile(), startedAt: 0, now: () => 31_000 });
+    expect(rejected(r)).toEqual({ stage: "bytes", codes: ["deadline"] });
+    const ok = await importLabJson(pack, { ...labFile(), startedAt: 0, now: () => 29_000 });
+    expect(ok.ok).toBe(true);
+  });
+});
+
+describe("the limits apply to a central-record file too", () => {
+  it("refuses a file over the size limit before reading it, one nested too deeply, and one past the deadline", async () => {
+    const { importCentralRecord } = await import("../../src/model/centralRecord");
+    const big = new Uint8Array(11 * 1024 * 1024).fill(0x20);
+    await expect(importCentralRecord(big, pack)).rejects.toThrow(/larger than the declared limit/);
+    await expect(importCentralRecord(enc("[".repeat(40) + "]".repeat(40)), pack)).rejects.toThrow(/nesting is deeper than 12/);
+    await expect(importCentralRecord(enc("[".repeat(1_000_000)), pack)).rejects.toThrow(/nesting is deeper/);
+    let t = 0;
+    await expect(importCentralRecord(enc("{}"), pack, "ACT-01", () => (t += 40_000))).rejects.toThrow(/time limit/);
+  });
+
+  it("still reads a real export, whose nesting is within the limit", async () => {
+    const { exportCentralRecord, importCentralRecord } = await import("../../src/model/centralRecord");
+    const { MemoryRepository } = await import("../../src/model/recordRepository");
+    const { correctRecord, storeImport } = await import("../../src/model/correction");
+    const { recordFor, CLEAN, propertyBySlug } = await import("../support/records");
+    const repo = new MemoryRepository();
+    const first = await storeImport(repo, await recordFor(pack, CLEAN));
+    const key = { model: first.snapshot.model, batch: first.snapshot.batch };
+    await correctRecord(pack, repo, { ...key, property: propertyBySlug(pack, "recycled-content"), raw: "63.5", reason: "x" });
+    const file = await exportCentralRecord(repo, pack, key.model, key.batch);
+    expect((await importCentralRecord(file.bytes, pack)).snapshots).toHaveLength(2);
+  });
+});
