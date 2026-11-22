@@ -35,7 +35,7 @@ describe("capability registry", () => {
   });
 
   // A label becomes "supported" only at a cycle exit, with evidence in that cycle's evidence log.
-  const SUPPORTED_AT_EXIT: Record<string, string> = { profile: "Cycle 1, 21 November 2026", import: "Cycle 2, 21 November 2026", readiness: "Cycle 3, 21 November 2026", outputs: "Cycle 4, 22 November 2026", record: "Cycle 5, 22 November 2026" };
+  const SUPPORTED_AT_EXIT: Record<string, string> = { profile: "Cycle 1, 21 November 2026", import: "Cycle 2, 21 November 2026", readiness: "Cycle 3, 21 November 2026", outputs: "Cycle 4, 22 November 2026", record: "Cycle 5, 22 November 2026", server: "Cycle 6, 22 November 2026" };
   it("labels a screen supported only after a recorded cycle exit", () => {
     const supported = CAPABILITIES.filter((c) => c.label === "supported").map((c) => c.id);
     expect(supported.sort()).toEqual(Object.keys(SUPPORTED_AT_EXIT).sort());
@@ -64,15 +64,29 @@ describe("capability registry", () => {
     }
   });
 
+  // The P levels are kept locally like the N register: every P function labelled supported must be at F2 there.
+  const P_LEVELS = "docs/assessment/cycle-6/p-levels.csv";
+  it.runIf(existsSync(P_LEVELS))("labels supported only the P functions the local P levels put at F2", () => {
+    const levels = new Map(
+      readFileSync(P_LEVELS, "utf8")
+        .split("\n")
+        .filter((l) => l.startsWith("FUNC-"))
+        .map((l) => [l.split(",")[0], l.split(",")[1]]),
+    );
+    for (const c of CAPABILITIES.filter((x) => x.increment === "P")) {
+      for (const f of c.functions) if (labelOfFunction(f, "P") === "supported") expect(levels.get(f), f).toBe("F2");
+    }
+  });
+
   // The server increment (P) is labelled on its own entry. It never changes the N label of the same function, so static
   // mode, where no server code runs, shows the N labels as they were.
-  it("labels the Cycle 6 server functions untested on their own P entry, and leaves the N labels as they were", () => {
+  it("labels the Cycle 6 server functions supported on their own P entry since the Cycle 6 exit, and leaves the N labels as they were", () => {
     const server = capabilityOf("server");
-    expect(server.label).toBe("untested");
+    expect(server.label).toBe("supported");
     expect(server.increment).toBe("P");
     expect(server.screen).toBe(false);
     for (const f of ["FUNC-022", "FUNC-023", "FUNC-039", "FUNC-063", "FUNC-064", "FUNC-087", "FUNC-125"]) {
-      expect(labelOfFunction(f, "P"), f).toBe("untested");
+      expect(labelOfFunction(f, "P"), f).toBe("supported");
     }
     for (const f of ["FUNC-022", "FUNC-023", "FUNC-039", "FUNC-063", "FUNC-064", "FUNC-125"]) {
       expect(labelOfFunction(f), f).toBe("supported");
