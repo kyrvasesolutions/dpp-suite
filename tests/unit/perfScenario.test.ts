@@ -25,9 +25,10 @@ describe("the one-record scenario", () => {
     expect(release.manifest.outputs).toHaveLength(3);
   });
 
-  it.runIf(process.env.PERF === "1")("runs 30 times and writes the timings", async () => {
+  it.runIf(process.env.PERF === "1")("runs the scenario PERF_RUNS times (30 by default) and writes the timings", async () => {
     const times: number[] = [];
-    for (let i = 0; i < 30; i++) {
+    const count = Number(process.env.PERF_RUNS ?? 30);
+    for (let i = 0; i < count; i++) {
       const t0 = performance.now();
       await runScenario(pack);
       times.push(performance.now() - t0);

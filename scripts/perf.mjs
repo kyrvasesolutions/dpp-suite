@@ -12,9 +12,18 @@ import { chromium } from "@playwright/test";
 
 mkdirSync("test-results", { recursive: true });
 const OUT = "test-results/perf-node.json";
-const run = spawnSync("npx", ["vitest", "run", "tests/unit/perfScenario.test.ts"], { stdio: "inherit", env: { ...process.env, PERF: "1", PERF_OUT: OUT } });
+const runVitest = (out, runs) => spawnSync("npx", ["vitest", "run", "tests/unit/perfScenario.test.ts"], { stdio: "inherit", env: { ...process.env, PERF: "1", PERF_OUT: out, PERF_RUNS: String(runs) } });
+// One process for the 30 runs (the first is cold, the rest warm), and five more processes of one run each, so the cold figure
+// rests on five genuinely cold starts and not on one.
+const run = runVitest(OUT, 30);
 if (run.status !== 0) process.exit(run.status ?? 1);
 const { runs, machine } = JSON.parse(readFileSync(OUT, "utf8"));
+const coldRuns = [];
+for (let i = 0; i < 5; i++) {
+  const out = `test-results/perf-cold-${i}.json`;
+  if (runVitest(out, 1).status !== 0) process.exit(1);
+  coldRuns.push(JSON.parse(readFileSync(out, "utf8")).runs[0]);
+}
 
 const pct = (xs, p) => {
   const s = [...xs].sort((a, b) => a - b);
@@ -22,7 +31,7 @@ const pct = (xs, p) => {
 };
 const ms = (n) => `${n.toFixed(1)} ms`;
 const stat = (xs) => ({ n: xs.length, p50: pct(xs, 50), p95: pct(xs, 95), min: Math.min(...xs), max: Math.max(...xs) });
-const node = { all: stat(runs), cold: { n: 1, p50: runs[0], p95: runs[0] }, warm: stat(runs.slice(1)) };
+const node = { all: stat(runs), cold: stat(coldRuns), warm: stat(runs.slice(1)) };
 
 // One real-browser timing: pick the two files on the Import screen, then wait for the three outputs on the Outputs screen.
 async function browserTiming() {
@@ -74,12 +83,12 @@ const lines = [
   "| Runs | n | p50 | p95 | min | max |",
   "|---|---|---|---|---|---|",
   `| All (Node, model functions) | ${node.all.n} | ${ms(node.all.p50)} | ${ms(node.all.p95)} | ${ms(node.all.min)} | ${ms(node.all.max)} |`,
-  `| Cold (first run) | 1 | ${ms(node.cold.p50)} | ${ms(node.cold.p95)} | | |`,
+  `| Cold (first run of a fresh process) | ${node.cold.n} | ${ms(node.cold.p50)} | ${ms(node.cold.p95)} | ${ms(node.cold.min)} | ${ms(node.cold.max)} |`,
   `| Warm (runs 2 to 30) | ${node.warm.n} | ${ms(node.warm.p50)} | ${ms(node.warm.p95)} | ${ms(node.warm.min)} | ${ms(node.warm.max)} |`,
   "",
   browser.error ? `Browser timing not taken: ${browser.error}` : `Browser (Chromium, pick both files, then three outputs on screen): cold ${browser.cold} ms, warm median ${browser.warmP50} ms over ${browser.warm.length} runs.`,
   "",
-  `Target: p95 at most 5000 ms. Result: ${node.all.p95 <= 5000 ? "met" : "not met"} (reported only).`,
+  `Target: p95 at most 5000 ms. Result (all, cold and warm): ${Math.max(node.all.p95, node.cold.p95) <= 5000 ? "met" : "not met"} (reported only).`,
   "",
 ];
 writeFileSync("test-results/perf-report.md", lines.join("\n"));
