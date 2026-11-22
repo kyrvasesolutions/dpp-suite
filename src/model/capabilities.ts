@@ -37,7 +37,7 @@ export const CAPABILITY_TEXT: Record<CapabilityLabel, string> = {
   untested: "Untested",
 };
 
-/** Labels from the Cycle 0 baseline (20 November 2026) and the Cycle 1, 2 and 3 exits (21 November 2026), docs/assessment. */
+/** Labels from the Cycle 0 baseline (20 November 2026) and the Cycle 1 to 3 exits (21 November 2026) and the Cycle 4 exit (22 November 2026), docs/assessment. */
 export const CAPABILITIES: Capability[] = [
   {
     id: "profile",
@@ -64,9 +64,9 @@ export const CAPABILITIES: Capability[] = [
   {
     id: "outputs",
     name: "Outputs",
-    label: "untested",
+    label: "supported",
     functions: ["FUNC-041", "FUNC-042", "FUNC-043", "FUNC-125", "FUNC-022", "FUNC-023", "FUNC-063", "FUNC-064"],
-    basis: "Cycle 4 build: the customer PDF, the ERP staging CSV and the registry preparation draft, the central record with versions, lineage and the release manifest. Not yet assessed.",
+    basis: "Cycle 4 exit: the customer PDF, the ERP staging CSV and the registry preparation draft (on hold), the central record with versions, lineage and the release manifest.",
   },
   {
     id: "requirements",

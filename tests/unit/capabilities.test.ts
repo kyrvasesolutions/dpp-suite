@@ -32,7 +32,7 @@ describe("capability registry", () => {
   });
 
   // A label becomes "supported" only at a cycle exit, with evidence in that cycle's evidence log.
-  const SUPPORTED_AT_EXIT: Record<string, string> = { profile: "Cycle 1, 21 November 2026", import: "Cycle 2, 21 November 2026", readiness: "Cycle 3, 21 November 2026" };
+  const SUPPORTED_AT_EXIT: Record<string, string> = { profile: "Cycle 1, 21 November 2026", import: "Cycle 2, 21 November 2026", readiness: "Cycle 3, 21 November 2026", outputs: "Cycle 4, 22 November 2026" };
   it("labels a screen supported only after a recorded cycle exit", () => {
     const supported = CAPABILITIES.filter((c) => c.label === "supported").map((c) => c.id);
     expect(supported.sort()).toEqual(Object.keys(SUPPORTED_AT_EXIT).sort());
@@ -48,7 +48,7 @@ describe("capability registry", () => {
   });
 
   // The scored register is kept locally (D0-06): every function shown as supported must be at F2 there.
-  const SCORED = ["docs/assessment/cycle-3/register.csv", "docs/assessment/cycle-2/register.csv", "docs/assessment/cycle-1/register.csv"].find((p) => existsSync(p));
+  const SCORED = ["docs/assessment/cycle-4/register.csv", "docs/assessment/cycle-3/register.csv", "docs/assessment/cycle-2/register.csv", "docs/assessment/cycle-1/register.csv"].find((p) => existsSync(p));
   it.runIf(SCORED)("labels supported only the functions the latest scored register puts at F2", () => {
     const levels = new Map(
       readFileSync(SCORED!, "utf8")

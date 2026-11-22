@@ -2,6 +2,10 @@
 
 Functional changes to the DPP suite, one entry per merged pull request, newest first.
 
+## [#13](https://github.com/kyrvasesolutions/dpp-suite/pull/13) Outputs screen supported (22 November 2026)
+
+- The Outputs screen is labelled Supported. The three outputs, the central record with its versions, lineage and the release manifest passed an independent review in three rounds. In about 100 attempts, no denied field, raw derived value, live spreadsheet formula or undetected change reached an output.
+
 ## [#12](https://github.com/kyrvasesolutions/dpp-suite/pull/12) Outputs, central record and release manifest (22 November 2026)
 
 - The three routes now have a **pinned output mapping**: every field a route may carry has exactly one output step with a stable step ID, in a fixed order. The contract checker refuses a route with a field that has no step, a step for a field the recipient may not see, a duplicate step ID, or a derived statement without its derived rule. The contract pack has a new digest and is signed again.
