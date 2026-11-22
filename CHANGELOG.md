@@ -2,7 +2,7 @@
 
 Functional changes to the DPP suite, one entry per merged pull request, newest first.
 
-## Unreleased: Outputs screen supported (22 November 2026)
+## [#13](https://github.com/kyrvasesolutions/dpp-suite/pull/13) Outputs screen supported (22 November 2026)
 
 - The Outputs screen is labelled Supported. The three outputs, the central record with its versions, lineage and the release manifest passed an independent review in three rounds. In about 100 attempts, no denied field, raw derived value, live spreadsheet formula or undetected change reached an output.
 
