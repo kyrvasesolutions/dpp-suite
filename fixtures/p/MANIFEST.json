@@ -1,0 +1,17 @@
+{
+  "pack": "p",
+  "files": {
+    "erp-crlf.csv": "34b34184bfeeceae9d503549cb4d188e4cf2a9408c1f31321113a0a775f0f07c",
+    "erp-decimal-comma.csv": "5938da24f3bf4815670f06631d4edc665fd8cf6ce15f0f703d9d9e921d809b07",
+    "erp-padded-id.csv": "497a8c4011640147e98ebaf731c3389e872d607768ca14591886fb6c78472e3d",
+    "erp-recycled-over-100.csv": "9d8ff31e9b3ee992e2e7b7e6df094fc9340366145c6f5e0ce9c799beb31abe3a",
+    "erp-unknown-supplier.csv": "0a379f6b4fb9276b37f13d2707c9b20cd88dd37743c021d030d4c7bec4c76205",
+    "erp-utf8-bom.csv": "ec43272549fa78c6ca327ce6dd11a502530d2e97756f8ece712e39ad65d79965",
+    "erp-zero-mass.csv": "391fc3f32eeafbb614c4b0ac6d58a5b9cbc83517dfd0c35f1be0e9325994949c",
+    "lab-conflicting-alloy.json": "ff2bef293336d2f73cb54c319bd7c9ebd506d6b691f5d45e616eff960e9727bb",
+    "lab-duplicate-obs-id.json": "4b505a41ede2898bcedb2bbd74e764abf0bc8ff70d601fa8266eac76815cd2bb",
+    "lab-evidence-digest-missing.json": "b7cf4245dd1a1f2f0b17d9a53730e81ef7f2fef62a455421263d078f971cb24c",
+    "lab-non-winansi.json": "dc3a7d0691f8e256c0e346ae4b1871ddfc1d4662c38d2d5e4cf6f151977d6aa2",
+    "lab-unattached-batch.json": "95eb3cd22c7662a0effcca5e42a1a58430ca09b7d3afeabdb09f964557b9843a"
+  }
+}

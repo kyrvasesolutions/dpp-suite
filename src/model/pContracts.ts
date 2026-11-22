@@ -40,6 +40,7 @@ export const RetentionPolicySchema = z
   .object({
     id: z.string().min(1),
     version: z.string().min(1),
+    status: z.enum(["FROZEN", "HOLD"]).optional(),
     default_classification: z.literal(DEFAULT_CLASSIFICATION),
     default_retention_days: z.number().int().positive(),
     require_policy_before_ingest: z.literal(true),
@@ -69,7 +70,7 @@ export const ExceptionCatalogueSchema = z
   .object({
     id: z.string().min(1),
     version: z.string().min(1),
-    status: z.enum(["frozen", "draft"]),
+    status: z.enum(["FROZEN", "HOLD"]),
     exceptions: z.array(ExceptionRuleSchema).min(1),
   })
   .strict();

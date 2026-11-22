@@ -111,7 +111,7 @@ Source: ERP extract, row 2, column thickness_nominal_mm
 Record version 1
  
 Record digest 321191e612f317a76fbcd5cf2b06a6c5734c04067eedbb2fe9cac3484d5be463
-Contract pack manifest digest 4ac87f92beab8e654394c83946733dcc58314a349621d08c7d7ad4671394bbec
+Contract pack manifest digest 322f8dc20e1c452c0167e1a26759813e5cd9bb81907baa0454178aaf539bcd85
 Page 1 of 2. Illustrative values are marked as such; this sheet is not a conformity statement.
 Measured thickness
  
@@ -208,5 +208,5 @@ The record digest and the contract pack digest in the footer identify exactly wh
 Record version 1
  
 Record digest 321191e612f317a76fbcd5cf2b06a6c5734c04067eedbb2fe9cac3484d5be463
-Contract pack manifest digest 4ac87f92beab8e654394c83946733dcc58314a349621d08c7d7ad4671394bbec
+Contract pack manifest digest 322f8dc20e1c452c0167e1a26759813e5cd9bb81907baa0454178aaf539bcd85
 Page 2 of 2. Illustrative values are marked as such; this sheet is not a conformity statement.

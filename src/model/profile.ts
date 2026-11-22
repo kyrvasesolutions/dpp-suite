@@ -8,6 +8,7 @@
  */
 import { parse } from "yaml";
 import { z } from "zod";
+import { ExceptionCatalogueSchema, RetentionPolicySchema, type ExceptionCatalogue, type RetentionPolicy } from "./pContracts";
 
 export const ROUTES = ["customer-pdf", "erp-staging-csv", "registry-prep-json"] as const;
 export type Route = (typeof ROUTES)[number];
@@ -273,8 +274,14 @@ export interface ProfilePack {
   routes: Record<Route, RouteInfo>;
   /** Property → route → access, as the pack states it. Read only through `decide` in policy.ts. */
   matrix: Record<string, Record<Route, Access>>;
-  /** The pinned readiness rules and derived-disclosure rules (Cycle 3). */
-  policy: { readiness: ReadinessRules; derived: DerivedRules; limits: InputLimits };
+  /** The pinned readiness rules, derived-disclosure rules, limits, retention policy and exception catalogue. */
+  policy: {
+    readiness: ReadinessRules;
+    derived: DerivedRules;
+    limits: InputLimits;
+    retention: RetentionPolicy;
+    exceptions: ExceptionCatalogue;
+  };
 }
 
 /** Reads the actor/field matrix CSV: comment lines start with "#", then `property,<routes…>`, then one row per property. */
@@ -390,7 +397,9 @@ export async function loadProfilePack(source: PackSource): Promise<ProfilePack> 
   const readiness = pinnedDoc("policy", "READINESS-RULES@1.0.0", ReadinessDoc);
   const derived = pinnedDoc("policy", "DERIVED-RULES@1.0.0", DerivedDoc);
   const limits = pinnedDoc("policy", "LIMITS@1.0.0", LimitsDoc);
-  const policyRefs = ["READINESS-RULES@1.0.0", "DERIVED-RULES@1.0.0", "LIMITS@1.0.0"];
+  const retention = pinnedDoc("policy", "RETENTION@1.0.0", RetentionPolicySchema);
+  const exceptions = pinnedDoc("policy", "EXCEPTIONS@1.0.0", ExceptionCatalogueSchema);
+  const policyRefs = ["READINESS-RULES@1.0.0", "DERIVED-RULES@1.0.0", "LIMITS@1.0.0", "RETENTION@1.0.0", "EXCEPTIONS@1.0.0"];
   for (const ref of profile.pins.policy) {
     if (!policyRefs.includes(ref)) throw new ProfileError(`${ref} is not a policy file this build reads`);
   }
@@ -463,6 +472,8 @@ export async function loadProfilePack(source: PackSource): Promise<ProfilePack> 
       readiness.file,
       derived.file,
       limits.file,
+      retention.file,
+      exceptions.file,
       ...codeLists.map(({ ref, path, digest }) => ({ ref, path, digest })),
     ],
     termCount: terms.doc.terms.length,
@@ -476,7 +487,13 @@ export async function loadProfilePack(source: PackSource): Promise<ProfilePack> 
     },
     routes,
     matrix,
-    policy: { readiness: readiness.doc, derived: derived.doc, limits: limits.doc.limits },
+    policy: {
+      readiness: readiness.doc,
+      derived: derived.doc,
+      limits: limits.doc.limits,
+      retention: retention.doc,
+      exceptions: exceptions.doc,
+    },
   };
 }
 
