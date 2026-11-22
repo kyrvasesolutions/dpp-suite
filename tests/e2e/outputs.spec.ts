@@ -307,3 +307,19 @@ test("the Import screen shows an error when the record could not be saved to the
   // the import itself is still shown
   await expect(page.getByTestId("record-digest")).toHaveCount(1);
 });
+
+test("a PDF refused for a character the font lacks names the code point and the source on the card", async ({ page }) => {
+  const lab = readFileSync(clean.lab, "utf8").replace("Demo LCA consultancy (synthetic)", "Лаборатория");
+  await page.goto("/#import");
+  await page.getByTestId("pick-erp").setInputFiles(clean.erp);
+  await page.getByTestId("pick-lab").setInputFiles({ name: "d03a-lab-assessment.json", mimeType: "application/json", buffer: Buffer.from(lab) });
+  await expect(page.getByTestId("snapshot-status").first()).toBeVisible();
+  await page.goto("/#outputs");
+  const card = route(page, "customer-pdf");
+  await expect(card).toHaveAttribute("data-state", "refused");
+  await expect(card.locator('[data-testid="hold-reason"][data-rule="RR-PDF-CHARACTER"]')).toHaveCount(1);
+  await expect(card.getByTestId("hold-detail")).toContainText("U+041B");
+  await expect(card.getByTestId("hold-source").first()).toContainText("/footprints/0/value");
+  await expect(card.getByTestId("download")).toHaveCount(0);
+  await expect(route(page, "erp-staging-csv")).toHaveAttribute("data-state", "ready");
+});

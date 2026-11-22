@@ -187,7 +187,9 @@ export function buildItems(pack: ProfilePack, projection: Projection): OutputVal
     if (!lines.length) return absent(challenged);
     const single = lines.length === 1;
     // a single plain value is the source's own text; anything compound has its separators escaped
-    const text = single && !(item.reads.details ?? []).length ? lines[0].text : cells.join("|");
+    // a text property whose values carry qualifiers (language, element) always names them, even for one value
+    const keyed = format === "text" && lines.some((l) => l.key);
+    const text = single && !(item.reads.details ?? []).length && !keyed ? lines[0].text : cells.join("|");
     // A cell is numeric only when the source's own text is a number: never because a text looks like one by accident
     return { ...base, present: true, challenged, text, lines, numeric: format === "number" && single && numberLike && NUMBER.test(lines[0].text), sources, refs };
   });

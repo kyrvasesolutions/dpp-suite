@@ -325,3 +325,31 @@ describe("separators in combined cells are escaped", () => {
     expect(await mk()).toBe(await mk());
   });
 });
+
+describe("a text property with qualifiers always names them", () => {
+  const cell = (csv: string, header: string) => {
+    const [h, r] = parse(csv);
+    return r[h.indexOf(header)];
+  };
+
+  it("writes element=value for one element, as for several", async () => {
+    const only = await recordFor(pack, { ...CLEAN, editLab: (d) => (d.observations = d.observations.filter((o: { element?: string }) => o.element !== "Mn")) });
+    const one = buildErpCsv(pack, only);
+    expect(cell(one.text, "chemical_composition_pct")).toBe("Mg=3.05");
+    const both = buildErpCsv(pack, await recordFor(pack, CLEAN));
+    expect(cell(both.text, "chemical_composition_pct")).toBe("Mg=3.05|Mn=0.31");
+  });
+
+  it("still writes a number plain, the footprint with its result ID included", async () => {
+    const f = buildErpCsv(pack, await recordFor(pack, CLEAN));
+    expect(cell(f.text, "carbon_footprint_kgco2e_per_kg")).toBe("4.2");
+    expect(cell(f.text, "net_mass_kg")).toBe("2412.5");
+    expect(cell(f.text, "commodity_code")).toBe("76061293");
+  });
+
+  it("keeps a method that starts with = formula-safe in the CSV", async () => {
+    const f = buildErpCsv(pack, await recordFor(pack, { ...CLEAN, editLab: (d) => (d.footprints[0].method = "=cmd|calc") }));
+    expect(cell(f.text, "footprint_method")).toBe("'=cmd|calc");
+    expect(f.formulaPrefixedCells).toBe(1);
+  });
+});
