@@ -127,7 +127,14 @@ export interface GrantAuditEvent {
   securityDomain: string;
   targetSub: string;
   actorSub: string;
-  event: "user-created" | "user-deactivated" | "role-assigned" | "role-revoked" | "legal-hold-placed" | "legal-hold-released";
+  event:
+    | "user-created"
+    | "user-reactivated"
+    | "user-deactivated"
+    | "role-assigned"
+    | "role-revoked"
+    | "legal-hold-placed"
+    | "legal-hold-released";
   role: ServerRole | null;
   grantEpoch: number;
   reason: string;

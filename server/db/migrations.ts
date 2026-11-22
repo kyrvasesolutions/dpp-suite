@@ -388,6 +388,183 @@ export const MIGRATIONS: readonly Migration[] = [
       DROP TRIGGER IF EXISTS trg_retention_policies_no_delete;
     `,
   },
+  {
+    // Cycle 7 (P03 + P04): users, live grant epochs, append-only grant/security audit log, and
+    // controlled configuration package releases with four-eyes approval and rollback (ADR-0005).
+    version: 6,
+    name: "0006_cycle7_identity_and_releases",
+    up: `
+      CREATE TABLE IF NOT EXISTS users (
+        security_domain TEXT NOT NULL,
+        sub TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+        grant_epoch INTEGER NOT NULL DEFAULT 1 CHECK (grant_epoch >= 1),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (security_domain, sub)
+      );
+
+      CREATE TABLE IF NOT EXISTS role_grants (
+        security_domain TEXT NOT NULL,
+        sub TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('ACT-01', 'ACT-06', 'ADMIN', 'CURATOR', 'AUDITOR')),
+        granted_by TEXT NOT NULL,
+        granted_at TEXT NOT NULL,
+        PRIMARY KEY (security_domain, sub, role),
+        FOREIGN KEY (security_domain, sub) REFERENCES users(security_domain, sub) ON DELETE RESTRICT
+      );
+
+      CREATE TABLE IF NOT EXISTS grant_events (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        security_domain TEXT NOT NULL,
+        target_sub TEXT NOT NULL,
+        actor_sub TEXT NOT NULL,
+        event TEXT NOT NULL CHECK (event IN ('user-created', 'user-reactivated', 'user-deactivated', 'role-assigned', 'role-revoked', 'legal-hold-placed', 'legal-hold-released')),
+        role TEXT,
+        grant_epoch INTEGER NOT NULL,
+        reason TEXT NOT NULL,
+        recorded_at TEXT NOT NULL
+      );
+
+      CREATE TRIGGER IF NOT EXISTS trg_grant_events_no_delete
+      BEFORE DELETE ON grant_events
+      BEGIN
+        SELECT RAISE(ABORT, 'grant_events is append-only and cannot be deleted');
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_grant_events_no_update
+      BEFORE UPDATE ON grant_events
+      BEGIN
+        SELECT RAISE(ABORT, 'grant_events is append-only and cannot be updated');
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_grant_events_no_replace
+      BEFORE INSERT ON grant_events
+      WHEN EXISTS (SELECT 1 FROM grant_events WHERE seq = NEW.seq)
+      BEGIN
+        SELECT RAISE(ABORT, 'grant_events is append-only; an event that exists cannot be replaced');
+      END;
+
+      CREATE TABLE IF NOT EXISTS config_packages (
+        release_id TEXT PRIMARY KEY,
+        package_id TEXT NOT NULL,
+        version TEXT NOT NULL,
+        security_domain TEXT NOT NULL,
+        manifest_sha256 TEXT NOT NULL,
+        digest_algorithm TEXT NOT NULL DEFAULT 'sha256' CHECK (digest_algorithm = 'sha256'),
+        predecessor_release_id TEXT REFERENCES config_packages(release_id) ON DELETE RESTRICT,
+        state TEXT NOT NULL CHECK (state IN ('validated', 'approved', 'active', 'superseded', 'rolled_back', 'rejected')),
+        proposed_by TEXT NOT NULL,
+        proposed_at TEXT NOT NULL,
+        approved_by TEXT,
+        approved_at TEXT,
+        activated_by TEXT,
+        activated_at TEXT,
+        note TEXT NOT NULL,
+        bundle_json TEXT NOT NULL,
+        UNIQUE (security_domain, package_id, version)
+      );
+
+      CREATE TRIGGER IF NOT EXISTS trg_config_packages_no_delete
+      BEFORE DELETE ON config_packages
+      BEGIN
+        SELECT RAISE(ABORT, 'config_packages are append-only and cannot be deleted');
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_config_packages_no_replace
+      BEFORE INSERT ON config_packages
+      WHEN EXISTS (
+        SELECT 1 FROM config_packages
+        WHERE release_id = NEW.release_id
+           OR (security_domain = NEW.security_domain AND package_id = NEW.package_id AND version = NEW.version)
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'config_packages are append-only; a release that exists cannot be replaced');
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_config_packages_immutable_content
+      BEFORE UPDATE ON config_packages
+      WHEN
+        NEW.release_id != OLD.release_id OR
+        NEW.package_id != OLD.package_id OR
+        NEW.version != OLD.version OR
+        NEW.security_domain != OLD.security_domain OR
+        NEW.manifest_sha256 != OLD.manifest_sha256 OR
+        NEW.digest_algorithm != OLD.digest_algorithm OR
+        NEW.predecessor_release_id IS NOT OLD.predecessor_release_id OR
+        NEW.proposed_by != OLD.proposed_by OR
+        NEW.proposed_at != OLD.proposed_at OR
+        NEW.note != OLD.note OR
+        NEW.bundle_json != OLD.bundle_json
+      BEGIN
+        SELECT RAISE(ABORT, 'config_packages content is immutable; only release workflow fields may change');
+      END;
+
+      CREATE TABLE IF NOT EXISTS config_package_events (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        release_id TEXT NOT NULL REFERENCES config_packages(release_id) ON DELETE RESTRICT,
+        package_id TEXT NOT NULL,
+        security_domain TEXT NOT NULL,
+        event TEXT NOT NULL CHECK (event IN ('proposed', 'approved', 'rejected', 'activated', 'superseded', 'rolled-back')),
+        actor_sub TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        recorded_at TEXT NOT NULL
+      );
+
+      CREATE TRIGGER IF NOT EXISTS trg_config_package_events_no_delete
+      BEFORE DELETE ON config_package_events
+      BEGIN
+        SELECT RAISE(ABORT, 'config_package_events is append-only and cannot be deleted');
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_config_package_events_no_update
+      BEFORE UPDATE ON config_package_events
+      BEGIN
+        SELECT RAISE(ABORT, 'config_package_events is append-only and cannot be updated');
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_config_package_events_no_replace
+      BEFORE INSERT ON config_package_events
+      WHEN EXISTS (SELECT 1 FROM config_package_events WHERE seq = NEW.seq)
+      BEGIN
+        SELECT RAISE(ABORT, 'config_package_events is append-only; an event that exists cannot be replaced');
+      END;
+
+      CREATE INDEX IF NOT EXISTS idx_role_grants_user
+        ON role_grants (security_domain, sub);
+      CREATE INDEX IF NOT EXISTS idx_grant_events_domain_seq
+        ON grant_events (security_domain, seq);
+      CREATE INDEX IF NOT EXISTS idx_config_packages_domain_state
+        ON config_packages (security_domain, package_id, state);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_config_packages_one_active
+        ON config_packages (security_domain, package_id)
+        WHERE state = 'active';
+      CREATE INDEX IF NOT EXISTS idx_config_package_events_release
+        ON config_package_events (release_id, seq);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_config_package_events_release;
+      DROP INDEX IF EXISTS idx_config_packages_one_active;
+      DROP INDEX IF EXISTS idx_config_packages_domain_state;
+      DROP INDEX IF EXISTS idx_grant_events_domain_seq;
+      DROP INDEX IF EXISTS idx_role_grants_user;
+      DROP TRIGGER IF EXISTS trg_config_package_events_no_replace;
+      DROP TRIGGER IF EXISTS trg_config_package_events_no_update;
+      DROP TRIGGER IF EXISTS trg_config_package_events_no_delete;
+      DROP TABLE IF EXISTS config_package_events;
+      DROP TRIGGER IF EXISTS trg_config_packages_immutable_content;
+      DROP TRIGGER IF EXISTS trg_config_packages_no_replace;
+      DROP TRIGGER IF EXISTS trg_config_packages_no_delete;
+      DROP TABLE IF EXISTS config_packages;
+      DROP TRIGGER IF EXISTS trg_grant_events_no_replace;
+      DROP TRIGGER IF EXISTS trg_grant_events_no_update;
+      DROP TRIGGER IF EXISTS trg_grant_events_no_delete;
+      DROP TABLE IF EXISTS grant_events;
+      DROP TABLE IF EXISTS role_grants;
+      DROP TABLE IF EXISTS users;
+    `,
+  },
 ];
 
 export function migrationChecksum(m: Migration): string {
@@ -494,17 +671,22 @@ export function migrateDown(db: DbAdapter, targetVersion: number): AppliedMigrat
   ensureMigrationsTable(db);
   const applied = appliedMigrations(db).sort((a, b) => b.version - a.version);
   const byVersion = new Map(MIGRATIONS.map((m) => [m.version, m]));
+  const toRollBack: Migration[] = [];
 
   for (const row of applied) {
     if (row.version <= targetVersion) continue;
     const def = byVersion.get(row.version);
     if (!def) throw new Error(`Cannot roll back unknown migration version ${row.version}`);
-    db.transaction(() => {
-      assertNothingRetainedIsDropped(db, def);
-      db.exec(def.down);
-      db.run("DELETE FROM schema_migrations WHERE version = ?", row.version);
-    });
+    toRollBack.push(def);
   }
+
+  db.transaction(() => {
+    for (const def of toRollBack) assertNothingRetainedIsDropped(db, def);
+    for (const def of toRollBack) {
+      db.exec(def.down);
+      db.run("DELETE FROM schema_migrations WHERE version = ?", def.version);
+    }
+  });
   return appliedMigrations(db);
 }
 

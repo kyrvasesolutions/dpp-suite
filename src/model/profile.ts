@@ -41,7 +41,7 @@ const ContextLabel = z.object({ lang: z.string().regex(/^[a-z]{2,3}$/), context:
 
 const ProfileDoc = z.object({
   id: z.literal("PROFILE-ALU-24-01"),
-  version: z.literal("1.0.0"),
+  version: z.string().regex(/^\d+\.\d+\.\d+$/, "must be an exact semver version"),
   status: z.literal("FROZEN"),
   stand_in: z.boolean(),
   source: z.string(),
@@ -360,7 +360,10 @@ export async function loadProfilePack(source: PackSource): Promise<ProfilePack> 
     digests.set(path, actual);
   }
 
-  const profilePath = "profile/PROFILE-ALU-24-01@1.0.0.yaml";
+  if (!PIN.test(manifest.profile) || !manifest.profile.startsWith("PROFILE-ALU-24-01@")) {
+    throw new ProfileError(`manifest profile ${manifest.profile} must be an exact PROFILE-ALU-24-01@x.y.z version`);
+  }
+  const profilePath = `profile/${manifest.profile}.yaml`;
   const profile = parseWith(ProfileDoc, profilePath, files[profilePath] ?? "");
   if (`${profile.id}@${profile.version}` !== manifest.profile) throw new ProfileError(`manifest pins ${manifest.profile}, profile is ${profile.id}@${profile.version}`);
   if (profile.properties.length !== 24) throw new ProfileError(`${profilePath}: ${profile.properties.length} properties, expected 24`);
@@ -405,17 +408,24 @@ export async function loadProfilePack(source: PackSource): Promise<ProfilePack> 
     ...contracts("routes", "routes/", profile.pins.route_contracts),
   ];
 
-  const readiness = pinnedDoc("policy", "READINESS-RULES@1.0.0", ReadinessDoc);
-  const derived = pinnedDoc("policy", "DERIVED-RULES@1.0.0", DerivedDoc);
-  const limits = pinnedDoc("policy", "LIMITS@1.0.0", LimitsDoc);
-  const retention = pinnedDoc("policy", "RETENTION@1.0.0", RetentionPolicySchema);
-  const exceptions = pinnedDoc("policy", "EXCEPTIONS@1.0.0", ExceptionCatalogueSchema);
-  LOADED_RETENTION.set(retention.doc, await sha256Hex(canonical(retention.doc)));
-  const policyRefs = ["READINESS-RULES@1.0.0", "DERIVED-RULES@1.0.0", "LIMITS@1.0.0", "RETENTION@1.0.0", "EXCEPTIONS@1.0.0"];
+  const policyFamilies = ["READINESS-RULES", "DERIVED-RULES", "LIMITS", "RETENTION", "EXCEPTIONS"] as const;
   for (const ref of profile.pins.policy) {
-    if (!policyRefs.includes(ref)) throw new ProfileError(`${ref} is not a policy file this build reads`);
+    const family = ref.split("@")[0];
+    if (!(policyFamilies as readonly string[]).includes(family)) {
+      throw new ProfileError(`${ref} is not a policy file this build reads`);
+    }
   }
-  if (profile.pins.policy.length !== policyRefs.length) throw new ProfileError(`the profile must pin ${policyRefs.join(", ")}`);
+  const policyPinFor = (family: (typeof policyFamilies)[number]): string => {
+    const matches = profile.pins.policy.filter((ref) => ref.startsWith(`${family}@`));
+    if (matches.length !== 1) throw new ProfileError(`the profile must pin exactly one ${family}@x.y.z policy file`);
+    return matches[0]!;
+  };
+  const readiness = pinnedDoc("policy", policyPinFor("READINESS-RULES"), ReadinessDoc);
+  const derived = pinnedDoc("policy", policyPinFor("DERIVED-RULES"), DerivedDoc);
+  const limits = pinnedDoc("policy", policyPinFor("LIMITS"), LimitsDoc);
+  const retention = pinnedDoc("policy", policyPinFor("RETENTION"), RetentionPolicySchema);
+  const exceptions = pinnedDoc("policy", policyPinFor("EXCEPTIONS"), ExceptionCatalogueSchema);
+  LOADED_RETENTION.set(retention.doc, await sha256Hex(canonical(retention.doc)));
 
   const termById = new Map(terms.doc.terms.map((t) => [t.id, t]));
   const term = (owner: string, id: string) => {
