@@ -3,7 +3,9 @@
  * horizons, and legal-hold deletion blocks (C6-02, C6-05, FUNC-064, LEAN-DEF-06, LEAN-DEF-12).
  */
 import { createHash } from "node:crypto";
+import { CLASSIFICATIONS } from "../../src/model/classification";
 import {
+  canonicalUtcIso,
   computeRetentionUntil,
   DEFAULT_SECURITY_DOMAIN,
   resolveDatasetRetention,
@@ -72,23 +74,32 @@ function rowToMeta(row: Omit<EvidenceRow, "content_blob">): EvidenceRetentionMet
 
 export class SqlEvidenceStore {
   private readonly policies: PolicyStore;
+  private readonly now: () => string;
 
   constructor(
     private readonly db: DbAdapter,
     public readonly securityDomain: string = DEFAULT_SECURITY_DOMAIN,
+    options: { now?: () => string } = {},
   ) {
     if (!securityDomain.trim()) {
       throw new RetentionViolationError("domain-missing", "securityDomain is required for evidence storage");
     }
     this.policies = new PolicyStore(db);
+    this.now = options.now ?? (() => new Date().toISOString());
   }
 
   /**
    * Stores an evidence artefact content-addressed by SHA-256 under the active retention policy.
-   * Refuses if no retention policy is active, or if `declaredSha256` does not match `contentBytes`.
+   * Refuses if no retention policy is active, if `declaredSha256` mismatches `contentBytes`, or
+   * if `legalHold: true` is requested while the policy forbids legal holds.
+   * Always enforces the `"evidence-object"` minimum dataset floor (`restricted`) and anchors
+   * `retentionUntil` at `max(serverNow, storedAt)` so backdating cannot bypass retention.
    */
   put(req: PutEvidenceRequest): { stored: boolean; metadata: EvidenceRetentionMetadata } {
     const active = this.policies.requireActive();
+    if (!req.evidenceId?.trim() || !req.issuer?.trim() || !req.revision?.trim() || !req.recordKind?.trim()) {
+      throw new RetentionViolationError("policy-invalid", "Evidence requires non-empty evidenceId, issuer, revision, and recordKind");
+    }
     const actualSha = createHash("sha256").update(req.contentBytes).digest("hex");
     if (req.declaredSha256 !== undefined) {
       const normalized = req.declaredSha256.replace(/^sha256:/i, "").toLowerCase();
@@ -100,10 +111,30 @@ export class SqlEvidenceStore {
       }
     }
 
-    const dataset = req.dataset ?? "evidence-object";
-    const resolved = resolveDatasetRetention(active.policy, dataset, req.statedClassification);
-    const storedAt = req.storedAt ?? new Date().toISOString();
-    const retentionUntil = computeRetentionUntil(storedAt, resolved.retentionDays);
+    // Floor evidence classification and retention at `"evidence-object"` so caller dataset swaps
+    // (e.g. `dataset: "execution-log"`) can never downgrade restricted evidence to public (F6-V4).
+    const floor = resolveDatasetRetention(active.policy, "evidence-object");
+    const dataset = req.dataset?.trim() || "evidence-object";
+    const requested = resolveDatasetRetention(active.policy, dataset, req.statedClassification);
+    const stricterClass =
+      CLASSIFICATIONS.indexOf(requested.classification) >= CLASSIFICATIONS.indexOf(floor.classification)
+        ? requested.classification
+        : floor.classification;
+    const effectiveRetentionDays = Math.max(floor.retentionDays, requested.retentionDays);
+    const legalHoldPermitted = floor.legalHoldPermitted && requested.legalHoldPermitted;
+
+    if (req.legalHold && !legalHoldPermitted) {
+      throw new RetentionViolationError(
+        "legal-hold-forbidden",
+        `Retention policy ${active.policyPin} does not permit legal holds on dataset "${dataset}"`,
+      );
+    }
+
+    const serverNowIso = canonicalUtcIso(this.now());
+    const storedAtIso = req.storedAt ? canonicalUtcIso(req.storedAt) : serverNowIso;
+    const retentionAnchorIso =
+      Date.parse(storedAtIso) >= Date.parse(serverNowIso) ? storedAtIso : serverNowIso;
+    const retentionUntil = computeRetentionUntil(retentionAnchorIso, effectiveRetentionDays);
 
     return this.db.transaction(() => {
       const existing = this.db.get<Omit<EvidenceRow, "content_blob">>(
@@ -141,10 +172,10 @@ export class SqlEvidenceStore {
         req.revision,
         req.recordKind,
         dataset,
-        resolved.classification,
-        resolved.policyPin,
-        resolved.retentionDays,
-        storedAt,
+        stricterClass,
+        requested.policyPin,
+        effectiveRetentionDays,
+        storedAtIso,
         retentionUntil,
         req.legalHold ? 1 : 0,
         req.contentBytes.byteLength,
@@ -162,10 +193,10 @@ export class SqlEvidenceStore {
           revision: req.revision,
           recordKind: req.recordKind,
           dataset,
-          classification: resolved.classification,
-          policyPin: resolved.policyPin,
-          retentionDays: resolved.retentionDays,
-          storedAt,
+          classification: stricterClass,
+          policyPin: requested.policyPin,
+          retentionDays: effectiveRetentionDays,
+          storedAt: storedAtIso,
           retentionUntil,
           legalHold: !!req.legalHold,
           sizeBytes: req.contentBytes.byteLength,
@@ -206,16 +237,10 @@ export class SqlEvidenceStore {
   }
 
   setLegalHold(sha256: string, hold: boolean): EvidenceRetentionMetadata | undefined {
+    const active = this.policies.requireActive();
     const normalized = sha256.replace(/^sha256:/i, "").toLowerCase();
     return this.db.transaction(() => {
-      const res = this.db.run(
-        "UPDATE evidence_store SET legal_hold = ? WHERE security_domain = ? AND sha256 = ?",
-        hold ? 1 : 0,
-        this.securityDomain,
-        normalized,
-      );
-      if (res.changes === 0) return undefined;
-      const row = this.db.get<Omit<EvidenceRow, "content_blob">>(
+      const existing = this.db.get<Omit<EvidenceRow, "content_blob">>(
         `SELECT security_domain, sha256, evidence_id, issuer, revision, record_kind, dataset,
                 classification, policy_pin, retention_days, stored_at, retention_until,
                 legal_hold, size_bytes, media_type
@@ -224,16 +249,39 @@ export class SqlEvidenceStore {
         this.securityDomain,
         normalized,
       );
-      return row ? rowToMeta(row) : undefined;
+      if (!existing) return undefined;
+      if (hold) {
+        const floor = resolveDatasetRetention(active.policy, "evidence-object");
+        const rule = resolveDatasetRetention(active.policy, existing.dataset);
+        if (!floor.legalHoldPermitted || !rule.legalHoldPermitted) {
+          throw new RetentionViolationError(
+            "legal-hold-forbidden",
+            `Retention policy ${active.policyPin} does not permit legal holds on dataset "${existing.dataset}"`,
+          );
+        }
+      }
+      this.db.run(
+        "UPDATE evidence_store SET legal_hold = ? WHERE security_domain = ? AND sha256 = ?",
+        hold ? 1 : 0,
+        this.securityDomain,
+        normalized,
+      );
+      existing.legal_hold = hold ? 1 : 0;
+      return rowToMeta(existing);
     });
   }
 
   /**
-   * Deletes an evidence object ONLY if its retention horizon has elapsed (`nowIso >= retentionUntil`)
-   * AND no legal hold is active (C6-05). Throws `RetentionViolationError` otherwise.
+   * Deletes an evidence object ONLY if its retention horizon has elapsed (`nowIso >= retentionUntil`),
+   * both timestamps are valid ISO dates, AND no legal hold is active (C6-05, F6-V2).
    */
-  delete(sha256: string, nowIso: string = new Date().toISOString()): boolean {
+  delete(sha256: string, nowIso?: string): boolean {
     const normalized = sha256.replace(/^sha256:/i, "").toLowerCase();
+    const effectiveNow = nowIso ?? this.now();
+    const nowMs = Date.parse(effectiveNow);
+    if (Number.isNaN(nowMs)) {
+      throw new RetentionViolationError("policy-invalid", `Invalid retention check timestamp: "${effectiveNow}"`);
+    }
     return this.db.transaction(() => {
       const row = this.db.get<{ retention_until: string; legal_hold: number }>(
         "SELECT retention_until, legal_hold FROM evidence_store WHERE security_domain = ? AND sha256 = ?",
@@ -244,7 +292,11 @@ export class SqlEvidenceStore {
       if (Number(row.legal_hold) === 1) {
         throw new RetentionViolationError("legal-hold-active", `Evidence ${normalized} is under legal hold and cannot be deleted`);
       }
-      if (Date.parse(nowIso) < Date.parse(row.retention_until)) {
+      const untilMs = Date.parse(row.retention_until);
+      if (Number.isNaN(untilMs)) {
+        throw new RetentionViolationError("policy-invalid", `Stored retention_until for ${normalized} is invalid`);
+      }
+      if (nowMs < untilMs) {
         throw new RetentionViolationError(
           "retention-active",
           `Evidence ${normalized} must be retained until ${row.retention_until}`,

@@ -51,11 +51,11 @@ export const MIGRATIONS: readonly Migration[] = [
         observed_at TEXT,
         declared_at TEXT,
         published_at TEXT,
-        valid_from TEXT NOT NULL,
+        valid_from TEXT NOT NULL CHECK (valid_from GLOB '????-??-??T??:??:??.???Z'),
         valid_to TEXT,
         payload_json TEXT NOT NULL,
         PRIMARY KEY (security_domain, model, batch, version),
-        CHECK (valid_to IS NULL OR valid_to > valid_from)
+        CHECK (valid_to IS NULL OR (valid_to GLOB '????-??-??T??:??:??.???Z' AND valid_to > valid_from))
       );
 
       CREATE TRIGGER IF NOT EXISTS trg_snapshots_no_delete
@@ -168,7 +168,7 @@ export const MIGRATIONS: readonly Migration[] = [
 
       CREATE TABLE IF NOT EXISTS update_receipts (
         receipt_id TEXT PRIMARY KEY,
-        job_id TEXT NOT NULL REFERENCES import_jobs(job_id) ON DELETE CASCADE,
+        job_id TEXT NOT NULL UNIQUE REFERENCES import_jobs(job_id) ON DELETE RESTRICT,
         idempotency_key TEXT NOT NULL,
         security_domain TEXT NOT NULL,
         model TEXT NOT NULL,
@@ -182,8 +182,50 @@ export const MIGRATIONS: readonly Migration[] = [
         retention_until TEXT NOT NULL,
         policy_pin TEXT NOT NULL
       );
+
+      CREATE TRIGGER IF NOT EXISTS trg_execution_log_no_delete
+      BEFORE DELETE ON execution_log
+      BEGIN
+        SELECT RAISE(ABORT, 'execution_log is append-only and cannot be deleted');
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_execution_log_no_update
+      BEFORE UPDATE ON execution_log
+      BEGIN
+        SELECT RAISE(ABORT, 'execution_log is append-only and cannot be updated');
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_job_events_no_delete
+      BEFORE DELETE ON job_events
+      BEGIN
+        SELECT RAISE(ABORT, 'job_events is append-only and cannot be deleted');
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_job_events_no_update
+      BEFORE UPDATE ON job_events
+      BEGIN
+        SELECT RAISE(ABORT, 'job_events is append-only and cannot be updated');
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_update_receipts_no_delete
+      BEFORE DELETE ON update_receipts
+      BEGIN
+        SELECT RAISE(ABORT, 'update_receipts is append-only and cannot be deleted');
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_update_receipts_no_update
+      BEFORE UPDATE ON update_receipts
+      BEGIN
+        SELECT RAISE(ABORT, 'update_receipts is append-only and cannot be updated');
+      END;
     `,
     down: `
+      DROP TRIGGER IF EXISTS trg_update_receipts_no_update;
+      DROP TRIGGER IF EXISTS trg_update_receipts_no_delete;
+      DROP TRIGGER IF EXISTS trg_job_events_no_update;
+      DROP TRIGGER IF EXISTS trg_job_events_no_delete;
+      DROP TRIGGER IF EXISTS trg_execution_log_no_update;
+      DROP TRIGGER IF EXISTS trg_execution_log_no_delete;
       DROP TABLE IF EXISTS update_receipts;
       DROP TABLE IF EXISTS execution_log;
       DROP TABLE IF EXISTS evidence_store;
@@ -313,54 +355,73 @@ export function migrateDown(db: DbAdapter, targetVersion: number): AppliedMigrat
 }
 
 /**
- * Computes a deterministic SHA-256 checksum over all durable domain state (snapshots, evidence metadata+hashes,
- * receipts, and execution log rows) to verify zero data loss across forward/backward migrations and restore drills.
+ * Computes a deterministic SHA-256 checksum over ALL durable domain state (retention policies,
+ * full snapshots including payload_json and EV-5 time fields, evidence metadata + content_blob
+ * SHA-256, update receipts, and all execution log columns) to detect any silent data corruption
+ * or loss across forward/backward migrations and restore drills (LEAN-DEF-05, C7-05 prep).
  */
 export function computeStoreChecksum(db: DbAdapter): string {
   const hash = createHash("sha256");
-  const snapshots = db.query<{
-    security_domain: string;
-    model: string;
-    batch: string;
-    version: number;
-    record_digest: string;
-    snapshot_digest: string;
-    recorded_at: string;
-    observed_at: string | null;
-    declared_at: string | null;
-    published_at: string | null;
-    valid_from: string;
-    valid_to: string | null;
-  }>(
-    `SELECT security_domain, model, batch, version, record_digest, snapshot_digest,
-            recorded_at, observed_at, declared_at, published_at, valid_from, valid_to
+
+  const policies = db.query(
+    `SELECT policy_pin, policy_json, loaded_at, active
+     FROM retention_policies
+     ORDER BY policy_pin`,
+  );
+  hash.update(`policies:${JSON.stringify(policies)}\n`);
+
+  const snapshots = db.query(
+    `SELECT security_domain, model, batch, version, supersedes_version, supersedes_digest,
+            record_digest, snapshot_digest, actor, reason, origin,
+            classification, retention_policy_pin, retention_until,
+            recorded_at, observed_at, declared_at, published_at, valid_from, valid_to,
+            payload_json
      FROM snapshots
      ORDER BY security_domain, model, batch, version`,
   );
   hash.update(`snapshots:${JSON.stringify(snapshots)}\n`);
 
-  const evidence = db.query<{
+  const evidenceRows = db.query<{
     security_domain: string;
     sha256: string;
+    evidence_id: string;
+    issuer: string;
+    revision: string;
+    record_kind: string;
+    dataset: string;
     classification: string;
+    policy_pin: string;
+    retention_days: number;
+    stored_at: string;
     retention_until: string;
     legal_hold: number;
     size_bytes: number;
+    media_type: string;
+    content_blob: Uint8Array;
   }>(
-    `SELECT security_domain, sha256, classification, retention_until, legal_hold, size_bytes
+    `SELECT security_domain, sha256, evidence_id, issuer, revision, record_kind, dataset,
+            classification, policy_pin, retention_days, stored_at, retention_until,
+            legal_hold, size_bytes, media_type, content_blob
      FROM evidence_store
      ORDER BY security_domain, sha256`,
   );
-  hash.update(`evidence:${JSON.stringify(evidence)}\n`);
+  const evidenceNormalized = evidenceRows.map(({ content_blob, ...meta }) => ({
+    ...meta,
+    blob_sha256: createHash("sha256").update(new Uint8Array(content_blob)).digest("hex"),
+  }));
+  hash.update(`evidence:${JSON.stringify(evidenceNormalized)}\n`);
 
-  const log = db.query<{
-    seq: number;
-    security_domain: string;
-    event_id: string;
-    event: string;
-    outcome: string;
-  }>(
-    `SELECT seq, security_domain, event_id, event, outcome
+  const receipts = db.query(
+    `SELECT receipt_id, job_id, idempotency_key, security_domain, model, batch, version,
+            record_digest, snapshot_digest, recorded_at, stored, classification, retention_until, policy_pin
+     FROM update_receipts
+     ORDER BY security_domain, model, batch, version, receipt_id`,
+  );
+  hash.update(`receipts:${JSON.stringify(receipts)}\n`);
+
+  const log = db.query(
+    `SELECT seq, security_domain, event_id, recorded_at, event, stage, code, route,
+            rule_id, step_id, record_model_sha, record_batch_sha, version, file_role, file_sha256, outcome
      FROM execution_log
      ORDER BY seq`,
   );

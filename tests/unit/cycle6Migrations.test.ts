@@ -141,11 +141,11 @@ describe("Cycle 6 relational migrations, EV-5 schema, and append-only triggers",
 
       // Distinct EV-5 time fields preserved without collapsing observation into recording time
       const meta1 = runner.repository.getSnapshotMeta(model, batch, 1)!;
-      expect(meta1.timeEnvelope.recordedAt).toBe("2026-11-22T10:00:00Z");
-      expect(meta1.timeEnvelope.observedAt).toBe("2026-11-18T08:00:00Z");
-      expect(meta1.timeEnvelope.declaredAt).toBe("2026-11-19T09:00:00Z");
-      expect(meta1.timeEnvelope.publishedAt).toBe("2026-11-22T10:05:00Z");
-      expect(meta1.timeEnvelope.validFrom).toBe("2026-11-22T10:00:00Z");
+      expect(meta1.timeEnvelope.recordedAt).toBe("2026-11-22T10:00:00.000Z");
+      expect(meta1.timeEnvelope.observedAt).toBe("2026-11-18T08:00:00.000Z");
+      expect(meta1.timeEnvelope.declaredAt).toBe("2026-11-19T09:00:00.000Z");
+      expect(meta1.timeEnvelope.publishedAt).toBe("2026-11-22T10:05:00.000Z");
+      expect(meta1.timeEnvelope.validFrom).toBe("2026-11-22T10:00:00.000Z");
       expect(meta1.timeEnvelope.validTo).toBeNull();
 
       // Direct SQL DELETE or content UPDATE is blocked by SQLite triggers
@@ -172,8 +172,8 @@ describe("Cycle 6 relational migrations, EV-5 schema, and append-only triggers",
 
       const meta1Closed = runner.repository.getSnapshotMeta(model, batch, 1)!;
       const meta2 = runner.repository.getSnapshotMeta(model, batch, 2)!;
-      expect(meta1Closed.timeEnvelope.validTo).toBe("2026-11-22T11:00:00Z");
-      expect(meta2.timeEnvelope.validFrom).toBe("2026-11-22T11:00:00Z");
+      expect(meta1Closed.timeEnvelope.validTo).toBe("2026-11-22T11:00:00.000Z");
+      expect(meta2.timeEnvelope.validFrom).toBe("2026-11-22T11:00:00.000Z");
       expect(meta2.timeEnvelope.validTo).toBeNull();
 
       // Attempting to mutate an already-closed valid_to is also blocked by trigger

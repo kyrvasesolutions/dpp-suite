@@ -23,13 +23,16 @@ beforeAll(async () => {
 
 const sha = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 
+/** A fixed server clock: retention is anchored at max(server now, stated storedAt), so tests pin "now". */
+const FIXED_NOW = () => "2026-11-22T00:00:00.000Z";
+
 describe("Cycle 6 classification and evidence retention enforcement (C6-02, C6-05)", () => {
   it("C6-02 refuses all imports and evidence writes before RETENTION policy is activated", async () => {
     const db = new SqliteAdapter({ path: ":memory:" });
     try {
       migrateUp(db);
       const runner = new ImportJobRunner(db, pack);
-      const evStore = new SqlEvidenceStore(db);
+      const evStore = new SqlEvidenceStore(db, undefined, { now: FIXED_NOW });
 
       await expect(
         runner.runImportJob({
@@ -90,7 +93,7 @@ describe("Cycle 6 classification and evidence retention enforcement (C6-02, C6-0
       expect(unclassified.receipt?.retentionUntil).toBe("2036-11-19T00:00:00.000Z");
 
       // Caller attempting to downgrade a restricted dataset (`lab-assessment`) to `public` stays `restricted`
-      const evStore = new SqlEvidenceStore(db);
+      const evStore = new SqlEvidenceStore(db, undefined, { now: FIXED_NOW });
       const bytes = new TextEncoder().encode("restricted-certificate");
       const put = evStore.put({
         evidenceId: "EV-NO-DOWNGRADE",
@@ -116,7 +119,7 @@ describe("Cycle 6 classification and evidence retention enforcement (C6-02, C6-0
     try {
       migrateUp(db);
       new PolicyStore(db).activate(pack.policy.retention);
-      const evStore = new SqlEvidenceStore(db);
+      const evStore = new SqlEvidenceStore(db, undefined, { now: FIXED_NOW });
       const payload = new TextEncoder().encode("signed-mill-certificate-2026");
       const digest = sha(payload);
 
@@ -223,6 +226,68 @@ describe("Cycle 6 classification and evidence retention enforcement (C6-02, C6-0
       expect(outB.ok).toBe(true);
       expect(outB.receipt?.stored).toBe(true);
       expect(outB.receipt?.securityDomain).toBe("customer-beta");
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe("Cycle 6 evidence retention hardening (anchoring, floors, legal-hold permission)", () => {
+  const put = (store: SqlEvidenceStore, over: Partial<Parameters<SqlEvidenceStore["put"]>[0]> = {}) =>
+    store.put({
+      evidenceId: "EV-HARDEN",
+      issuer: "Demo Lab",
+      revision: "1",
+      recordKind: "test-report",
+      contentBytes: new TextEncoder().encode(`evidence-${over.evidenceId ?? "EV-HARDEN"}`),
+      ...over,
+    });
+
+  it("anchors retention at the server clock when the stated storedAt is in the past, so backdating cannot shorten it", () => {
+    const db = new SqliteAdapter({ path: ":memory:" });
+    try {
+      migrateUp(db);
+      new PolicyStore(db).activate(pack.policy.retention);
+      const store = new SqlEvidenceStore(db, undefined, { now: () => "2026-11-22T12:00:00.000Z" });
+      const backdated = put(store, { storedAt: "2000-01-01T00:00:00Z" });
+      expect(backdated.metadata.storedAt).toBe("2000-01-01T00:00:00.000Z");
+      expect(backdated.metadata.retentionUntil).toBe("2036-11-19T12:00:00.000Z");
+      const future = put(store, { evidenceId: "EV-FUTURE", storedAt: "2026-12-01T00:00:00Z" });
+      expect(future.metadata.retentionUntil).toBe("2036-11-28T00:00:00.000Z");
+    } finally {
+      db.close();
+    }
+  });
+
+  it("never lets a dataset swap downgrade evidence below the evidence-object floor", () => {
+    const db = new SqliteAdapter({ path: ":memory:" });
+    try {
+      migrateUp(db);
+      new PolicyStore(db).activate(pack.policy.retention);
+      const store = new SqlEvidenceStore(db, undefined, { now: FIXED_NOW });
+      const swapped = put(store, { dataset: "execution-log", statedClassification: "public" });
+      expect(swapped.metadata.classification).toBe("restricted");
+      expect(swapped.metadata.retentionDays).toBe(3650);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("refuses a legal hold on a dataset whose policy forbids it, on put and on setLegalHold", () => {
+    const db = new SqliteAdapter({ path: ":memory:" });
+    try {
+      migrateUp(db);
+      const policy = structuredClone(pack.policy.retention);
+      const rule = policy.datasets.find((d) => d.dataset === "execution-log")!;
+      rule.legal_hold_permitted = false;
+      new PolicyStore(db).activate(policy);
+      const store = new SqlEvidenceStore(db, undefined, { now: FIXED_NOW });
+      expect(() => put(store, { dataset: "execution-log", legalHold: true })).toThrow(
+        expect.objectContaining({ code: "legal-hold-forbidden" }) as RetentionViolationError,
+      );
+      const stored = put(store, { evidenceId: "EV-NOHOLD", dataset: "execution-log" });
+      expect(() => store.setLegalHold(stored.metadata.sha256, true)).toThrow(/does not permit legal holds/);
+      expect(store.setLegalHold(stored.metadata.sha256, false)?.legalHold).toBe(false);
     } finally {
       db.close();
     }

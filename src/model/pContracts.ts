@@ -170,6 +170,7 @@ export class RetentionViolationError extends Error {
       | "digest-mismatch"
       | "retention-active"
       | "legal-hold-active"
+      | "legal-hold-forbidden"
       | "domain-missing",
     message: string,
   ) {
@@ -197,22 +198,41 @@ export class TimeEnvelopeError extends Error {
   }
 }
 
-/** Validates an EV-5 time envelope, enforcing half-open `[validFrom, validTo)` semantics (`validFrom < validTo`). */
+/** Normalizes any valid ISO-8601 timestamp (with offset or varying fractional seconds) to canonical fixed-width UTC `YYYY-MM-DDTHH:mm:ss.sssZ`. */
+export function canonicalUtcIso(ts: string): string {
+  const ms = Date.parse(ts);
+  if (Number.isNaN(ms)) {
+    throw new TimeEnvelopeError("invalid-timestamp", `Invalid ISO-8601 timestamp: "${ts}"`);
+  }
+  return new Date(ms).toISOString();
+}
+
+/**
+ * Validates and canonicalizes an EV-5 time envelope, enforcing half-open `[validFrom, validTo)`
+ * semantics (`validFrom < validTo`) and normalizing all non-null timestamps to fixed-width UTC `.sssZ`
+ * so database lexicographical comparisons always agree with chronological order.
+ */
 export function validateEv5TimeEnvelope(envelope: Ev5TimeEnvelope): Ev5TimeEnvelope {
   const parsed = Ev5TimeEnvelopeSchema.safeParse(envelope);
   if (!parsed.success) {
     throw new TimeEnvelopeError("invalid-timestamp", `Invalid time envelope: ${parsed.error.issues[0]?.message ?? "malformed"}`);
   }
-  const start = Date.parse(parsed.data.validFrom);
-  if (Number.isNaN(start)) throw new TimeEnvelopeError("invalid-timestamp", "validFrom is not a valid ISO timestamp");
-  if (parsed.data.validTo !== null) {
-    const end = Date.parse(parsed.data.validTo);
-    if (Number.isNaN(end)) throw new TimeEnvelopeError("invalid-timestamp", "validTo is not a valid ISO timestamp");
+  const normalized: Ev5TimeEnvelope = {
+    recordedAt: canonicalUtcIso(parsed.data.recordedAt),
+    observedAt: parsed.data.observedAt !== null ? canonicalUtcIso(parsed.data.observedAt) : null,
+    declaredAt: parsed.data.declaredAt !== null ? canonicalUtcIso(parsed.data.declaredAt) : null,
+    publishedAt: parsed.data.publishedAt !== null ? canonicalUtcIso(parsed.data.publishedAt) : null,
+    validFrom: canonicalUtcIso(parsed.data.validFrom),
+    validTo: parsed.data.validTo !== null ? canonicalUtcIso(parsed.data.validTo) : null,
+  };
+  const start = Date.parse(normalized.validFrom);
+  if (normalized.validTo !== null) {
+    const end = Date.parse(normalized.validTo);
     if (end <= start) {
       throw new TimeEnvelopeError("invalid-interval", `Half-open interval [validFrom, validTo) requires validFrom < validTo`);
     }
   }
-  return parsed.data;
+  return normalized;
 }
 
 /** Adds `retentionDays` to an ISO-8601 UTC timestamp deterministically. */

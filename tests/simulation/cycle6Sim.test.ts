@@ -314,7 +314,12 @@ class Cycle6ContractSimulator {
     if (rec.legalHold) {
       throw new RetentionViolationError("legal-hold-active", "Cannot delete evidence under active legal hold");
     }
-    if (Date.parse(nowIso) < Date.parse(rec.retentionUntil)) {
+    const nowMs = Date.parse(nowIso);
+    const untilMs = Date.parse(rec.retentionUntil);
+    if (Number.isNaN(nowMs) || Number.isNaN(untilMs)) {
+      throw new RetentionViolationError("policy-invalid", "Retention check requires valid ISO timestamps");
+    }
+    if (nowMs < untilMs) {
       throw new RetentionViolationError("retention-active", `Retention active until ${rec.retentionUntil}`);
     }
     this.evidence.delete(`${domain}::${sha256}`);
