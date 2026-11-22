@@ -326,4 +326,18 @@ describe("adversarial input limits: over-limit and hostile inputs fail cleanly w
     }
     expect(await repo.history(v1.model, v1.batch)).toHaveLength(1);
   });
+
+  it("refuses Object.prototype property names (__proto__, constructor, toString) against additionalProperties: false in lab JSON", async () => {
+    const baseText = text(CLEAN.lab).trim();
+    for (const key of ["__proto__", "constructor", "toString"]) {
+      // Inject key directly into JSON text (JSON.stringify strips __proto__ via prototype mutation)
+      const injected = `${baseText.slice(0, -1)}, ${JSON.stringify(key)}: {"injected": "YES"}}`;
+      const res = await importLabJson(pack, { bytes: enc(injected), name: `proto-${key}.json`, type: "application/json" });
+      expect(res.ok, `top-level ${key} must fail schema`).toBe(false);
+      if (!res.ok) {
+        expect(res.stage, key).toBe("structure");
+        expect(res.errors.some((e) => e.code === "schema"), key).toBe(true);
+      }
+    }
+  });
 });

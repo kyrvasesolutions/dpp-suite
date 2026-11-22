@@ -507,7 +507,7 @@ function validate(schema: Schema, v: JsonValue, path: string, name: string, out:
     const props = (schema.properties ?? {}) as Record<string, Schema>;
     for (const k of (schema.required as string[] | undefined) ?? []) if (!v.entries.has(k)) out.push(issue("structure", "schema", at, `"${k}" is required.`));
     for (const [k, x] of v.entries) {
-      if (props[k]) validate(props[k], x, `${path}/${k}`, name, out);
+      if (Object.hasOwn(props, k)) validate(props[k], x, `${path}/${k}`, name, out);
       else if (schema.additionalProperties === false) out.push(issue("structure", "schema", `${name}, ${path}/${k}`, `"${k}" is not allowed.`));
     }
   }

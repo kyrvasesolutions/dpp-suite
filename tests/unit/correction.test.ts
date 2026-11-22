@@ -387,6 +387,13 @@ describe("a re-import never silently undoes a correction", () => {
     expect(standing(settled).status).toBe("corrected");
     expect(assess(pack, settled.record).flatMap((r) => r.holds.map((h) => h.ruleId))).not.toContain("RR-CHALLENGED");
     expect(recheckRecord(pack, settled.record)).toEqual([]);
+    // re-importing the exact same dropped file after settlement is idempotent and does not re-challenge (F5-2)
+    const afterSettle = await storeImport(repo, await recordFor(pack, { ...CLEAN, erp: "erp-missing-recycled-content.csv" }));
+    expect(afterSettle.stored).toBe(false);
+    expect(afterSettle.disputed).toBe(0);
+    expect(afterSettle.snapshot.version).toBe(settled.version);
+    expect(standing(afterSettle.snapshot).status).toBe("corrected");
+    expect(assess(pack, afterSettle.snapshot.record).flatMap((r) => r.holds.map((h) => h.ruleId))).not.toContain("RR-CHALLENGED");
   });
 
   it("confirms the correction when a later source comes to say the same value, even after an earlier dispute", async () => {

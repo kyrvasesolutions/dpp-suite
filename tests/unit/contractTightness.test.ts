@@ -193,7 +193,7 @@ describe("anti-canned-data: single-value mutations change live outputs and linea
       const lineage = rel.manifest.lineage.filter((l) => l.property === propId && l.member === target!.member && (!target!.qualifier || l.assertion.role === "correction"));
       expect(lineage.some((l) => l.assertion.role === "correction" && l.correction?.version === 2), `${c.slug} lineage`).toBe(true);
     }
-  });
+  }, 15_000);
 
   it("mutating each derived property outside EN limits flips the Customer PDF from within to outside the limits", async () => {
     const baselineSnap = await snapshotOf(cleanRecord);

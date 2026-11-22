@@ -185,21 +185,39 @@ export async function carryCorrections(latest: Snapshot | undefined, incoming: P
   if (!latest) return { record: incoming, carried: 0, disputed: 0 };
   const record: ProductRecord = structuredClone(incoming);
   const sources = [...record.sources];
+  const sourceKey = (s: { role: string; name: string; sha256: string }) => `${s.role}|${s.name}|${s.sha256}`;
   const addSource = (s: SourceFile) => {
-    if (!sources.some((x) => x.role === s.role && x.name === s.name && x.sha256 === s.sha256)) sources.push(s);
+    if (!sources.some((x) => sourceKey(x) === sourceKey(s))) sources.push(s);
   };
+  const neededSources = new Set<string>();
   let carried = 0;
   let disputed = 0;
   for (const old of latest.record.values.filter((v) => v.status === "corrected" || v.assertions.some((a) => a.source.role === "correction"))) {
     const corrections = old.assertions.filter((a) => a.source.role === "correction");
     const replaced = old.assertions.filter((a) => a.source.role !== "correction").map((a) => ({ ...a, flags: a.flags.filter((f) => f !== "source-changed") }));
     const now = record.values.find((v) => sameKey(v, old));
+    const wasDisputed = old.assertions.some((a) => a.flags.includes("source-changed"));
     const noLongerDisputed = replaced.length > 0 && now && now.assertions.length === replaced.length && now.assertions.every((a, i) => sameAssertion(a, replaced[i]));
-    for (const c of corrections) addSource(latest.record.sources.find((s) => s.role === "correction" && s.name === c.source.file)!);
+    for (const c of corrections) neededSources.add(`correction|${c.source.file}|${c.source.sha256}`);
     if (!now) {
+      for (const a of replaced) neededSources.add(`${a.source.role}|${a.source.file}|${a.source.sha256}`);
+      // If latest's current source for each replaced role already differed from the file that supplied the replaced assertion,
+      // the value was already absent when the operator settled it (not newly dropped by this import): carry it forward cleanly.
+      const alreadyAbsentInLatest =
+        !wasDisputed &&
+        replaced.length > 0 &&
+        replaced.every((a) => {
+          const current = latest.record.sources.find((s) => s.role === a.source.role);
+          return !!current && current.sha256 !== a.source.sha256;
+        });
+      if (alreadyAbsentInLatest) {
+        const assertions = [...structuredClone(corrections), ...structuredClone(replaced)];
+        record.values.push({ property: old.property, ...(old.member ? { member: old.member } : {}), ...(old.qualifier ? { qualifier: old.qualifier } : {}), status: valueStatus(assertions), assertions });
+        carried++;
+        continue;
+      }
       // The new source dropped the value. That is a change of the source: the correction stays, what it replaced stays attributed to the
       // file version it came from, and the value is challenged so the routes hold until the operator decides.
-      for (const a of replaced) addSource(latest.record.sources.find((s) => s.role === a.source.role && s.name === a.source.file && s.sha256 === a.source.sha256)!);
       const assertions = [...structuredClone(corrections), ...replaced.map((a) => ({ ...structuredClone(a), flags: [...a.flags.filter((f) => f !== "challenged"), "source-changed" as const] }))];
       record.values.push({ property: old.property, ...(old.member ? { member: old.member } : {}), ...(old.qualifier ? { qualifier: old.qualifier } : {}), status: valueStatus(assertions), assertions });
       disputed++;
@@ -216,7 +234,6 @@ export async function carryCorrections(latest: Snapshot | undefined, incoming: P
       continue;
     }
     // an earlier dispute stays until the operator settles it, even if the source goes back to what it said then
-    const wasDisputed = old.assertions.some((a) => a.flags.includes("source-changed"));
     if (noLongerDisputed && !wasDisputed) {
       now.assertions = [...kept, ...now.assertions];
       now.status = valueStatus(now.assertions);
@@ -228,6 +245,7 @@ export async function carryCorrections(latest: Snapshot | undefined, incoming: P
     now.status = valueStatus(now.assertions);
     disputed++;
   }
+  for (const s of latest.record.sources) if (neededSources.has(sourceKey(s))) addSource(s);
   record.sources = sources;
   record.values.sort((a, b) => (keyOf(a) < keyOf(b) ? -1 : keyOf(a) > keyOf(b) ? 1 : 0));
   record.digest = await recordDigest(record);
