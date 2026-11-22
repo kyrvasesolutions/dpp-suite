@@ -4,9 +4,10 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { canonical, canonicalPretty, utf8 } from "../../src/model/canonical";
 import { CentralRecordError, exportCentralRecord, importCentralRecord, restoreCentralRecord } from "../../src/model/centralRecord";
 import type { ProfilePack } from "../../src/model/profile";
-import { MemoryRepository, snapshotDigest, storeRecord, type Snapshot } from "../../src/model/recordRepository";
+import { MemoryRepository, ORIGIN_IMPORTED, snapshotDigest, storeRecord, type Snapshot } from "../../src/model/recordRepository";
 import { sha256Hex } from "../../src/model/profile";
-import { CLEAN, loadPack, recordFor } from "../support/records";
+import { recordDigest } from "../../src/model/recordRepository";
+import { CLEAN, loadPack, propertyBySlug, recordFor } from "../support/records";
 
 let pack: ProfilePack;
 beforeAll(async () => {
@@ -41,7 +42,8 @@ describe.each([1, 3])("round trip with %i version(s)", (n) => {
     const imported = await importCentralRecord((await exportCentralRecord(repo, pack, model, batch)).bytes, pack);
     const target = new MemoryRepository();
     expect(await restoreCentralRecord(target, imported)).toEqual({ added: n, skipped: 0 });
-    expect(await target.history(model, batch)).toEqual(await repo.history(model, batch));
+    // the same versions, each now saying that this copy was restored from a file (the origin is outside the digests)
+    expect(await target.history(model, batch)).toEqual((await repo.history(model, batch)).map((s) => ({ ...s, origin: ORIGIN_IMPORTED })));
     expect(await restoreCentralRecord(target, imported)).toEqual({ added: 0, skipped: n });
   });
 });
@@ -107,5 +109,96 @@ describe("refusals", () => {
     const imported = await importCentralRecord((await exportCentralRecord(a.repo, pack, a.model, a.batch)).bytes, pack);
     await expect(restoreCentralRecord(b, imported)).rejects.toThrow(/differs/);
     expect((await b.history(a.model, a.batch)).map((s) => s.record.values.length)).toHaveLength(2);
+  });
+});
+
+/** Changes a one-version export and seals it again consistently: record digest, snapshot digest and file sha256 all recomputed. */
+async function resealed(edit: (snapshot: Snapshot) => void, c = CLEAN) {
+  const repo = new MemoryRepository();
+  const record = await recordFor(pack, c);
+  await storeRecord(repo, record);
+  const doc = JSON.parse((await exportCentralRecord(repo, pack, record.model, record.batch)).text);
+  const s = doc.snapshots[0] as Snapshot;
+  edit(s);
+  s.record.digest = await recordDigest(s.record);
+  s.digest = await snapshotDigest(s);
+  const { sha256: _o, ...rest } = doc;
+  doc.sha256 = await sha256Hex(canonical(rest));
+  return utf8(JSON.stringify(doc));
+}
+const valueOf = (s: Snapshot, slug: string, member?: string) => s.record.values.find((v) => v.property === propertyBySlug(pack, slug) && v.member === member)!;
+
+describe("the origin of a restored version", () => {
+  it("is recorded as imported from a central-record file, not as a first import, and is outside the digest", async () => {
+    const { repo, model, batch } = await build(2);
+    const imported = await importCentralRecord((await exportCentralRecord(repo, pack, model, batch)).bytes, pack);
+    const target = new MemoryRepository();
+    await restoreCentralRecord(target, imported);
+    for (const s of await target.history(model, batch)) {
+      expect(s.origin).toBe(ORIGIN_IMPORTED);
+      expect(s.digest).toBe(await snapshotDigest(s));
+    }
+    // it survives a second export and import
+    const again = await importCentralRecord((await exportCentralRecord(target, pack, model, batch)).bytes, pack);
+    expect(again.snapshots.every((s) => s.origin === ORIGIN_IMPORTED)).toBe(true);
+    expect((await target.history(model, batch))[0].reason).toBe("First import");
+  });
+});
+
+describe("re-checks on import: a file sealed again consistently is still checked against the contract", () => {
+  it("accepts an untouched file sealed again, since only content that breaks the contract can be refused", async () => {
+    await expect(importCentralRecord(await resealed(() => undefined), pack)).resolves.toBeDefined();
+  });
+
+  it("refuses a status that the assertions do not give, and a challenged flag that does not match", async () => {
+    await expect(importCentralRecord(await resealed((s) => (valueOf(s, "alloy-designation").status = "single")), pack)).rejects.toThrow(/status is single, the assertions make it agreeing/);
+    const conflict = { erp: CLEAN.erp, lab: "lab-conflicting-alloy.json" };
+    await expect(
+      importCentralRecord(await resealed((s) => (valueOf(s, "alloy-designation").status = "agreeing"), conflict), pack),
+    ).rejects.toThrow(/status is agreeing, the assertions make it challenged/);
+    await expect(
+      importCentralRecord(await resealed((s) => valueOf(s, "alloy-designation").assertions.forEach((a) => (a.flags = a.flags.filter((f) => f !== "challenged"))), conflict), pack),
+    ).rejects.toThrow(/challenged flag/);
+  });
+
+  it("refuses cleared or added flags", async () => {
+    const unknownCode = { erp: "erp-unknown-company-code.csv", lab: CLEAN.lab };
+    await expect(
+      importCentralRecord(await resealed((s) => (valueOf(s, "manufacturer-id").assertions[0].flags = ["declared"]), unknownCode), pack),
+    ).rejects.toThrow(/flags are \[declared\]/);
+    await expect(importCentralRecord(await resealed((s) => valueOf(s, "nominal-thickness").assertions[0].flags.push("unknown-code")), pack), ).rejects.toThrow(/flags are/);
+    await expect(
+      importCentralRecord(await resealed((s) => (valueOf(s, "evidence-references").assertions[0].flags = ["declared"]), { erp: CLEAN.erp, lab: "lab-evidence-digest-missing.json" }), pack),
+    ).rejects.toThrow(/evidence-digest-missing/);
+    await expect(
+      importCentralRecord(await resealed((s) => (valueOf(s, "carbon-footprint").assertions[0].flags = ["calculated-externally", "unit-stated", "evidence-linked"]), { erp: CLEAN.erp, lab: "lab-two-footprints.json" }), pack),
+    ).rejects.toThrow(/several-results/);
+  });
+
+  it("refuses a code that the pinned code list does not hold, and a mapping that does not follow it", async () => {
+    // a known code changed to an unknown one without the flag
+    await expect(importCentralRecord(await resealed((s) => (valueOf(s, "manufacturer-id").assertions[0].raw = "SI77")), pack)).rejects.toThrow(/flags are|value is/);
+    // the mapped value changed
+    await expect(importCentralRecord(await resealed((s) => (valueOf(s, "manufacturer-id").assertions[0].value = "SOMEONE-ELSE")), pack)).rejects.toThrow(/the value is "SOMEONE-ELSE"/);
+  });
+
+  it("refuses numbers out of range, a changed literal, and units the contract does not allow", async () => {
+    await expect(importCentralRecord(await resealed((s) => Object.assign(valueOf(s, "recycled-content").assertions[0], { raw: "620", value: 620 })), pack)).rejects.toThrow(/out of range/);
+    await expect(importCentralRecord(await resealed((s) => (valueOf(s, "net-mass").assertions[0].value = 9999)), pack)).rejects.toThrow(/the value is 9999/);
+    await expect(importCentralRecord(await resealed((s) => (valueOf(s, "net-mass").assertions[0].unit = "lb")), pack)).rejects.toThrow(/the unit is lb/);
+    await expect(importCentralRecord(await resealed((s) => (valueOf(s, "tensile-strength").assertions[0].unit = "inch")), pack)).rejects.toThrow(/not allowed/);
+    await expect(importCentralRecord(await resealed((s) => Object.assign(valueOf(s, "tensile-strength").assertions[0], { raw: "-5", value: -5 })), pack)).rejects.toThrow(/out of range/);
+  });
+
+  it("refuses a value that does not belong to its column, a property the profile lacks, and a source the record does not list", async () => {
+    await expect(importCentralRecord(await resealed((s) => (valueOf(s, "net-mass").assertions[0].source.location = valueOf(s, "net-mass").assertions[0].source.location.replace("net_mass_kg", "alloy"))), pack)).rejects.toThrow(/maps to/);
+    await expect(importCentralRecord(await resealed((s) => (valueOf(s, "net-mass").property = "ALU-D999")), pack)).rejects.toThrow(/not a property of the profile/);
+    await expect(importCentralRecord(await resealed((s) => (valueOf(s, "net-mass").assertions[0].source.sha256 = "1".repeat(64))), pack)).rejects.toThrow(/not listed in the record/);
+  });
+
+  it("cannot tell a changed value that is still valid: that needs signing (documented limit)", async () => {
+    const bytes = await resealed((s) => Object.assign(valueOf(s, "net-mass").assertions[0], { raw: "9999", value: 9999 }));
+    const imported = await importCentralRecord(bytes, pack);
+    expect(valueOf(imported.snapshots[0], "net-mass").assertions[0].raw).toBe("9999");
   });
 });

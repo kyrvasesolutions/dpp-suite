@@ -3,18 +3,23 @@
  *
  * The export is one canonical JSON file with every snapshot of one product model and batch, the digest of the contract
  * pack they were made with, and its own sha256. Importing checks the strict JSON syntax and the schema, then every digest
- * (the file's, each record's, each snapshot's, the links between versions and the pack's), and gives back snapshots that are
- * deep-equal to the original. A file with any change in it is refused, and nothing is stored. Only the operator role
- * (ACT-01) may export or import, in this trusted local context; nothing is sent anywhere.
+ * (the file's, each record's, each snapshot's, the links between versions and the pack's), and re-checks what the pinned
+ * contract can re-check: each value's status and each assertion's flags are derived again, codes are looked up in the pinned
+ * code lists, and numbers, ranges and units are checked as at ingress. A file that is inconsistent, or only partly changed, is
+ * refused and nothing is stored. A file whose content was changed to other valid values and then sealed again consistently
+ * (new sha256 values everywhere) cannot be told from a genuine one: that needs signing, which is out of scope (LEAN-DEF-07).
+ * A version restored from a file records that origin. Only the operator role (ACT-01) may export or import, in this trusted
+ * local context; nothing is sent anywhere.
  */
 import { z } from "zod";
 import { canonical, canonicalPretty, sha256Bytes, utf8 } from "./canonical";
-import { FLAG_TEXT, IMPORT_ROLES, type Flag } from "./ingress";
+import { FLAG_TEXT, IMPORT_ROLES, recheckRecord, type Flag } from "./ingress";
 import type { ProfilePack } from "./profile";
 import { sha256Hex } from "./profile";
 import {
   MemoryRepository,
   OPERATOR,
+  ORIGIN_IMPORTED,
   RepositoryError,
   checkAppend,
   verifySnapshot,
@@ -64,6 +69,7 @@ const SnapshotSchema = z.strictObject({
   digest: Sha,
   actor: z.literal(OPERATOR),
   reason: z.string(),
+  origin: z.string().optional(),
   sources: z.array(z.strictObject({ role: Role, name: z.string(), sha256: Sha })),
   record: ProductRecord,
 });
@@ -144,6 +150,8 @@ export async function importCentralRecord(bytes: Uint8Array, pack: ProfilePack, 
     for (const s of doc.snapshots) {
       if (s.model !== doc.model || s.batch !== doc.batch) throw new RepositoryError(`${s.model} / ${s.batch} v${s.version} is another record than ${doc.model} / ${doc.batch}`);
       await verifySnapshot(s as Snapshot);
+      const problems = recheckRecord(pack, s.record as Snapshot["record"]);
+      if (problems.length) throw new RepositoryError(`${s.model} / ${s.batch} v${s.version} does not pass the contract checks: ${problems[0]}${problems.length > 1 ? ` (and ${problems.length - 1} more)` : ""}`);
       checkAppend(seen, s as Snapshot);
       seen.push(s as Snapshot);
       await repository.put(s as Snapshot);
@@ -168,7 +176,7 @@ export async function restoreCentralRecord(target: RecordRepository, imported: I
       if (mine.digest !== s.digest) throw new CentralRecordError(`Version ${s.version} here differs from the imported version ${s.version}; nothing was changed beyond the versions before it.`);
       skipped++;
     } else {
-      await target.put(s);
+      await target.put({ ...s, origin: s.origin ?? ORIGIN_IMPORTED });
       added++;
     }
   }

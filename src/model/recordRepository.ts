@@ -33,9 +33,17 @@ export interface Snapshot {
   digest: string;
   actor: typeof OPERATOR;
   reason: string;
+  /**
+   * Where this copy of the version came from, when it was not made here: set when it is restored from a central-record file.
+   * It is not part of the digest, because the digest names the content; it says how this browser came to hold it.
+   */
+  origin?: string;
   sources: SnapshotSource[];
   record: ProductRecord;
 }
+
+/** The origin recorded for a version restored from a central-record file. */
+export const ORIGIN_IMPORTED = "Imported from a central-record file";
 
 export class RepositoryError extends Error {
   override name = "RepositoryError";
@@ -52,9 +60,9 @@ export interface RecordRepository {
   records(): Promise<Array<{ model: string; batch: string }>>;
 }
 
-/** What the digest of a snapshot covers: everything but the digest itself. */
+/** What the digest of a snapshot covers: everything but the digest itself and the origin of this copy. */
 export const snapshotDigest = (snapshot: Omit<Snapshot, "digest"> | Snapshot): Promise<string> => {
-  const { digest: _digest, ...rest } = snapshot as Snapshot;
+  const { digest: _digest, origin: _origin, ...rest } = snapshot as Snapshot;
   return sha256Hex(canonical(rest));
 };
 
