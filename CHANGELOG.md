@@ -2,6 +2,20 @@
 
 Functional changes to the DPP suite, one entry per merged pull request, newest first.
 
+## Unreleased: Outputs, central record and release manifest
+
+- The three routes now have a **pinned output mapping**: every field a route may carry has exactly one output step with a stable step ID, in a fixed order. The contract checker refuses a route with a field that has no step, a step for a field the recipient may not see, a duplicate step ID, or a derived statement without its derived rule. The contract pack has a new digest and is signed again.
+- **ERP staging CSV**: one header row and one data row from the ERP route's projection, UTF-8 without byte-order mark, ";" between cells, RFC 4180 quoting, numbers exactly as the source wrote them.
+  - A text cell that starts with =, +, -, @, a tab or a carriage return is prefixed with an apostrophe so a spreadsheet shows it as text; numbers are never changed, and the release manifest counts the prefixed cells.
+  - The footprint method, system boundary, reference year and calculated-by travel with the footprint value. Evidence references carry their digest, issuer, revision and access policy.
+  - A route that is on hold is refused: no file is made, and the reasons are reported.
+- **Registry preparation JSON**: always a draft with `"status": "HOLD"` and `"submission": "never"`, the standing hold reason and any other holds; canonical JSON (sorted keys, two-space indent). It names only the fields the registry may see and is never sent anywhere.
+- **Central record**: accepted imports are stored as append-only, versioned snapshots per product model and batch, in this browser. A corrected re-import makes the next version, linked to the one it replaces by digest; earlier versions stay readable, a stored version cannot be rewritten, and re-importing identical files stores nothing. The browser database moves to version 2 and keeps what it held.
+- **Lineage**: every value in an output can be traced to its mapping step, to the derived rule for a derived statement, and to the source file, its sha256 and the place in it. A derived statement lists every value it was made from.
+- **Release manifest**: canonical JSON, with no date or time, listing the software version and commit, the contract pack and every pinned file, the input files by role and sha256, the record version and digest, each output with its digest and status, and the lineage. Verification recomputes every digest of a set of files and reports each change, missing file or unlisted file.
+- **Portable export and import of the central record** as one canonical JSON file with every version, the contract pack digest and its own sha256. Import checks the strict JSON syntax, the schema and every digest and link, and gives back exactly what was exported; a changed file, another pack or a role other than the operator is refused.
+- Outputs use no clock, no randomness and no network.
+
 ## [#11](https://github.com/kyrvasesolutions/dpp-suite/pull/11) Readiness screen supported (21 November 2026)
 
 - The Readiness screen is labelled Supported: route readiness, the fixed recipient matrix and derived disclosure passed an independent review, with no leak found in more than 60 attempts to make a denied field reach a recipient.
