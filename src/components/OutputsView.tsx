@@ -246,7 +246,10 @@ export function OutputsView() {
                   <td>{s.version}</td>
                   <td>{s.supersedes ? `version ${s.supersedes.version} (${short(s.supersedes.digest)})` : "nothing"}</td>
                   <td>{s.actor}</td>
-                  <td>{s.reason}</td>
+                  <td>
+                    {s.reason}
+                    {s.origin && <div className="small hint" data-testid="snapshot-origin">{s.origin}</div>}
+                  </td>
                   <td>
                     <code title={s.digest}>{short(s.digest)}</code>
                   </td>
@@ -325,6 +328,8 @@ export function OutputsView() {
                   const imported = await importCentralRecord((await bytesOf(f)).bytes, profile);
                   const { added, skipped } = await restoreCentralRecord(repository, imported);
                   setSelected({ model: imported.model, batch: imported.batch });
+                  // show the latest version of what was imported, not the version that was open before
+                  setVersion(null);
                   refresh();
                   setMessage({ kind: "info", text: `Central record imported: ${added} version${added === 1 ? "" : "s"} added, ${skipped} already here.` });
                 } catch (err) {

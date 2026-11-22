@@ -4,6 +4,7 @@
  * snapshot history after a correction, and the central record in a real browser's IndexedDB (survives a reload, version 1 -> 2
  * upgrade). Also the Import screen's snapshot status.
  */
+import { createHash } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import { parse } from "yaml";
 import initSqlJs from "sql.js";
@@ -242,4 +243,67 @@ test("the database upgrade from version 1 to 2 keeps the files store and the sav
   expect(after.stores).toEqual(["files", "snapshots"]);
   expect(after.marker).toEqual([7, 7, 7]);
   expect(after.saved).toBe(Buffer.from(saved, "base64").length);
+});
+
+test("the three downloads of the clean pair are the golden files, byte for byte", async ({ page }) => {
+  const golden = JSON.parse(readFileSync("tests/golden/digests.json", "utf8")) as Record<string, string>;
+  const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
+  await loadSample(page);
+  for (const r of ["customer-pdf", "erp-staging-csv", "registry-prep-json"]) {
+    const f = await download(page, r);
+    expect(sha(f.bytes), `${r} equals the golden digest`).toBe(golden[r]);
+  }
+  const [m] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Download manifest" }).click()]);
+  const manifest = JSON.parse(readFileSync((await m.path())!, "utf8")) as { inputs: Array<{ name: string; sha256: string }>; outputs: Array<{ route: string; sha256: string | null }> };
+  // the inputs are the committed fixtures, and the outputs listed are the golden ones
+  for (const i of manifest.inputs) expect(i.sha256).toBe(sha(readFileSync(`fixtures/n/${i.name}`)));
+  for (const o of manifest.outputs) expect(o.sha256).toBe(golden[o.route]);
+});
+
+test("after importing a two-version central record into a browser that holds version 1, Outputs shows the latest version", async ({ page, browser }) => {
+  await importClean(page);
+  await page.getByTestId("pick-erp").setInputFiles({ name: "d03a-erp-extract.csv", mimeType: "text/csv", buffer: Buffer.from(corrected) });
+  await expect(page.getByTestId("snapshot-status")).toHaveAttribute("data-version", "2");
+  await page.goto("/#outputs");
+  const [d] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Export central record" }).click()]);
+  const file = readFileSync((await d.path())!);
+
+  // another browser profile that holds only version 1
+  const other = await browser.newContext({ baseURL: "http://localhost:4173", acceptDownloads: true });
+  try {
+    const p2 = await other.newPage();
+    await p2.goto("/#import");
+    await p2.getByLabel("Sample files").selectOption({ label: "Clean pair" });
+    await p2.getByRole("button", { name: "Import sample" }).click();
+    await expect(p2.getByTestId("snapshot-status")).toHaveAttribute("data-version", "1");
+    await p2.goto("/#outputs");
+    await expect(p2.getByTestId("outputs-record")).toContainText("version 1 of 1");
+    await p2.getByTestId("pick-central").setInputFiles({ name: "central.json", mimeType: "application/json", buffer: file });
+    await expect(p2.getByTestId("outputs-message")).toContainText("1 version added, 1 already here");
+    await expect(p2.getByTestId("snapshot")).toHaveCount(2);
+    await expect(p2.getByTestId("outputs-record")).toContainText("version 2 of 2");
+    await expect(p2.getByTestId("outputs-record")).not.toContainText("earlier version");
+    // the restored version says where it came from
+    await expect(p2.locator('[data-testid="snapshot"][data-version="2"]')).toContainText("Imported from a central-record file");
+    await expect(p2.locator('[data-testid="snapshot"][data-version="1"]')).not.toContainText("Imported from a central-record file");
+  } finally {
+    await other.close();
+  }
+});
+
+test("the Import screen shows an error when the record could not be saved to the central record", async ({ page }) => {
+  // only the central record adds rows with IDBObjectStore.add (the app's own database uses put), so only its save fails
+  await page.addInitScript(() => {
+    IDBObjectStore.prototype.add = () => {
+      throw new DOMException("The quota has been exceeded.", "QuotaExceededError");
+    };
+  });
+  await page.goto("/#import");
+  await page.getByLabel("Sample files").selectOption({ label: "Clean pair" });
+  await page.getByRole("button", { name: "Import sample" }).click();
+  await expect(page.getByTestId("snapshot-error")).toBeVisible();
+  await expect(page.getByTestId("snapshot-error")).toContainText("could not be saved");
+  await expect(page.getByTestId("snapshot-status")).toHaveCount(0);
+  // the import itself is still shown
+  await expect(page.getByTestId("record-digest")).toHaveCount(1);
 });

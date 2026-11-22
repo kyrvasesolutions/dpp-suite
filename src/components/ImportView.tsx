@@ -19,7 +19,17 @@ export function ImportView() {
   const [previousDigests, setPreviousDigests] = useState<string[] | null>(null);
   const [sample, setSample] = useState(SAMPLES[0].id);
   const [notes, setNotes] = useState<StoredNote[]>([]);
-  const keep = async (built: typeof state) => setNotes(built ? await saveImport(built).catch(() => []) : []);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const keep = async (built: typeof state) => {
+    setSaveError(null);
+    if (!built) return setNotes([]);
+    try {
+      setNotes(await saveImport(built));
+    } catch (e) {
+      setNotes([]);
+      setSaveError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   const run = async (next: { erp?: Input; lab?: Input }, again = false) => {
     if (!profile) return;
@@ -122,6 +132,11 @@ export function ImportView() {
         </p>
       )}
 
+      {saveError && (
+        <div className="banner warn" role="alert" data-testid="snapshot-error">
+          <span>The record was imported but could not be saved to the central record, so it has no version: {saveError}</span>
+        </div>
+      )}
       {notes.map((n) => (
         <p key={`${n.model}|${n.batch}`} className="banner info" data-testid="snapshot-status" data-version={n.version} data-stored={n.stored}>
           <span>
