@@ -1,0 +1,1164 @@
+{
+  "format": "dpp-release-manifest",
+  "formulaPrefixedCells": 0,
+  "inputs": [
+    {
+      "name": "d03a-erp-extract.csv",
+      "role": "erp",
+      "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+    },
+    {
+      "name": "d03a-lab-assessment.json",
+      "role": "lab",
+      "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+    }
+  ],
+  "lineage": [
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column product_model_scheme",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "member": "FLD-Identifier-scheme",
+      "outputRef": "customer-pdf/MAP-PDF-001",
+      "property": "ALU-D101",
+      "stepId": "MAP-PDF-001"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column product_model_id",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "member": "FLD-Identifier-value",
+      "outputRef": "customer-pdf/MAP-PDF-001",
+      "property": "ALU-D101",
+      "stepId": "MAP-PDF-001"
+    },
+    {
+      "assertion": {
+        "file": "d03a-lab-assessment.json",
+        "location": "d03a-lab-assessment.json, /product/model_id",
+        "role": "lab",
+        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+      },
+      "member": "FLD-Identifier-value",
+      "outputRef": "customer-pdf/MAP-PDF-001",
+      "property": "ALU-D101",
+      "stepId": "MAP-PDF-001"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column product_model_scheme_version",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "member": "FLD-Identifier-scheme_version",
+      "outputRef": "customer-pdf/MAP-PDF-001",
+      "property": "ALU-D101",
+      "stepId": "MAP-PDF-001"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column company_code",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "outputRef": "customer-pdf/MAP-PDF-002",
+      "property": "ALU-D102",
+      "stepId": "MAP-PDF-002"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column product_name_de",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "outputRef": "customer-pdf/MAP-PDF-003",
+      "property": "ALU-D103",
+      "qualifier": "de",
+      "stepId": "MAP-PDF-003"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column product_name_en",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "outputRef": "customer-pdf/MAP-PDF-003",
+      "property": "ALU-D103",
+      "qualifier": "en",
+      "stepId": "MAP-PDF-003"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column batch_id",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "member": "FLD-Identifier-value",
+      "outputRef": "customer-pdf/MAP-PDF-004",
+      "property": "ALU-D104",
+      "stepId": "MAP-PDF-004"
+    },
+    {
+      "assertion": {
+        "file": "d03a-lab-assessment.json",
+        "location": "d03a-lab-assessment.json, /product/batch_id",
+        "role": "lab",
+        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+      },
+      "member": "FLD-Identifier-value",
+      "outputRef": "customer-pdf/MAP-PDF-004",
+      "property": "ALU-D104",
+      "stepId": "MAP-PDF-004"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column batch_scheme_version",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "member": "FLD-Identifier-scheme_version",
+      "outputRef": "customer-pdf/MAP-PDF-004",
+      "property": "ALU-D104",
+      "stepId": "MAP-PDF-004"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column cn_code",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "outputRef": "customer-pdf/MAP-PDF-005",
+      "property": "ALU-D105",
+      "stepId": "MAP-PDF-005"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column customer_code",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "member": "FLD-Identifier-scope",
+      "outputRef": "customer-pdf/MAP-PDF-006",
+      "property": "ALU-D122",
+      "stepId": "MAP-PDF-006"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column customer_article_no",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "member": "FLD-Identifier-value",
+      "outputRef": "customer-pdf/MAP-PDF-006",
+      "property": "ALU-D122",
+      "stepId": "MAP-PDF-006"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column alloy",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "outputRef": "customer-pdf/MAP-PDF-007",
+      "property": "ALU-D106",
+      "stepId": "MAP-PDF-007"
+    },
+    {
+      "assertion": {
+        "file": "d03a-lab-assessment.json",
+        "location": "d03a-lab-assessment.json, /product/alloy",
+        "role": "lab",
+        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+      },
+      "outputRef": "customer-pdf/MAP-PDF-007",
+      "property": "ALU-D106",
+      "stepId": "MAP-PDF-007"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column temper",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "outputRef": "customer-pdf/MAP-PDF-008",
+      "property": "ALU-D107",
+      "stepId": "MAP-PDF-008"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column recycled_content_pct",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "outputRef": "customer-pdf/MAP-PDF-009",
+      "property": "ALU-D114",
+      "stepId": "MAP-PDF-009"
+    },
+    {
+      "assertion": {
+        "file": "d03a-lab-assessment.json",
+        "location": "d03a-lab-assessment.json, /observations/1/value",
+        "role": "lab",
+        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+      },
+      "outputRef": "customer-pdf/MAP-PDF-010",
+      "property": "ALU-D115",
+      "ruleId": "DR-TENSILE-LIMITS",
+      "stepId": "MAP-PDF-010"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column alloy",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "outputRef": "customer-pdf/MAP-PDF-010",
+      "property": "ALU-D106",
+      "ruleId": "DR-TENSILE-LIMITS",
+      "stepId": "MAP-PDF-010"
+    },
+    {
+      "assertion": {
+        "file": "d03a-lab-assessment.json",
+        "location": "d03a-lab-assessment.json, /product/alloy",
+        "role": "lab",
+        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+      },
+      "outputRef": "customer-pdf/MAP-PDF-010",
+      "property": "ALU-D106",
+      "ruleId": "DR-TENSILE-LIMITS",
+      "stepId": "MAP-PDF-010"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column temper",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "outputRef": "customer-pdf/MAP-PDF-010",
+      "property": "ALU-D107",
+      "ruleId": "DR-TENSILE-LIMITS",
+      "stepId": "MAP-PDF-010"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column post_consumer_pct",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "outputRef": "customer-pdf/MAP-PDF-011",
+      "property": "ALU-D120",
+      "stepId": "MAP-PDF-011"
+    },
+    {
+      "assertion": {
+        "file": "d03a-lab-assessment.json",
+        "location": "d03a-lab-assessment.json, /observations/2/value",
+        "role": "lab",
+        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+      },
+      "outputRef": "customer-pdf/MAP-PDF-012",
+      "property": "ALU-D123",
+      "qualifier": "Mg",
+      "ruleId": "DR-COMPOSITION-LIMITS",
+      "stepId": "MAP-PDF-012"
+    },
+    {
+      "assertion": {
+        "file": "d03a-lab-assessment.json",
+        "location": "d03a-lab-assessment.json, /observations/3/value",
+        "role": "lab",
+        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+      },
+      "outputRef": "customer-pdf/MAP-PDF-012",
+      "property": "ALU-D123",
+      "qualifier": "Mn",
+      "ruleId": "DR-COMPOSITION-LIMITS",
+      "stepId": "MAP-PDF-012"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column alloy",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "outputRef": "customer-pdf/MAP-PDF-012",
+      "property": "ALU-D106",
+      "ruleId": "DR-COMPOSITION-LIMITS",
+      "stepId": "MAP-PDF-012"
+    },
+    {
+      "assertion": {
+        "file": "d03a-lab-assessment.json",
+        "location": "d03a-lab-assessment.json, /product/alloy",
+        "role": "lab",
+        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+      },
+      "outputRef": "customer-pdf/MAP-PDF-012",
+      "property": "ALU-D106",
+      "ruleId": "DR-COMPOSITION-LIMITS",
+      "stepId": "MAP-PDF-012"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column thickness_nominal_mm",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "outputRef": "customer-pdf/MAP-PDF-013",
+      "property": "ALU-D108",
+      "stepId": "MAP-PDF-013"
+    },
+    {
+      "assertion": {
+        "file": "d03a-lab-assessment.json",
+        "location": "d03a-lab-assessment.json, /observations/0/value",
+        "role": "lab",
+        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+      },
+      "outputRef": "customer-pdf/MAP-PDF-014",
+      "property": "ALU-D109",
+      "stepId": "MAP-PDF-014"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column width_nominal_mm",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "outputRef": "customer-pdf/MAP-PDF-015",
+      "property": "ALU-D110",
+      "stepId": "MAP-PDF-015"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column length_nominal_mm",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "outputRef": "customer-pdf/MAP-PDF-016",
+      "property": "ALU-D111",
+      "stepId": "MAP-PDF-016"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column net_mass_kg",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "outputRef": "customer-pdf/MAP-PDF-017",
+      "property": "ALU-D112",
+      "stepId": "MAP-PDF-017"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column surface_finish",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "outputRef": "customer-pdf/MAP-PDF-018",
+      "property": "ALU-D113",
+      "stepId": "MAP-PDF-018"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column country_of_casting",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "outputRef": "customer-pdf/MAP-PDF-019",
+      "property": "ALU-D116",
+      "stepId": "MAP-PDF-019"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column production_date",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "outputRef": "customer-pdf/MAP-PDF-020",
+      "property": "ALU-D117",
+      "stepId": "MAP-PDF-020"
+    },
+    {
+      "assertion": {
+        "file": "d03a-lab-assessment.json",
+        "location": "d03a-lab-assessment.json, /footprints/0/value",
+        "role": "lab",
+        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+      },
+      "outputRef": "customer-pdf/MAP-PDF-021",
+      "property": "ALU-D119",
+      "qualifier": "PCF-1",
+      "stepId": "MAP-PDF-021"
+    },
+    {
+      "assertion": {
+        "file": "d03a-lab-assessment.json",
+        "location": "d03a-lab-assessment.json, /footprints/0/value",
+        "role": "lab",
+        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+      },
+      "outputRef": "customer-pdf/MAP-PDF-022",
+      "property": "ALU-D119",
+      "qualifier": "PCF-1",
+      "stepId": "MAP-PDF-022"
+    },
+    {
+      "assertion": {
+        "file": "d03a-lab-assessment.json",
+        "location": "d03a-lab-assessment.json, /footprints/0/value",
+        "role": "lab",
+        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+      },
+      "outputRef": "customer-pdf/MAP-PDF-023",
+      "property": "ALU-D119",
+      "qualifier": "PCF-1",
+      "stepId": "MAP-PDF-023"
+    },
+    {
+      "assertion": {
+        "file": "d03a-lab-assessment.json",
+        "location": "d03a-lab-assessment.json, /footprints/0/value",
+        "role": "lab",
+        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+      },
+      "outputRef": "customer-pdf/MAP-PDF-024",
+      "property": "ALU-D119",
+      "qualifier": "PCF-1",
+      "stepId": "MAP-PDF-024"
+    },
+    {
+      "assertion": {
+        "file": "d03a-lab-assessment.json",
+        "location": "d03a-lab-assessment.json, /footprints/0/value",
+        "role": "lab",
+        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+      },
+      "outputRef": "customer-pdf/MAP-PDF-025",
+      "property": "ALU-D119",
+      "qualifier": "PCF-1",
+      "stepId": "MAP-PDF-025"
+    },
+    {
+      "assertion": {
+        "file": "d03a-lab-assessment.json",
+        "location": "d03a-lab-assessment.json, /texts/1/text",
+        "role": "lab",
+        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+      },
+      "outputRef": "customer-pdf/MAP-PDF-026",
+      "property": "ALU-D121",
+      "qualifier": "de/construction/EU",
+      "stepId": "MAP-PDF-026"
+    },
+    {
+      "assertion": {
+        "file": "d03a-lab-assessment.json",
+        "location": "d03a-lab-assessment.json, /texts/0/text",
+        "role": "lab",
+        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+      },
+      "outputRef": "customer-pdf/MAP-PDF-026",
+      "property": "ALU-D121",
+      "qualifier": "en/construction/EU",
+      "stepId": "MAP-PDF-026"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column product_model_scheme",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "member": "FLD-Identifier-scheme",
+      "outputRef": "erp-staging-csv/MAP-ERP-001",
+      "property": "ALU-D101",
+      "stepId": "MAP-ERP-001"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column product_model_id",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "member": "FLD-Identifier-value",
+      "outputRef": "erp-staging-csv/MAP-ERP-001",
+      "property": "ALU-D101",
+      "stepId": "MAP-ERP-001"
+    },
+    {
+      "assertion": {
+        "file": "d03a-lab-assessment.json",
+        "location": "d03a-lab-assessment.json, /product/model_id",
+        "role": "lab",
+        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+      },
+      "member": "FLD-Identifier-value",
+      "outputRef": "erp-staging-csv/MAP-ERP-001",
+      "property": "ALU-D101",
+      "stepId": "MAP-ERP-001"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column product_model_scheme_version",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "member": "FLD-Identifier-scheme_version",
+      "outputRef": "erp-staging-csv/MAP-ERP-001",
+      "property": "ALU-D101",
+      "stepId": "MAP-ERP-001"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column company_code",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "outputRef": "erp-staging-csv/MAP-ERP-002",
+      "property": "ALU-D102",
+      "stepId": "MAP-ERP-002"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column product_name_de",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "outputRef": "erp-staging-csv/MAP-ERP-003",
+      "property": "ALU-D103",
+      "qualifier": "de",
+      "stepId": "MAP-ERP-003"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column product_name_en",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "outputRef": "erp-staging-csv/MAP-ERP-003",
+      "property": "ALU-D103",
+      "qualifier": "en",
+      "stepId": "MAP-ERP-003"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column batch_id",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "member": "FLD-Identifier-value",
+      "outputRef": "erp-staging-csv/MAP-ERP-004",
+      "property": "ALU-D104",
+      "stepId": "MAP-ERP-004"
+    },
+    {
+      "assertion": {
+        "file": "d03a-lab-assessment.json",
+        "location": "d03a-lab-assessment.json, /product/batch_id",
+        "role": "lab",
+        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+      },
+      "member": "FLD-Identifier-value",
+      "outputRef": "erp-staging-csv/MAP-ERP-004",
+      "property": "ALU-D104",
+      "stepId": "MAP-ERP-004"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column batch_scheme_version",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "member": "FLD-Identifier-scheme_version",
+      "outputRef": "erp-staging-csv/MAP-ERP-004",
+      "property": "ALU-D104",
+      "stepId": "MAP-ERP-004"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column cn_code",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "outputRef": "erp-staging-csv/MAP-ERP-005",
+      "property": "ALU-D105",
+      "stepId": "MAP-ERP-005"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column alloy",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "outputRef": "erp-staging-csv/MAP-ERP-006",
+      "property": "ALU-D106",
+      "stepId": "MAP-ERP-006"
+    },
+    {
+      "assertion": {
+        "file": "d03a-lab-assessment.json",
+        "location": "d03a-lab-assessment.json, /product/alloy",
+        "role": "lab",
+        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+      },
+      "outputRef": "erp-staging-csv/MAP-ERP-006",
+      "property": "ALU-D106",
+      "stepId": "MAP-ERP-006"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column temper",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "outputRef": "erp-staging-csv/MAP-ERP-007",
+      "property": "ALU-D107",
+      "stepId": "MAP-ERP-007"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column thickness_nominal_mm",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "outputRef": "erp-staging-csv/MAP-ERP-008",
+      "property": "ALU-D108",
+      "stepId": "MAP-ERP-008"
+    },
+    {
+      "assertion": {
+        "file": "d03a-lab-assessment.json",
+        "location": "d03a-lab-assessment.json, /observations/0/value",
+        "role": "lab",
+        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+      },
+      "outputRef": "erp-staging-csv/MAP-ERP-009",
+      "property": "ALU-D109",
+      "stepId": "MAP-ERP-009"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column width_nominal_mm",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "outputRef": "erp-staging-csv/MAP-ERP-010",
+      "property": "ALU-D110",
+      "stepId": "MAP-ERP-010"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column length_nominal_mm",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "outputRef": "erp-staging-csv/MAP-ERP-011",
+      "property": "ALU-D111",
+      "stepId": "MAP-ERP-011"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column net_mass_kg",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "outputRef": "erp-staging-csv/MAP-ERP-012",
+      "property": "ALU-D112",
+      "stepId": "MAP-ERP-012"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column surface_finish",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "outputRef": "erp-staging-csv/MAP-ERP-013",
+      "property": "ALU-D113",
+      "stepId": "MAP-ERP-013"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column recycled_content_pct",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "outputRef": "erp-staging-csv/MAP-ERP-014",
+      "property": "ALU-D114",
+      "stepId": "MAP-ERP-014"
+    },
+    {
+      "assertion": {
+        "file": "d03a-lab-assessment.json",
+        "location": "d03a-lab-assessment.json, /observations/1/value",
+        "role": "lab",
+        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+      },
+      "outputRef": "erp-staging-csv/MAP-ERP-015",
+      "property": "ALU-D115",
+      "stepId": "MAP-ERP-015"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column country_of_casting",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "outputRef": "erp-staging-csv/MAP-ERP-016",
+      "property": "ALU-D116",
+      "stepId": "MAP-ERP-016"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column production_date",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "outputRef": "erp-staging-csv/MAP-ERP-017",
+      "property": "ALU-D117",
+      "stepId": "MAP-ERP-017"
+    },
+    {
+      "assertion": {
+        "file": "d03a-lab-assessment.json",
+        "location": "d03a-lab-assessment.json, /evidence/1",
+        "role": "lab",
+        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+      },
+      "outputRef": "erp-staging-csv/MAP-ERP-018",
+      "property": "ALU-D118",
+      "qualifier": "EV-CR-0099",
+      "stepId": "MAP-ERP-018"
+    },
+    {
+      "assertion": {
+        "file": "d03a-lab-assessment.json",
+        "location": "d03a-lab-assessment.json, /evidence/0",
+        "role": "lab",
+        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+      },
+      "outputRef": "erp-staging-csv/MAP-ERP-018",
+      "property": "ALU-D118",
+      "qualifier": "EV-TR-0417",
+      "stepId": "MAP-ERP-018"
+    },
+    {
+      "assertion": {
+        "file": "d03a-lab-assessment.json",
+        "location": "d03a-lab-assessment.json, /footprints/0/value",
+        "role": "lab",
+        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+      },
+      "outputRef": "erp-staging-csv/MAP-ERP-019",
+      "property": "ALU-D119",
+      "qualifier": "PCF-1",
+      "stepId": "MAP-ERP-019"
+    },
+    {
+      "assertion": {
+        "file": "d03a-lab-assessment.json",
+        "location": "d03a-lab-assessment.json, /footprints/0/value",
+        "role": "lab",
+        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+      },
+      "outputRef": "erp-staging-csv/MAP-ERP-020",
+      "property": "ALU-D119",
+      "qualifier": "PCF-1",
+      "stepId": "MAP-ERP-020"
+    },
+    {
+      "assertion": {
+        "file": "d03a-lab-assessment.json",
+        "location": "d03a-lab-assessment.json, /footprints/0/value",
+        "role": "lab",
+        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+      },
+      "outputRef": "erp-staging-csv/MAP-ERP-021",
+      "property": "ALU-D119",
+      "qualifier": "PCF-1",
+      "stepId": "MAP-ERP-021"
+    },
+    {
+      "assertion": {
+        "file": "d03a-lab-assessment.json",
+        "location": "d03a-lab-assessment.json, /footprints/0/value",
+        "role": "lab",
+        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+      },
+      "outputRef": "erp-staging-csv/MAP-ERP-022",
+      "property": "ALU-D119",
+      "qualifier": "PCF-1",
+      "stepId": "MAP-ERP-022"
+    },
+    {
+      "assertion": {
+        "file": "d03a-lab-assessment.json",
+        "location": "d03a-lab-assessment.json, /footprints/0/value",
+        "role": "lab",
+        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+      },
+      "outputRef": "erp-staging-csv/MAP-ERP-023",
+      "property": "ALU-D119",
+      "qualifier": "PCF-1",
+      "stepId": "MAP-ERP-023"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column post_consumer_pct",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "outputRef": "erp-staging-csv/MAP-ERP-024",
+      "property": "ALU-D120",
+      "stepId": "MAP-ERP-024"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column customer_code",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "member": "FLD-Identifier-scope",
+      "outputRef": "erp-staging-csv/MAP-ERP-025",
+      "property": "ALU-D122",
+      "stepId": "MAP-ERP-025"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column customer_article_no",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "member": "FLD-Identifier-value",
+      "outputRef": "erp-staging-csv/MAP-ERP-025",
+      "property": "ALU-D122",
+      "stepId": "MAP-ERP-025"
+    },
+    {
+      "assertion": {
+        "file": "d03a-lab-assessment.json",
+        "location": "d03a-lab-assessment.json, /observations/2/value",
+        "role": "lab",
+        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+      },
+      "outputRef": "erp-staging-csv/MAP-ERP-026",
+      "property": "ALU-D123",
+      "qualifier": "Mg",
+      "stepId": "MAP-ERP-026"
+    },
+    {
+      "assertion": {
+        "file": "d03a-lab-assessment.json",
+        "location": "d03a-lab-assessment.json, /observations/3/value",
+        "role": "lab",
+        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+      },
+      "outputRef": "erp-staging-csv/MAP-ERP-026",
+      "property": "ALU-D123",
+      "qualifier": "Mn",
+      "stepId": "MAP-ERP-026"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column supplier_code",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "outputRef": "erp-staging-csv/MAP-ERP-027",
+      "property": "ALU-D124",
+      "stepId": "MAP-ERP-027"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column product_model_scheme",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "member": "FLD-Identifier-scheme",
+      "outputRef": "registry-prep-json/MAP-REG-001",
+      "property": "ALU-D101",
+      "stepId": "MAP-REG-001"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column product_model_id",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "member": "FLD-Identifier-value",
+      "outputRef": "registry-prep-json/MAP-REG-001",
+      "property": "ALU-D101",
+      "stepId": "MAP-REG-001"
+    },
+    {
+      "assertion": {
+        "file": "d03a-lab-assessment.json",
+        "location": "d03a-lab-assessment.json, /product/model_id",
+        "role": "lab",
+        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+      },
+      "member": "FLD-Identifier-value",
+      "outputRef": "registry-prep-json/MAP-REG-001",
+      "property": "ALU-D101",
+      "stepId": "MAP-REG-001"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column product_model_scheme_version",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "member": "FLD-Identifier-scheme_version",
+      "outputRef": "registry-prep-json/MAP-REG-001",
+      "property": "ALU-D101",
+      "stepId": "MAP-REG-001"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column company_code",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "outputRef": "registry-prep-json/MAP-REG-002",
+      "property": "ALU-D102",
+      "stepId": "MAP-REG-002"
+    },
+    {
+      "assertion": {
+        "file": "d03a-erp-extract.csv",
+        "location": "d03a-erp-extract.csv, row 2, column cn_code",
+        "role": "erp",
+        "sha256": "5a8629e13e09417083fbc5fc11dcaef5089d0c2fc64e286da77f931b9f39797f"
+      },
+      "outputRef": "registry-prep-json/MAP-REG-003",
+      "property": "ALU-D105",
+      "stepId": "MAP-REG-003"
+    }
+  ],
+  "outputs": [
+    {
+      "fileName": "customer-sheet_PM-5754-H111-2000_B-2026-0417.pdf",
+      "holds": [],
+      "mediaType": "application/pdf",
+      "route": "customer-pdf",
+      "sha256": "92d1cdfedfdd99b9b509b5d94d2e5af9b3b83d9da25962f787d68ff755e8448a",
+      "status": "ready"
+    },
+    {
+      "fileName": "erp-staging_PM-5754-H111-2000_B-2026-0417.csv",
+      "holds": [],
+      "mediaType": "text/csv",
+      "route": "erp-staging-csv",
+      "sha256": "711b23f922dec8280c4abd1e63ba05ab865c6525bd861ba3d551ea99071eb7f5",
+      "status": "ready"
+    },
+    {
+      "fileName": "registry-draft-HOLD_PM-5754-H111-2000_B-2026-0417.json",
+      "holds": [
+        {
+          "property": null,
+          "rule": "RR-STANDING-HOLD"
+        }
+      ],
+      "mediaType": "application/json",
+      "route": "registry-prep-json",
+      "sha256": "b29f0c75a1b8e7e95d1ffb7ae30ea9894fd1afb683d4a3e25406fa34bb2bf2b2",
+      "status": "hold"
+    }
+  ],
+  "pack": {
+    "manifestDigest": "24470e965bbc2f783f36487a9180e38423b8bb2dc73ccee54fc7dd9ff822fc29",
+    "pins": {
+      "codeLists": [
+        {
+          "digest": "047acd3917aa78aa847510c1298e618e18e1339beb516515a33ebb5cc5e309e2",
+          "path": "code-lists/COMPANY@1.0.0.csv",
+          "ref": "COMPANY@1.0.0"
+        },
+        {
+          "digest": "b6da51b844ef2b91468a94cce98c616a6b1c0b1c8fc6ff58f978abf9fdbea772",
+          "path": "code-lists/CN@1.0.0.csv",
+          "ref": "CN@1.0.0"
+        },
+        {
+          "digest": "3f3f2fd94c923e31e02a66cf7b3d93ee843bc57a77d03a10cfd6d3a13c8624ab",
+          "path": "code-lists/ALLOY@1.0.0.csv",
+          "ref": "ALLOY@1.0.0"
+        },
+        {
+          "digest": "4b35b33af69b950bc2086ff2d13c8317d7e6e1ff7b5778bf9cf41b4a94e8299c",
+          "path": "code-lists/TEMPER@1.0.0.csv",
+          "ref": "TEMPER@1.0.0"
+        },
+        {
+          "digest": "998583410e077665abc0021dc066367ce14a630fdcff700a2a8c8c8e2f22f538",
+          "path": "code-lists/SURFACE@1.0.0.csv",
+          "ref": "SURFACE@1.0.0"
+        },
+        {
+          "digest": "a160f0d7b9086cfa0587b4438407501ea60b5c6bf5c6b7cf08a4ddc79da7d04d",
+          "path": "code-lists/COUNTRY@1.0.0.csv",
+          "ref": "COUNTRY@1.0.0"
+        },
+        {
+          "digest": "b50392cead689adc68bffbd55513f62f8eee1b550bb7620762eafa32785b42ae",
+          "path": "code-lists/CUSTOMER@1.0.0.csv",
+          "ref": "CUSTOMER@1.0.0"
+        },
+        {
+          "digest": "9df9955a3c2822a2daeb90349886b5425fb77481fdb2336f6c2819047e5967e8",
+          "path": "code-lists/SUPPLIER@1.0.0.csv",
+          "ref": "SUPPLIER@1.0.0"
+        },
+        {
+          "digest": "7b2969fe42f3cefd1c6bc46f225d28970a5257b3631e2115e8366de951835e16",
+          "path": "code-lists/SECTOR@1.0.0.csv",
+          "ref": "SECTOR@1.0.0"
+        },
+        {
+          "digest": "7b2969fe42f3cefd1c6bc46f225d28970a5257b3631e2115e8366de951835e16",
+          "path": "code-lists/SECTOR@1.0.0.csv",
+          "ref": "SECTOR@1.0.0"
+        }
+      ],
+      "inputs": [
+        {
+          "digest": "2f96f4eaf82ff983608d0038a48ef0d47c01a0b4c7e17ff5f810065f529ec403",
+          "path": "inputs/erp-extract.csv.contract.yaml",
+          "ref": "INPUT-ERP-CSV@1.0.0"
+        },
+        {
+          "digest": "344c67011e283191f65e2197c43b72516ec5f5c68f3f515eabfad2be2a3d662a",
+          "path": "inputs/lab-assessment.contract.yaml",
+          "ref": "INPUT-LAB-JSON@1.0.0"
+        }
+      ],
+      "legal": [
+        {
+          "digest": "5cc4d43ecb86d9f27b36d5cc9a34bfe7ccf9c17c0610ae90b63f5c90484ab50e",
+          "path": "legal/ALU-LEGAL@1.0.0.yaml",
+          "ref": "ALU-LEGAL@1.0.0"
+        }
+      ],
+      "policy": [
+        {
+          "digest": "5f6f3f102601efcbeb15052b46785a76010b35264fc57286ea5c8d81856dfb10",
+          "path": "policy/READINESS-RULES@1.0.0.yaml",
+          "ref": "READINESS-RULES@1.0.0"
+        },
+        {
+          "digest": "d6b9ad13e440e185960998ea631869a5478a7262f44b1a1a38d7acd733990c5e",
+          "path": "policy/DERIVED-RULES@1.0.0.yaml",
+          "ref": "DERIVED-RULES@1.0.0"
+        }
+      ],
+      "profile": [
+        {
+          "digest": "aa2a8f5c7087b98b050928ef526324c05ce9c6b590806ce68219adcd15505f24",
+          "path": "profile/PROFILE-ALU-24-01@1.0.0.yaml",
+          "ref": "PROFILE-ALU-24-01@1.0.0"
+        }
+      ],
+      "routes": [
+        {
+          "digest": "0a236fc99903ae2d97b3607f1e95a73297a66c9b00bdf05357db9efed9f3bc7a",
+          "path": "routes/customer-pdf.yaml",
+          "ref": "customer-pdf@1.0.0"
+        },
+        {
+          "digest": "8255b08d9f53f46cf61e6e355b2369a0c6fb387497ac5e3c85c079e30f2d9954",
+          "path": "routes/erp-staging-csv.yaml",
+          "ref": "erp-staging-csv@1.0.0"
+        },
+        {
+          "digest": "d579045c567418e0698e496ad0cd632c55f96365d313d827661c2c16461088ca",
+          "path": "routes/registry-prep-json.yaml",
+          "ref": "registry-prep-json@1.0.0"
+        }
+      ],
+      "terms": [
+        {
+          "digest": "953c2646326a6e209d4f71379ad46d915b36ffec7fc4db5eb9769face69949e3",
+          "path": "terms/ALU-TERMS@1.0.0.yaml",
+          "ref": "ALU-TERMS@1.0.0"
+        }
+      ],
+      "units": [
+        {
+          "digest": "4d75219d7ea4f71883c0d55686419d8f1e14602b44616e96926616fc0d2bbfba",
+          "path": "units/UNITS@1.0.0.yaml",
+          "ref": "UNITS@1.0.0"
+        }
+      ]
+    }
+  },
+  "record": {
+    "batch": "B-2026-0417",
+    "digest": "8a7ddd8e8ded680d0340e8ac4ac046ce3c78891bc9b36dfc83511f2c09e0be93",
+    "model": "PM-5754-H111-2000",
+    "snapshotDigest": "6c3a96be41b088941abbda0b699bab81984624b6710b7a3b00cb585834bc68b2",
+    "version": 1
+  },
+  "software": {
+    "commit": "golden",
+    "name": "dpp-traceability",
+    "version": "0.0.0-golden"
+  },
+  "version": 1
+}

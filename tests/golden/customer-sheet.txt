@@ -1,0 +1,204 @@
+Product data sheet
+Aluminiumblech EN AW-5754 H111, 2,0 mm
+Model PM-5754-H111-2000
+ 
+Batch B-2026-0417
+Identification / Kennung
+Product model identifier
+ 
+Produktmodellkennung
+ 
+scheme: DEMO-PM
+value: PM-5754-H111-2000
+scheme_version: 1.0
+Source: ERP extract, row 2, column product_model_scheme
+Source: ERP extract, row 2, column product_model_id
+Source: Laboratory file, /product/model_id
+Source: ERP extract, row 2, column product_model_scheme_version
+Manufacturer identifier
+ 
+Herstellerkennung
+ 
+STANDIN-MFR-01
+Source: ERP extract, row 2, column company_code
+Product name
+ 
+Produktbezeichnung
+ 
+de: Aluminiumblech EN AW-5754 H111, 2,0 mm
+en: Aluminium sheet EN AW-5754 H111, 2.0 mm
+Source: ERP extract, row 2, column product_name_de
+Source: ERP extract, row 2, column product_name_en
+Batch identifier
+ 
+Chargenkennung
+ 
+value: B-2026-0417
+scheme_version: 1.0
+Source: ERP extract, row 2, column batch_id
+Source: Laboratory file, /product/batch_id
+Source: ERP extract, row 2, column batch_scheme_version
+Commodity code (CN)
+ 
+Warennummer (KN)
+ 
+76061293
+Source: ERP extract, row 2, column cn_code
+Customer article number
+ 
+Kundenartikelnummer
+ 
+scope: SC01
+value: KA-778812
+Source: ERP extract, row 2, column customer_code
+Source: ERP extract, row 2, column customer_article_no
+Material and properties / Werkstoff und Eigenschaften
+Alloy designation
+ 
+Legierungsbezeichnung
+ 
+EN AW-5754
+Source: ERP extract, row 2, column alloy
+Source: Laboratory file, /product/alloy
+Temper designation
+ 
+Werkstoffzustand
+ 
+H111
+Source: ERP extract, row 2, column temper
+Recycled content
+ 
+Rezyklatanteil
+ 
+62.0 %
+Source: ERP extract, row 2, column recycled_content_pct
+Tensile strength Rm (measured)
+ 
+Zugfestigkeit Rm (gemessen)
+ 
+within the limits (illustrative limits after EN 485-2, EN
+AW-5754 H111)
+Rule DR-TENSILE-LIMITS
+Source: Laboratory file, /observations/1/value
+Source: ERP extract, row 2, column alloy
+Source: Laboratory file, /product/alloy
+Source: ERP extract, row 2, column temper
+Post-consumer recycled share
+ 
+Post-Consumer-Rezyklatanteil
+ 
+38.5 %
+Source: ERP extract, row 2, column post_consumer_pct
+Chemical composition (measured)
+ 
+Chemische Zusammensetzung
+(gemessen)
+within the limits (illustrative limits after EN 573-3, EN
+AW-5754)
+Rule DR-COMPOSITION-LIMITS
+Source: Laboratory file, /observations/2/value
+Source: Laboratory file, /observations/3/value
+Source: ERP extract, row 2, column alloy
+Source: Laboratory file, /product/alloy
+Dimensions and mass / Abmessungen und Masse
+Nominal thickness
+ 
+Nenndicke
+ 
+2.0 mm
+Source: ERP extract, row 2, column thickness_nominal_mm
+Measured thickness
+ 
+Gemessene Dicke
+ 
+2.01 mm
+Source: Laboratory file, /observations/0/value
+Record version 1
+ 
+Record digest 8a7ddd8e8ded680d0340e8ac4ac046ce3c78891bc9b36dfc83511f2c09e0be93
+Contract pack manifest digest 24470e965bbc2f783f36487a9180e38423b8bb2dc73ccee54fc7dd9ff822fc29
+Page 1 of 2. Illustrative values are marked as such; this sheet is not a conformity statement.
+Nominal width
+ 
+Nennbreite
+ 
+1500 mm
+Source: ERP extract, row 2, column width_nominal_mm
+Nominal length
+ 
+Nennlänge
+ 
+3000 mm
+Source: ERP extract, row 2, column length_nominal_mm
+Net mass of the batch
+ 
+Nettomasse der Charge
+ 
+2412.5 kg
+Source: ERP extract, row 2, column net_mass_kg
+Production and origin / Herstellung und Herkunft
+Surface finish
+ 
+Oberflächenausführung
+ 
+MILL
+Source: ERP extract, row 2, column surface_finish
+Country of casting
+ 
+Gießland
+ 
+DE
+Source: ERP extract, row 2, column country_of_casting
+Production date
+ 
+Herstelldatum
+ 
+2026-10-14
+Source: ERP extract, row 2, column production_date
+Environmental data / Umweltdaten
+Product carbon footprint
+ 
+CO2-Fußabdruck des Produkts
+ 
+PCF-1: 4.2 kg CO2e/kg
+Source: Laboratory file, /footprints/0/value
+Footprint method
+ 
+Berechnungsmethode
+ 
+PCF-1: ISO 14067:2018
+Source: Laboratory file, /footprints/0/value
+System boundary
+ 
+Systemgrenze
+ 
+PCF-1: cradle-to-gate
+Source: Laboratory file, /footprints/0/value
+Reference year
+ 
+Bezugsjahr
+ 
+PCF-1: 2025
+Source: Laboratory file, /footprints/0/value
+Calculated by
+ 
+Berechnet von
+ 
+PCF-1: Demo LCA consultancy (synthetic)
+Source: Laboratory file, /footprints/0/value
+Description / Beschreibung
+Product narrative
+ 
+Produktbeschreibung
+ 
+de/construction/EU: Gewalztes Aluminiumblech für
+Fassaden und Dächer, walzblank geliefert.
+en/construction/EU: Rolled aluminium sheet for facade
+and roofing applications, supplied in mill finish.
+Source: Laboratory file, /texts/1/text
+Source: Laboratory file, /texts/0/text
+Record version 1
+ 
+Record digest 8a7ddd8e8ded680d0340e8ac4ac046ce3c78891bc9b36dfc83511f2c09e0be93
+Contract pack manifest digest 24470e965bbc2f783f36487a9180e38423b8bb2dc73ccee54fc7dd9ff822fc29
+Page 2 of 2. Illustrative values are marked as such; this sheet is not a conformity statement.
