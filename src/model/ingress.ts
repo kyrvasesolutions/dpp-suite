@@ -11,6 +11,7 @@
  * The resulting record state depends only on the file bytes and the pack, so importing again gives the
  * same record and the same digest (C2-07). There is no overall quality score (FUNC-017 slice).
  */
+import { canonical } from "./canonical";
 import { JsonSyntaxError, parseStrictJson, type JsonValue } from "./strictJson";
 import { sha256Hex, type CodeList, type ProfilePack } from "./profile";
 
@@ -700,16 +701,6 @@ export interface RecordState {
 const keyOf = (a: { property: string; member?: string; qualifier?: string }) => `${a.property}|${a.member ?? ""}|${a.qualifier ?? ""}`;
 
 const same = (a: Assertion, b: Assertion) => (typeof a.value === "number" && typeof b.value === "number" ? a.value === b.value : a.raw === b.raw);
-
-const canonical = (x: unknown): string =>
-  Array.isArray(x)
-    ? `[${x.map(canonical).join(",")}]`
-    : x && typeof x === "object"
-      ? `{${Object.keys(x)
-          .sort()
-          .map((k) => `${JSON.stringify(k)}:${canonical((x as Record<string, unknown>)[k])}`)
-          .join(",")}}`
-      : JSON.stringify(x);
 
 /**
  * Combines accepted imports into one record per product model and batch (FUNC-065 references). When two
