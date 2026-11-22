@@ -36,7 +36,7 @@
     "policy/LIMITS@1.0.0.yaml": "54c60cb5ccde21991a70c7045cdb59244c0e969f18b653ae6cf9558f28140a76",
     "policy/READINESS-RULES@1.0.0.yaml": "0aa7f138bf2f2031dcceb4a402e341e01e66063a0c68c722fe53b6522c94a4dd",
     "policy/actor-field-matrix.csv": "e02f650d50b1614402c74a876b6603fb660da05ac86df16fde24aeb6fe0d69cd",
-    "profile/PROFILE-ALU-24-01@1.0.0.yaml": "8890d076e57371ed844a32459a4a16efeef332853ab409c02e9f90fd9bfd5341",
+    "profile/PROFILE-ALU-24-01@1.0.0.yaml": "0cd69e4cb4dc8c8d6543efb996d2619292556cb274bb842cf9f272fe698ce741",
     "routes/customer-pdf.yaml": "0a236fc99903ae2d97b3607f1e95a73297a66c9b00bdf05357db9efed9f3bc7a",
     "routes/erp-staging-csv.yaml": "8255b08d9f53f46cf61e6e355b2369a0c6fb387497ac5e3c85c079e30f2d9954",
     "routes/registry-prep-json.yaml": "d579045c567418e0698e496ad0cd632c55f96365d313d827661c2c16461088ca",

@@ -66,6 +66,7 @@ const ProfileDoc = z.object({
       required_by: z.object({ "customer-pdf": z.boolean(), "erp-staging-csv": z.boolean(), "registry-prep-json": z.boolean() }),
       members: z.array(z.string()),
       context_labels: z.array(ContextLabel).optional(),
+      basis: z.string().min(1).optional(),
     }),
   ),
 });
@@ -243,6 +244,8 @@ export interface ResolvedProperty {
   unitName: string | null;
   requiredBy: Record<Route, boolean>;
   members: Array<{ id: string; definition: string }>;
+  /** What the value is a share or measure of, where the profile definition says (for example a mass share of the product). */
+  basis?: string;
   legal: { status: string; statusText: string; requirement?: string; legislation?: string };
 }
 
@@ -419,6 +422,7 @@ export async function loadProfilePack(source: PackSource): Promise<ProfilePack> 
       unit: p.unit,
       unitName: p.unit === null ? null : (unitName.get(p.unit) ?? null),
       requiredBy: p.required_by,
+      ...(p.basis ? { basis: p.basis } : {}),
       members: p.members.map((m) => ({ id: m, definition: term(`${p.id} member`, m) })),
       legal: { status: entry.status, statusText, requirement: entry.requirement, legislation: entry.legislation },
     };

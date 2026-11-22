@@ -1005,7 +1005,7 @@
       "holds": [],
       "mediaType": "application/pdf",
       "route": "customer-pdf",
-      "sha256": "2375cefc2f3c6cfe76405c97a552fc097ebdbf0c817885acd724e50db0f4c3be",
+      "sha256": "8e49fe869053f2728dce49eb76a88209d172686d944d73e47701304f33727a06",
       "status": "ready"
     },
     {
@@ -1031,7 +1031,7 @@
     }
   ],
   "pack": {
-    "manifestDigest": "d17a99fa554308505caf63784ade1916f001c6f5d0960ac23ef138c732551cbb",
+    "manifestDigest": "4ac87f92beab8e654394c83946733dcc58314a349621d08c7d7ad4671394bbec",
     "pins": {
       "codeLists": [
         {
@@ -1123,7 +1123,7 @@
       ],
       "profile": [
         {
-          "digest": "8890d076e57371ed844a32459a4a16efeef332853ab409c02e9f90fd9bfd5341",
+          "digest": "0cd69e4cb4dc8c8d6543efb996d2619292556cb274bb842cf9f272fe698ce741",
           "path": "profile/PROFILE-ALU-24-01@1.0.0.yaml",
           "ref": "PROFILE-ALU-24-01@1.0.0"
         }
@@ -1173,6 +1173,6 @@
     "name": "dpp-traceability",
     "version": "0.0.0-golden"
   },
-  "substantiveDigest": "bc1a97892501bd8a51ce85a2081a23a89fa48ce5443f262a59a0b3a909c2956e",
+  "substantiveDigest": "63429ff18caa0931f54008fe3135e4850b66e49890112bc4ab8292dfd5f15eb0",
   "version": 1
 }

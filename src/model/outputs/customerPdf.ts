@@ -208,6 +208,9 @@ export async function buildCustomerPdf(pack: ProfilePack, record: ProductRecord,
     if (!it.present) valueLines.push("not provided");
     else if (it.kind === "derived") valueLines.push(...wrap(`${it.text}`, regular, 8.5, COL_W.value), `Rule ${it.ruleId}`);
     else it.lines.forEach((l) => valueLines.push(...wrap(`${l.key ? `${l.key}: ` : ""}${l.text}${it.lines.length === 1 ? unitText(it.unit) : ""}`, regular, 8.5, COL_W.value)));
+    // The basis a value is stated on, from the profile definition (the post-consumer share is a mass share of the product)
+    const basis = it.present && it.kind !== "derived" ? pack.properties.find((p) => p.id === it.property)?.basis : undefined;
+    if (basis && it.role === "field") valueLines.push(...wrap(`Basis: ${basis}`, regular, 7, COL_W.value));
     const seen = new Set<string>();
     const sourceLines: string[] = [];
     for (const s of it.sources) {
@@ -220,15 +223,52 @@ export async function buildCustomerPdf(pack: ProfilePack, record: ProductRecord,
     const src = sourceLines.flatMap((l) => wrap(`Source: ${l}`, regular, 6.5, COL_W.value));
     const rows = Math.max(label.en.length, label.de.length, valueLines.length);
     y -= 2;
-    for (let n = 0; n < rows; n++) {
-      const parts: Part[] = [];
-      if (label.en[n] !== undefined) parts.push({ text: label.en[n], x: COL.en, size: 8.5, font: regular });
-      if (label.de[n] !== undefined) parts.push({ text: label.de[n], x: COL.de, size: 8.5, font: regular, color: grey });
-      if (valueLines[n] !== undefined) parts.push({ text: valueLines[n], x: COL.value, size: 8.5, font: bold });
-      row(11, ...parts);
+    if (rows * 11 + src.length * 8 + 5 <= A4.h - M.top - M.bottom - 40) {
+      // An item stays on one page, and each column is drawn whole, one after the other, so a label that wraps keeps its
+      // words together in the text of the file and stays inside its own column.
+      if (y - (rows * 11 + src.length * 8 + 3) < M.bottom) newPage();
+      const top = y;
+      const column = (lines: string[], x: number, font: PDFFont, color?: ReturnType<typeof rgb>, size = 8.5) =>
+        lines.forEach((text, n) => {
+          page.drawText(text, { x, y: top - (n + 1) * 11, size, font, color: color ?? ink });
+          drawn.push(text);
+        });
+      column(label.en, COL.en, regular);
+      column(label.de, COL.de, regular, grey);
+      column(valueLines, COL.value, bold);
+      y = top - rows * 11;
+    } else {
+      // An item taller than a page (a very long text) runs on across pages, row by row
+      for (let n = 0; n < rows; n++) {
+        const parts: Part[] = [];
+        if (label.en[n] !== undefined) parts.push({ text: label.en[n], x: COL.en, size: 8.5, font: regular });
+        if (label.de[n] !== undefined) parts.push({ text: label.de[n], x: COL.de, size: 8.5, font: regular, color: grey });
+        if (valueLines[n] !== undefined) parts.push({ text: valueLines[n], x: COL.value, size: 8.5, font: bold });
+        row(11, ...parts);
+      }
     }
     for (const l of src) row(8, { text: l, x: COL.value, size: 6.5, font: regular, color: grey });
     y -= 3;
+  }
+
+  // How to read the sheet: what the codes and qualifiers on it mean, and what its digests are for
+  {
+    const find = (pattern: RegExp) => items.flatMap((i) => (i.present ? i.lines.map((l) => l.key ?? "") : [])).find((k) => pattern.test(k));
+    const resultId = items.find((i) => i.property === byRole(pack, "footprint") && i.role === "field")?.lines[0]?.key ?? "PCF-1";
+    const qualifier = find(/^en\/[^/]+\/[^/]+$/) ?? find(/^[a-z]{2}\/[^/]+\/[^/]+$/) ?? "en/construction/EU";
+    const rule = items.find((i) => i.kind === "derived" && i.ruleId)?.ruleId ?? "a rule ID";
+    const notes = [
+      `${resultId}: the footprint result ID, the identifier the laboratory file gives to one calculated footprint result.`,
+      "scope: the customer-scoped alias. It names the customer whose own article number is shown next to it.",
+      `${qualifier}: a qualifier of a text. It gives the language, the sector and the market the text is approved for.`,
+      `Rule ${rule}: a rule ID. It names the rule in the pinned contract pack that made a derived statement, which says whether a value lies within limits; the value itself is not shown.`,
+      "The record digest and the contract pack digest in the footer identify exactly which record and which contract this sheet was made from.",
+    ].flatMap((t) => wrap(t, regular, 7.5, A4.w - M.left - M.right));
+    if (y - (notes.length * 10 + 40) < M.bottom) newPage();
+    y -= 14;
+    row(13, { text: "Reading this sheet", x: M.left, size: 11, font: bold });
+    y -= 2;
+    for (const l of notes) row(10, { text: l, x: M.left, size: 7.5, font: regular, color: grey });
   }
 
   // Footer on every page

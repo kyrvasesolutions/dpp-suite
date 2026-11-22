@@ -337,3 +337,66 @@ describe("long texts are never cut off or drawn over the footer", () => {
     expect(pages).toBeGreaterThanOrEqual(2);
   });
 });
+
+describe("customer sheet clarity", () => {
+  const sheet = async () => {
+    const record = await recordFor(pack, CLEAN);
+    const out = await buildCustomerPdf(pack, record);
+    return { record, out, text: await pdfText(out.bytes), items: await pdfItems(out.bytes) };
+  };
+  const flat = (s: string) => s.replace(/\s+/g, " ").trim();
+
+  it("explains the result ID, the customer scope, the language/sector/market qualifier and the rule IDs", async () => {
+    const { text, out } = await sheet();
+    const t = flat(text);
+    expect(t).toContain("Reading this sheet");
+    expect(t).toMatch(/PCF-1: the footprint result ID, the identifier the laboratory file gives to one calculated footprint result\./);
+    expect(t).toMatch(/scope: the customer-scoped alias\. It names the customer whose own article number is shown next to it\./);
+    expect(t).toMatch(/en\/construction\/EU: a qualifier of a text\. It gives the language, the sector and the market the text is approved for\./);
+    const rule = out.items.find((i) => i.kind === "derived")!.ruleId!;
+    expect(t).toContain(`Rule ${rule}: a rule ID. It names the rule in the pinned contract pack that made a derived statement`);
+    // the legend adds no value and no denied text
+    expect(t).not.toMatch(/within limits; the value itself is not shown\.[^]*\d{3} MPa/);
+  });
+
+  it("says what the digests are for", async () => {
+    const { text } = await sheet();
+    expect(flat(text)).toContain("The record digest and the contract pack digest in the footer identify exactly which record and which contract this sheet was made from.");
+  });
+
+  it("states the post-consumer share on its basis, taken from the profile definition", async () => {
+    const { text } = await sheet();
+    const share = pack.properties.find((p) => p.id === propertyBySlug(pack, "post-consumer-share"))!;
+    expect(share.basis).toBe("mass share of the product");
+    expect(flat(text)).toMatch(/38\.5 % Basis: mass share of the product/);
+    // no other property is given a basis it does not have
+    expect(pack.properties.filter((p) => p.basis).map((p) => p.id)).toEqual([share.id]);
+    expect(flat(text).match(/Basis: /g)).toHaveLength(1);
+  });
+
+  it("keeps each label's words together in the extracted text, English and German", async () => {
+    const { text, out } = await sheet();
+    const t = flat(text);
+    const labels = out.items.filter((i) => i.present).flatMap((i) => [i.label.en, i.label.de]);
+    expect(labels.length).toBeGreaterThan(30);
+    for (const l of labels) expect(t, l).toContain(flat(l));
+    // at least one label wraps, so the check means something
+    expect(labels.some((l) => l.length > 26)).toBe(true);
+  });
+
+  it("wraps a label inside its own column: English before the German column, German before the value column", async () => {
+    const { items, out } = await sheet();
+    const labels = out.items.filter((i) => i.present).flatMap((i) => [flat(i.label.en), flat(i.label.de)]);
+    // the lines of the label columns: text that is part of a property label, not a title, heading, legend or footer
+    const inColumn = (x: number) => items.filter((i) => Math.abs(i.x - x) < 0.5 && labels.some((l) => l.includes(flat(i.str))) && i.str.length > 2);
+    const en = inColumn(48);
+    const de = inColumn(190);
+    expect(en.length).toBeGreaterThan(20);
+    expect(de.length).toBeGreaterThan(20);
+    for (const i of en) expect(i.x + i.width, i.str).toBeLessThanOrEqual(190 - 2);
+    for (const i of de) expect(i.x + i.width, i.str).toBeLessThanOrEqual(332 - 2);
+    // a label that is long enough to wrap has its second line in the same column, below the first
+    const wrapped = de.filter((i) => items.some((j) => j !== i && Math.abs(j.x - i.x) < 0.5 && j.page === i.page && j.y < i.y && i.y - j.y < 12 && /^\(/.test(j.str)));
+    expect(wrapped.length).toBeGreaterThan(0);
+  });
+});

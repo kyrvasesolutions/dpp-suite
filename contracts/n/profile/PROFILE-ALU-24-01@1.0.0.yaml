@@ -309,6 +309,7 @@ properties:
       erp-staging-csv: true
       registry-prep-json: false
     members: []
+    basis: mass share of the product
   - id: ALU-D121
     definition_ref: urn:dpp-demo:standin:term:product-narrative
     unit: null
