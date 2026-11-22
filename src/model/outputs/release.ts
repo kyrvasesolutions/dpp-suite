@@ -6,7 +6,7 @@ import type { ProductRecord } from "../ingress";
 import type { ProfilePack, Route } from "../profile";
 import { ROUTES } from "../profile";
 import type { Snapshot } from "../recordRepository";
-import { buildCustomerPdf } from "./customerPdf";
+import { buildCustomerPdf, PdfTextError } from "./customerPdf";
 import { buildErpCsv } from "./erpCsv";
 import { RouteRefusedError } from "./items";
 import { buildManifest, manifestFile, type ReleaseManifest, type RouteOutcome } from "./manifest";
@@ -46,6 +46,8 @@ export async function generateRelease(
       outcomes.push({ route, file: await build(pack, record, { version: snapshot.version }) });
     } catch (e) {
       if (e instanceof RouteRefusedError) outcomes.push({ route, refused: e });
+      // a character the PDF font lacks stops that file only; the route is listed as not made, with the reason
+      else if (e instanceof PdfTextError) outcomes.push({ route, refused: new RouteRefusedError(route, [], e.message) });
       else throw e;
     }
   }

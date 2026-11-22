@@ -14,7 +14,13 @@ Functional changes to the DPP suite, one entry per merged pull request, newest f
 - **Lineage**: every value in an output can be traced to its mapping step, to the derived rule for a derived statement, and to the source file, its sha256 and the place in it. A derived statement lists every value it was made from.
 - **Release manifest**: canonical JSON, with no date or time, listing the software version and commit, the contract pack and every pinned file, the input files by role and sha256, the record version and digest, each output with its digest and status, and the lineage. Verification recomputes every digest of a set of files and reports each change, missing file or unlisted file.
 - **Portable export and import of the central record** as one canonical JSON file with every version, the contract pack digest and its own sha256. Import checks the strict JSON syntax, the schema and every digest and link, and gives back exactly what was exported; a changed file, another pack or a role other than the operator is refused.
-- Outputs use no clock, no randomness and no network.
+- **Customer PDF**: one fixed A4 layout with English labels and German labels in a second column, from the customer route's projection only.
+  - Derived properties appear only as statements ("within the limits", with the basis and the rule), never as values. Evidence and the primary supplier do not appear.
+  - The footprint keeps its method, system boundary, reference year and calculated-by. Each value names where it comes from (kind of file and position, never a file name). The footer has the record version, the record digest and the contract pack digest.
+  - Standard Helvetica only, so no font file is embedded. The file has no date, producer or other metadata, so the same inputs give the same bytes. A few characters outside the font's set are spelled in ASCII ("<=", ">=", "CO2e"); any other character stops that file with the reason.
+  - Like the CSV, it is refused when its route is on hold.
+- New **Outputs** screen after Readiness, labelled Untested: per route the status and a download, or the reasons why no file is made; the registry file as **Download draft (HOLD)**; the release manifest with verification of a set of downloaded files; the history of the record with each version viewable read only; export and import of the central record; and a panel that traces any output value to its step, rule and source. The Import screen now reports which version was stored, or that nothing new was stored.
+- Outputs use no clock, no randomness and no network. The browser bundle gains pdf-lib (pinned to 1.17.1); the PDF text reader used by the tests is a development dependency only and is checked to be absent from the bundle.
 
 ## [#11](https://github.com/kyrvasesolutions/dpp-suite/pull/11) Readiness screen supported (21 November 2026)
 

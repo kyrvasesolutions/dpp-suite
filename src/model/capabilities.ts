@@ -11,7 +11,7 @@ export type CapabilityLabel = (typeof CAPABILITY_LABELS)[number];
 
 export interface Capability {
   /** The screen, as in the URL hash. */
-  id: "profile" | "import" | "readiness" | "requirements" | "prepare" | "validation" | "mapping" | "graph";
+  id: "profile" | "import" | "readiness" | "outputs" | "requirements" | "prepare" | "validation" | "mapping" | "graph";
   name: string;
   label: CapabilityLabel;
   /**
@@ -50,9 +50,9 @@ export const CAPABILITIES: Capability[] = [
     id: "import",
     name: "Import",
     label: "supported",
-    functions: ["FUNC-039", "FUNC-125", "FUNC-017", "FUNC-065"],
-    functionLabels: { "FUNC-125": "experimental" },
-    basis: "Cycle 2 exit: strict import of the two N source files with verbatim source assertions, flags and challenged values. FUNC-125 is experimental: import side only.",
+    functions: ["FUNC-039", "FUNC-017", "FUNC-065"],
+    extends: ["FUNC-125"],
+    basis: "Cycle 2 exit: strict import of the two N source files with verbatim source assertions, flags and challenged values. The export side of FUNC-125 is on the Outputs screen.",
   },
   {
     id: "readiness",
@@ -62,11 +62,18 @@ export const CAPABILITIES: Capability[] = [
     basis: "Cycle 3 exit: selected structural, completeness and route checks per route, a fixed recipient matrix and derived disclosure; no conformity claim.",
   },
   {
+    id: "outputs",
+    name: "Outputs",
+    label: "untested",
+    functions: ["FUNC-041", "FUNC-042", "FUNC-043", "FUNC-125", "FUNC-022", "FUNC-023", "FUNC-063", "FUNC-064"],
+    basis: "Cycle 4 build: the customer PDF, the ERP staging CSV and the registry preparation draft, the central record with versions, lineage and the release manifest. Not yet assessed.",
+  },
+  {
     id: "requirements",
     name: "Requirements",
     label: "experimental",
-    functions: ["FUNC-043"],
-    extends: ["FUNC-001", "FUNC-025", "FUNC-028", "FUNC-081"],
+    functions: [],
+    extends: ["FUNC-001", "FUNC-025", "FUNC-028", "FUNC-043", "FUNC-081"],
     basis: "The wider legal chain and ontology terms, checked against their sources; the N profile itself is on the Profile screen.",
   },
   {

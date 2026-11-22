@@ -46,8 +46,20 @@ for (const file of readdirSync(join(DIST, "assets")).filter((f) => f.endsWith(".
 if (packs.size === 0) errors.push("no contract pack is embedded in the bundle");
 for (const p of packs) if (p !== "contracts/n") errors.push(`the bundle embeds the contract pack ${p}; only contracts/n may be published`);
 
+// PDF output (Cycle 4, decision D4-01): pdf-lib is in the bundle; pdfjs-dist is a test-only dependency and must not be.
+const bundleText = readdirSync(join(DIST, "assets"))
+  .filter((f) => f.endsWith(".js"))
+  .map((f) => readFileSync(join(DIST, "assets", f), "utf8"))
+  .join("\n");
+for (const marker of ["GlobalWorkerOptions", "PDFWorker", "pdfjsLib", "getTextContent"]) {
+  if (bundleText.includes(marker)) errors.push(`the bundle contains "${marker}": pdfjs-dist is a test-only dependency and must not be bundled`);
+}
+for (const marker of ["PDFDocument", "Helvetica"]) {
+  if (!bundleText.includes(marker)) errors.push(`the bundle lacks "${marker}": pdf-lib should be bundled for the customer PDF`);
+}
+
 if (errors.length) {
   for (const e of errors) console.error(`check-bundle: ${e}`);
   process.exit(1);
 }
-console.log("Bundle OK: content security policy present, no browser LLM client, public contract pack only.");
+console.log("Bundle OK: content security policy present, no browser LLM client, public contract pack only, pdf-lib bundled, pdfjs-dist not.");
