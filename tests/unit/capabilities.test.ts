@@ -7,7 +7,7 @@ describe("capability registry", () => {
   it("has one entry per screen", () => {
     const ids = CAPABILITIES.map((c) => c.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect([...ids].sort()).toEqual(["graph", "import", "mapping", "outputs", "prepare", "profile", "readiness", "record", "requirements", "validation"]);
+    expect([...ids].sort()).toEqual(["graph", "import", "mapping", "outputs", "prepare", "profile", "readiness", "record", "requirements", "server", "validation"]);
   });
 
   it("uses only the four labels", () => {
@@ -19,8 +19,11 @@ describe("capability registry", () => {
   });
 
   it("gives each plan function one label: one screen delivers it, others may only extend it", () => {
-    const delivered = CAPABILITIES.flatMap((c) => c.functions);
-    expect(new Set(delivered).size).toBe(delivered.length);
+    // one label per function per increment: N (the screens) and P (the durable server) label their own slices
+    for (const increment of ["N", "P"] as const) {
+      const delivered = CAPABILITIES.filter((c) => (c.increment ?? "N") === increment).flatMap((c) => c.functions);
+      expect(new Set(delivered).size, increment).toBe(delivered.length);
+    }
     for (const c of CAPABILITIES) for (const f of c.extends ?? []) expect(c.functions).not.toContain(f);
   });
 
@@ -61,11 +64,20 @@ describe("capability registry", () => {
     }
   });
 
-  // The Cycle 6 server functions are labelled untested until that cycle's exit, whatever label their screen carries.
-  it("labels the Cycle 6 server functions untested until the Cycle 6 exit", () => {
+  // The server increment (P) is labelled on its own entry. It never changes the N label of the same function, so static
+  // mode, where no server code runs, shows the N labels as they were.
+  it("labels the Cycle 6 server functions untested on their own P entry, and leaves the N labels as they were", () => {
+    const server = capabilityOf("server");
+    expect(server.label).toBe("untested");
+    expect(server.increment).toBe("P");
+    expect(server.screen).toBe(false);
     for (const f of ["FUNC-022", "FUNC-023", "FUNC-039", "FUNC-063", "FUNC-064", "FUNC-087", "FUNC-125"]) {
-      expect(labelOfFunction(f), f).toBe("untested");
+      expect(labelOfFunction(f, "P"), f).toBe("untested");
     }
+    for (const f of ["FUNC-022", "FUNC-023", "FUNC-039", "FUNC-063", "FUNC-064", "FUNC-125"]) {
+      expect(labelOfFunction(f), f).toBe("supported");
+    }
+    expect(labelOfFunction("FUNC-087")).toBeUndefined(); // N has no slice of it
   });
 
   it("fails loudly for an unknown screen", () => {

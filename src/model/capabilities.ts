@@ -11,7 +11,14 @@ export type CapabilityLabel = (typeof CAPABILITY_LABELS)[number];
 
 export interface Capability {
   /** The screen, as in the URL hash. */
-  id: "profile" | "import" | "record" | "readiness" | "outputs" | "requirements" | "prepare" | "validation" | "mapping" | "graph";
+  id: "profile" | "import" | "record" | "readiness" | "outputs" | "requirements" | "prepare" | "validation" | "mapping" | "graph" | "server";
+  /**
+   * The increment of the plan this entry labels: "N" (the narrow demonstrator, the default) or "P" (the durable server).
+   * A function carries one label per increment, so the P slice of a function the N screens already deliver is labelled
+   * on its own entry and never changes the N label. An entry with `screen: false` has no screen of its own.
+   */
+  increment?: "N" | "P";
+  screen?: false;
   name: string;
   label: CapabilityLabel;
   /**
@@ -37,10 +44,7 @@ export const CAPABILITY_TEXT: Record<CapabilityLabel, string> = {
   untested: "Untested",
 };
 
-/**
- * Labels from the Cycle 0 baseline (20 November 2026), the Cycle 1 to 3 exits (21 November 2026), and the Cycle 4 and 5 exits (22 November 2026), docs/assessment.
- * The server functions added in Cycle 6 carry their own "untested" label per function until the Cycle 6 exit.
- */
+/** Labels from the Cycle 0 baseline (20 November 2026), the Cycle 1 to 3 exits (21 November 2026), and the Cycle 4 and 5 exits (22 November 2026), docs/assessment. */
 export const CAPABILITIES: Capability[] = [
   {
     id: "profile",
@@ -53,10 +57,9 @@ export const CAPABILITIES: Capability[] = [
     id: "import",
     name: "Import",
     label: "supported",
-    functions: ["FUNC-039", "FUNC-017", "FUNC-065", "FUNC-087"],
+    functions: ["FUNC-039", "FUNC-017", "FUNC-065"],
     extends: ["FUNC-125"],
-    functionLabels: { "FUNC-039": "untested", "FUNC-087": "untested" },
-    basis: "Cycle 2 exit: strict import of the two N source files with verbatim source assertions, flags and challenged values. The export side of FUNC-125 is on the Outputs screen. When the durable server is present, imports run there as staged, idempotent jobs with update receipts (FUNC-039 and FUNC-087, untested until the Cycle 6 exit).",
+    basis: "Cycle 2 exit: strict import of the two N source files with verbatim source assertions, flags and challenged values. The export side of FUNC-125 is on the Outputs screen.",
   },
   {
     id: "record",
@@ -77,8 +80,7 @@ export const CAPABILITIES: Capability[] = [
     name: "Outputs",
     label: "supported",
     functions: ["FUNC-041", "FUNC-042", "FUNC-043", "FUNC-125", "FUNC-022", "FUNC-023", "FUNC-063", "FUNC-064"],
-    functionLabels: { "FUNC-125": "untested", "FUNC-022": "untested", "FUNC-023": "untested", "FUNC-063": "untested", "FUNC-064": "untested" },
-    basis: "Cycle 4 exit: the customer PDF, the ERP staging CSV and the registry preparation draft (on hold), the central record with versions, lineage and the release manifest. Durable storage, retention and classification, and recoverable job state on the server (FUNC-022, FUNC-023, FUNC-063, FUNC-064 and the server side of FUNC-125) are untested until the Cycle 6 exit.",
+    basis: "Cycle 4 exit: the customer PDF, the ERP staging CSV and the registry preparation draft (on hold), the central record with versions, lineage and the release manifest.",
   },
   {
     id: "requirements",
@@ -119,6 +121,15 @@ export const CAPABILITIES: Capability[] = [
     extends: ["FUNC-076"],
     basis: "Shows how legislation reaches data requirements; no product record or outputs.",
   },
+  {
+    id: "server",
+    name: "Durable server (P)",
+    label: "untested",
+    increment: "P",
+    screen: false,
+    functions: ["FUNC-022", "FUNC-023", "FUNC-039", "FUNC-063", "FUNC-064", "FUNC-087", "FUNC-125"],
+    basis: "The P increment, present only when the DPP server serves the app: durable storage, classification and retention, staged idempotent imports with update receipts, and recoverable job state. Untested until the Cycle 6 exit; the N labels of the same functions on the screens above are unchanged.",
+  },
 ];
 
 export const capabilityOf = (id: Capability["id"]): Capability => {
@@ -127,8 +138,8 @@ export const capabilityOf = (id: Capability["id"]): Capability => {
   return found;
 };
 
-/** The label a plan function carries in this build: its own label if it has one, otherwise its screen's. */
-export const labelOfFunction = (func: string): CapabilityLabel | undefined => {
-  const screen = CAPABILITIES.find((c) => c.functions.includes(func));
+/** The label a plan function carries in one increment (default N): its own label if it has one, otherwise its entry's. */
+export const labelOfFunction = (func: string, increment: "N" | "P" = "N"): CapabilityLabel | undefined => {
+  const screen = CAPABILITIES.find((c) => (c.increment ?? "N") === increment && c.functions.includes(func));
   return screen ? (screen.functionLabels?.[func] ?? screen.label) : undefined;
 };

@@ -31,8 +31,8 @@ import { ValidationView } from "./components/ValidationView";
 import { loadApiKey, saveApiKey } from "./llm/apiKey";
 import { LlmError, suggestMappings } from "./llm/suggest";
 import { loadChain, persist, readProject, resetDatabase, writeProject } from "./db/database";
-import { capabilityOf } from "./model/capabilities";
-import { RecordStoreProvider } from "./model/recordStore";
+import { CAPABILITY_TEXT, capabilityOf } from "./model/capabilities";
+import { RecordStoreProvider, useRecordStore } from "./model/recordStore";
 import type { Chain } from "./model/chain";
 import { download, exportProject, type Project } from "./model/project";
 import {
@@ -639,6 +639,22 @@ export default function App() {
   );
 }
 
+/** Shown only while the DPP server holds the records: the P increment has its own label, and static mode never shows it. */
+function ServerBadge() {
+  const { serverMode } = useRecordStore();
+  if (!serverMode) return null;
+  const c = capabilityOf("server");
+  return (
+    <p className="capability" data-label={c.label} data-testid="server-capability-badge" title={c.basis}>
+      <span className="capability-label">{CAPABILITY_TEXT[c.label]}</span>
+      <span className="capability-detail">
+        <span className="sr-only">{c.name}: </span>
+        {c.name}
+      </span>
+    </p>
+  );
+}
+
 function Shell() {
   const [view, setView] = useState<View>(viewFromHash);
   const [chain, setChain] = useState<Chain | null>(null);
@@ -677,6 +693,7 @@ function Shell() {
           Graph compliance
         </Button>
         <CapabilityBadge capability={capabilityOf(view)} />
+        <ServerBadge />
       </nav>
       <div className="shell-body">
         <ToggleButtonGroup

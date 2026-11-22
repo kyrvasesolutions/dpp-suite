@@ -2,7 +2,7 @@
 import { CAPABILITIES, CAPABILITY_TEXT } from "../../src/model/capabilities.ts";
 import { expect, test } from "./egress";
 
-for (const capability of CAPABILITIES) {
+for (const capability of CAPABILITIES.filter((c) => c.screen !== false)) {
   test(`${capability.name} shows exactly one capability label: ${capability.label}`, async ({ page }) => {
     await page.goto(`/#${capability.id}`);
     const badge = page.getByTestId("capability-badge");
