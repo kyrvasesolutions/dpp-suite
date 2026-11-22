@@ -35,7 +35,7 @@ describe.runIf(existsSync("docs/operator/install-notes.md"))("install notes", ()
 
   it("lists every configuration variable of config/env.example, and the declared limits", () => {
     const vars = read("config/env.example").split("\n").filter((l) => /^[A-Z_]+=/.test(l)).map((l) => l.split("=")[0]);
-    expect(vars).toHaveLength(4);
+    expect(vars).toHaveLength(7);
     for (const v of vars) expect(notes, v).toContain(`\`${v}\``);
     for (const limit of ["10 MiB", "**12**", "30 seconds", "one data row"]) expect(notes, limit).toContain(limit);
     const limits = read("contracts/n/policy/LIMITS@1.0.0.yaml");
@@ -145,6 +145,7 @@ describe("public ADRs and documentation boundaries", () => {
       "adr/0001-browser-only-pipeline-and-contract-packs.md",
       "adr/0002-deterministic-contract-testing-and-three-layer-verification.md",
       "adr/0003-reimport-and-correction-semantics.md",
+      "adr/0004-durable-relational-storage-and-staged-jobs.md",
     ]) {
       expect(existsSync(file), file).toBe(true);
     }
