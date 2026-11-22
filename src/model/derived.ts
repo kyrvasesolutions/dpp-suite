@@ -17,7 +17,15 @@ export interface DerivedStatement {
 }
 
 export type DerivedResult =
-  | { ok: true; rule: string; statement: DerivedStatement; /** Where the inputs used are: the value, the alloy and the temper. */ sources: PublicSource[] }
+  | {
+      ok: true;
+      rule: string;
+      statement: DerivedStatement;
+      /** Where the inputs used are: the value, the alloy and the temper. */
+      sources: PublicSource[];
+      /** The assertions the statement was made from, whole (for lineage, never for a recipient). */
+      inputs: Assertion[];
+    }
   | { ok: false; rule: string; reason: string };
 
 const within = (v: number, b: { min: number | null; max: number | null }) => (b.min === null || v >= b.min) && (b.max === null || v <= b.max);
@@ -37,6 +45,7 @@ export function publicSource(source: Assertion["source"]): PublicSource {
 }
 
 const locations = (v: RecordValue[]) => v.flatMap((x) => x.assertions.map((a) => publicSource(a.source)));
+const assertionsOf = (v: RecordValue[]) => v.flatMap((x) => x.assertions);
 
 /** The one text a record states for a property, or why there is none: a challenged or repeated value cannot be relied on. */
 function onlyText(pack: ProfilePack, record: ProductRecord, role: "alloy" | "temper"): { text: string; from: RecordValue[] } | { problem: string } {
@@ -82,6 +91,7 @@ export function derive(pack: ProfilePack, record: ProductRecord, property: strin
       rule: rule.id,
       statement: { within: within(numbers[0].n as number, limit), basis: basisOf(`${alloy.text} ${temper.text}`) },
       sources: locations([...values, ...alloy.from, ...temper.from]),
+      inputs: assertionsOf([...values, ...alloy.from, ...temper.from]),
     };
   }
 
@@ -92,5 +102,5 @@ export function derive(pack: ProfilePack, record: ProductRecord, property: strin
     if (!limit) return fail(`no limits for ${x.qualifier ?? "an unnamed element"} in ${alloy.text}`);
     if (!within(x.n as number, limit)) all = false;
   }
-  return { ok: true, rule: rule.id, statement: { within: all, basis: basisOf(alloy.text) }, sources: locations([...values, ...alloy.from]) };
+  return { ok: true, rule: rule.id, statement: { within: all, basis: basisOf(alloy.text) }, sources: locations([...values, ...alloy.from]), inputs: assertionsOf([...values, ...alloy.from]) };
 }
