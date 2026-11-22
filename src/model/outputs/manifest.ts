@@ -4,12 +4,13 @@
  * One canonical JSON file that says exactly what a release is made of: the software (package version and commit),
  * the pinned contract pack (manifest digest and the pin of every file the outputs depend on), the input files by role
  * and sha256, the record version and digest, each output with its digest and status, and the lineage of every output
- * value. There is no date or time in it: digests and numbered versions identify the content, so the same inputs give
- * the same manifest on any machine. `verifyRelease` recomputes every digest of a set of downloaded files and reports
- * each mismatch.
+ * value. The only date and time is `generated` (when and by which role the release was made): declared generated
+ * metadata, left out of every digest and of every comparison. `substantiveDigest` covers everything else, so the same
+ * inputs give the same substantive content, and the same output files byte for byte, on any machine and at any time.
+ * `verifyRelease` recomputes every digest of a set of downloaded files and reports each mismatch.
  */
 import { z } from "zod";
-import { canonicalPretty, sha256Bytes, utf8 } from "../canonical";
+import { canonical, canonicalPretty, sha256Bytes, utf8 } from "../canonical";
 import type { LineageEntry } from "../lineage";
 import type { ProductRecord } from "../ingress";
 import type { PinnedFile, ProfilePack, Route } from "../profile";
@@ -66,8 +67,26 @@ export const ManifestSchema = z.object({
     }),
   ),
   formulaPrefixedCells: z.number().int().min(0),
+  /** Declared generated metadata: when (ISO time) and by which role the release was made. Excluded from every digest. */
+  generated: z.object({ at: z.iso.datetime(), by: z.string().min(1) }),
+  /** sha256 of the canonical manifest without `generated` and without this field. */
+  substantiveDigest: Sha,
 });
 export type ReleaseManifest = z.infer<typeof ManifestSchema>;
+
+/** Everything the substantive digest covers: the manifest without the generated metadata and without the digest itself. */
+export const substantiveContent = (m: ReleaseManifest | Omit<ReleaseManifest, "substantiveDigest">) => {
+  const { generated: _generated, ...rest } = m as ReleaseManifest;
+  const { substantiveDigest: _digest, ...content } = rest;
+  return content;
+};
+export const substantiveDigestOf = (m: ReleaseManifest | Omit<ReleaseManifest, "substantiveDigest">) => sha256Bytes(utf8(canonical(substantiveContent(m))));
+
+/** The manifest as compared across runs: canonical, with the generated metadata left out (the substantive digest stays in). */
+export const substantiveText = (m: ReleaseManifest) => {
+  const { generated: _generated, ...rest } = m;
+  return canonicalPretty(rest);
+};
 
 /** What happened for one route: a file, or the refusal that says why there is none. */
 export type RouteOutcome = { route: Route; file: OutputFile } | { route: Route; refused: RouteRefusedError };
@@ -89,6 +108,8 @@ export interface ReleaseInput {
   snapshot: { version: number; digest: string };
   outcomes: RouteOutcome[];
   software: SoftwareInfo;
+  /** When and by which role the release is made; the manifest declares it as generated metadata. */
+  generated: { at: string; by: string };
   formulaPrefixedCells?: number;
 }
 
@@ -105,7 +126,7 @@ export async function buildManifest(input: ReleaseInput): Promise<ReleaseManifes
       lineage.push(...o.file.lineage);
     } else outputs.push({ route: o.route, fileName: null, mediaType: info.format, sha256: null, status: "hold", holds: o.refused.holds.map(holdOf) });
   }
-  const manifest: ReleaseManifest = {
+  const body: Omit<ReleaseManifest, "substantiveDigest"> = {
     format: "dpp-release-manifest",
     version: 1,
     software,
@@ -127,15 +148,27 @@ export async function buildManifest(input: ReleaseInput): Promise<ReleaseManifes
     outputs,
     lineage: lineage.map((e) => ({ ...e })),
     formulaPrefixedCells: input.formulaPrefixedCells ?? outcomes.reduce((n, o) => n + ("file" in o ? (o.file.formulaPrefixedCells ?? 0) : 0), 0),
+    generated: input.generated,
   };
-  return ManifestSchema.parse(manifest);
+  return ManifestSchema.parse({ ...body, substantiveDigest: await substantiveDigestOf(body) });
 }
 
 /** The manifest file: canonical JSON, with its own digest. */
-export async function manifestFile(manifest: ReleaseManifest): Promise<{ fileName: string; mediaType: string; text: string; bytes: Uint8Array; sha256: string }> {
+export async function manifestFile(
+  manifest: ReleaseManifest,
+): Promise<{ fileName: string; mediaType: string; text: string; bytes: Uint8Array; sha256: string; substantiveDigest: string; substantiveText: string }> {
   const text = canonicalPretty(manifest);
   const bytes = utf8(text);
-  return { fileName: "release-manifest.json", mediaType: "application/json", text, bytes, sha256: await sha256Bytes(bytes) };
+  return {
+    fileName: "release-manifest.json",
+    mediaType: "application/json",
+    text,
+    bytes,
+    // the file's own sha256 includes the time it was made; the substantive digest does not
+    sha256: await sha256Bytes(bytes),
+    substantiveDigest: manifest.substantiveDigest,
+    substantiveText: substantiveText(manifest),
+  };
 }
 
 export type CheckStatus = "match" | "mismatch" | "missing" | "unlisted" | "not-supplied";
@@ -172,6 +205,9 @@ export async function verifyRelease(manifestBytes: Uint8Array, files: SuppliedFi
   } catch (e) {
     return { ok: false, checks: [{ kind: "manifest", name: "release-manifest.json", status: "mismatch", actual: `not a valid release manifest: ${e instanceof Error ? e.message.split("\n")[0] : String(e)}` }] };
   }
+  // the substantive digest covers everything but the generated metadata, so a changed manifest cannot pass as the original
+  const recomputed = await substantiveDigestOf(manifest);
+  checks.push({ kind: "manifest", name: "substantive content", status: recomputed === manifest.substantiveDigest ? "match" : "mismatch", expected: manifest.substantiveDigest, actual: recomputed });
   const byName = new Map(files.map((f) => [f.name, f]));
   const listed = new Set<string>();
   for (const o of manifest.outputs) {

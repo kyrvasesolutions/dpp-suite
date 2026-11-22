@@ -18,6 +18,8 @@ Functional changes to the DPP suite, one entry per merged pull request, newest f
   - `npm run check-secrets` scans tracked files for Anthropic, GitHub and AWS keys, private key blocks and committed `.env` files; `npm run check-licences` checks the licence of every production dependency, nested ones included, against an allow-list and prints the table. Both run in CI, with a non-blocking `npm audit` report for production dependencies.
   - `scripts/rehearse-install.sh` clones a ref into a temporary directory, installs, typechecks, checks the contract pack, builds, checks the bundle and serves the build, then prints a dated summary.
 
+- **Export time as declared generated metadata.** The release manifest has `generated` (the ISO time and the role that made the release) and a `substantiveDigest` over everything except `generated`. The time is in no digest and in no comparison: the three output files stay byte-identical on every run, and the golden files and the double-run check compare the substantive content. Verification now also recomputes the substantive digest, so a changed manifest is caught while a changed generation time is not. The Outputs screen shows the time, the role and the substantive digest.
+
 ## [#13](https://github.com/kyrvasesolutions/dpp-suite/pull/13) Outputs screen supported (22 November 2026)
 
 - The Outputs screen is labelled Supported. The three outputs, the central record with its versions, lineage and the release manifest passed an independent review in three rounds. In about 100 attempts, no denied field, raw derived value, live spreadsheet formula or undetected change reached an output.

@@ -215,10 +215,14 @@ export function OutputsView() {
               <h2>Release</h2>
               <p className="hint small">
                 The release manifest lists the software version, the contract pack and every file it pins, the input files, the record
-                version and each output by digest, and where every output value came from. It has no date or time.
+                version and each output by digest, and where every output value came from. Its only date and time is the generated time and role, which are in no digest: the substantive digest covers everything else.
               </p>
-              <p data-testid="manifest" data-digest={release.manifestFile.sha256}>
-                <strong>{release.manifestFile.fileName}</strong> <code title={release.manifestFile.sha256}>{short(release.manifestFile.sha256)}</code>{" "}
+              <p data-testid="manifest" data-digest={release.manifestFile.substantiveDigest}>
+                <strong>{release.manifestFile.fileName}</strong>, substantive digest{" "}
+                <code title={release.manifestFile.substantiveDigest}>{short(release.manifestFile.substantiveDigest)}</code>. Generated{" "}
+                <span data-testid="manifest-generated">
+                  {release.manifest.generated.at} by {release.manifest.generated.by}
+                </span>{" "}
                 <button type="button" className="ghost" onClick={() => save(release.manifestFile.fileName, release.manifestFile.mediaType, release.manifestFile.bytes)}>
                   Download manifest
                 </button>

@@ -92,6 +92,12 @@ test("the manifest verifies the downloaded files and notices a changed byte", as
   const [m] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Download manifest" }).click()]);
   const manifest = readFileSync((await m.path())!);
   expect(JSON.parse(manifest.toString("utf8")).software.commit).toBeTruthy();
+  // the time and role the release was made by are declared metadata, shown and kept out of the substantive digest
+  const declared = JSON.parse(manifest.toString("utf8")) as { generated: { at: string; by: string }; substantiveDigest: string };
+  expect(declared.generated.by).toBe("ACT-01");
+  expect(declared.generated.at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  await expect(page.getByTestId("manifest")).toHaveAttribute("data-digest", declared.substantiveDigest);
+  await expect(page.getByTestId("manifest-generated")).toContainText(declared.generated.at);
   const supply = (list: typeof files) => list.map((f) => ({ name: f.name, mimeType: "application/octet-stream", buffer: f.bytes }));
 
   await page.getByTestId("verify-manifest").setInputFiles({ name: "release-manifest.json", mimeType: "application/json", buffer: manifest });
@@ -239,8 +245,8 @@ test("the database upgrade from version 1 to 2 keeps the files store and the sav
         };
       }),
   );
-  expect(after.version).toBe(2);
-  expect(after.stores).toEqual(["files", "snapshots"]);
+  expect(after.version).toBe(3);
+  expect(after.stores).toEqual(["files", "log", "snapshots"]);
   expect(after.marker).toEqual([7, 7, 7]);
   expect(after.saved).toBe(Buffer.from(saved, "base64").length);
 });

@@ -8,6 +8,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import { canonicalPretty } from "../../src/model/canonical";
 import { byRole } from "../../src/model/ingress";
 import { outputRef, trace } from "../../src/model/lineage";
 import { buildCustomerPdf, PdfTextError, winAnsi } from "../../src/model/outputs/customerPdf";
@@ -154,7 +155,7 @@ describe("AT-E: no forbidden content in any output, for every accepted combinati
 });
 
 describe("AT-U: reproducibility across two processes (C4-04)", () => {
-  it("gives byte-identical files and manifest in two separate runs, and the same as this process", async () => {
+  it("gives byte-identical files and the same substantive manifest in two separate runs, and the same as this process", async () => {
     const dirs = [mkdtempSync(join(tmpdir(), "dpp-run-a-")), mkdtempSync(join(tmpdir(), "dpp-run-b-"))];
     try {
       for (const dir of dirs) {
@@ -167,6 +168,17 @@ describe("AT-U: reproducibility across two processes (C4-04)", () => {
       const here = new Map([...release.files.map((f) => [f.fileName, f.bytes] as const), [release.manifestFile.fileName, release.manifestFile.bytes] as const]);
       for (const n of names) {
         const a = readFileSync(join(dirs[0], n));
+        if (n === release.manifestFile.fileName) {
+          // the manifest declares when it was made; everything else in it must be the same
+          const substantive = (bytes: Uint8Array) => {
+            const { generated, ...rest } = JSON.parse(new TextDecoder().decode(bytes));
+            expect(generated.at, n).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+            return canonicalPretty(rest);
+          };
+          expect(substantive(a), n).toBe(substantive(readFileSync(join(dirs[1], n))));
+          expect(substantive(a), `${n} in this process`).toBe(release.manifestFile.substantiveText);
+          continue;
+        }
         expect(a.equals(readFileSync(join(dirs[1], n))), n).toBe(true);
         expect(a.equals(Buffer.from(here.get(n)!)), `${n} in this process`).toBe(true);
       }
