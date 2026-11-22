@@ -2,6 +2,10 @@
 
 Functional changes to the DPP suite, one entry per merged pull request, newest first.
 
+## Unreleased: Record screen supported; narrow demonstrator complete (22 November 2026)
+
+- The **Record** screen is labelled **Supported** (all five screens of the narrow demonstrator — Profile, Import, Record, Readiness and Outputs — are now Supported). The Record chain, non-silent operator correction, field-level diffs, local execution log, declared input limits, exact dependency pins, clean-clone installation rehearsal, 73-case three-route acceptance suite, contract-tightness and adversarial mutation suites, and five-viewer comprehension walkthrough passed independent review and clean-clone testing.
+
 ## [#14](https://github.com/kyrvasesolutions/dpp-suite/pull/14) Record screen, packaging, execution log, acceptance suite and ADRs (22 November 2026)
 
 - **One record per file pair, and declared limits.** A new pinned pack file, `policy/LIMITS@1.0.0.yaml`, declares the input limits: 10 MiB per source file, JSON nesting depth 12, a 30-second job deadline and exactly one data row in the ERP extract. They are design targets, not measured limits, and change only by pinning a new version of the file. The contract pack has a new digest and is signed again.
