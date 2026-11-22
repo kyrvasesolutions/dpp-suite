@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { FLAG_TEXT, STAGES, type ImportResult, type RecordValue } from "../model/ingress";
-import { useRecordStore } from "../model/recordStore";
+import { useRecordStore, type StoredNote } from "../model/recordStore";
 import { IMPORT_SAMPLES as SAMPLES, importInputs, importSample, type Input } from "./sampleFiles";
 
 const short = (digest: string) => `${digest.slice(0, 12)}…`;
@@ -13,11 +13,23 @@ const readFile = async (file: File): Promise<Input> => ({ bytes: new Uint8Array(
  * typed error; accepted files show each value verbatim with its source location, status and flags.
  */
 export function ImportView() {
-  const { profile, error, state, setState } = useRecordStore();
+  const { profile, error, state, setState, saveImport } = useRecordStore();
   const [inputs, setInputs] = useState<{ erp?: Input; lab?: Input }>({});
   const [results, setResults] = useState<{ erp?: ImportResult; lab?: ImportResult }>({});
   const [previousDigests, setPreviousDigests] = useState<string[] | null>(null);
   const [sample, setSample] = useState(SAMPLES[0].id);
+  const [notes, setNotes] = useState<StoredNote[]>([]);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const keep = async (built: typeof state) => {
+    setSaveError(null);
+    if (!built) return setNotes([]);
+    try {
+      setNotes(await saveImport(built));
+    } catch (e) {
+      setNotes([]);
+      setSaveError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   const run = async (next: { erp?: Input; lab?: Input }, again = false) => {
     if (!profile) return;
@@ -26,6 +38,7 @@ export function ImportView() {
     setInputs(next);
     setResults(imported);
     setState(built);
+    await keep(built);
   };
 
   const label = useMemo(() => new Map(profile?.properties.map((p) => [p.id, p.labels.en]) ?? []), [profile]);
@@ -97,6 +110,7 @@ export function ImportView() {
               setInputs(loaded.inputs);
               setResults(loaded.results);
               setState(loaded.state);
+              await keep(loaded.state);
             }}
           >
             Import sample
@@ -117,6 +131,21 @@ export function ImportView() {
           <span>{sameAgain ? "Imported again: the record state and its digest are identical." : "Imported again: the record state changed."}</span>
         </p>
       )}
+
+      {saveError && (
+        <div className="banner warn" role="alert" data-testid="snapshot-error">
+          <span>The record was imported but could not be saved to the central record, so it has no version: {saveError}</span>
+        </div>
+      )}
+      {notes.map((n) => (
+        <p key={`${n.model}|${n.batch}`} className="banner info" data-testid="snapshot-status" data-version={n.version} data-stored={n.stored}>
+          <span>
+            {n.stored
+              ? `Central record: ${n.model}, batch ${n.batch} stored as version ${n.version}${n.supersedes ? `, replacing version ${n.supersedes}, which stays readable` : ""}.`
+              : `Central record: ${n.model}, batch ${n.batch} is unchanged, so version ${n.version} stays the latest and nothing new is stored.`}
+          </span>
+        </p>
+      ))}
 
       {state && state.unattached.length > 0 && (
         <section className="profile-section" aria-label="Values not attached to a record">

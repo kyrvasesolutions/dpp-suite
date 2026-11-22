@@ -30,3 +30,277 @@ fields:
   - ALU-D122
   - ALU-D123
   - ALU-D124
+output:
+  items:
+    - step: MAP-ERP-001
+      role: field
+      property: ALU-D101
+      reads:
+        kind: members
+        members:
+          - FLD-Identifier-scheme
+          - FLD-Identifier-value
+          - FLD-Identifier-scheme_version
+      csv:
+        name: product_model_id
+        header: product_model_id
+        format: text
+    - step: MAP-ERP-002
+      role: field
+      property: ALU-D102
+      reads:
+        kind: value
+      csv:
+        name: manufacturer_id
+        header: manufacturer_id
+        format: text
+    - step: MAP-ERP-003
+      role: field
+      property: ALU-D103
+      reads:
+        kind: value
+      csv:
+        name: product_name
+        header: product_name
+        format: text
+    - step: MAP-ERP-004
+      role: field
+      property: ALU-D104
+      reads:
+        kind: members
+        members:
+          - FLD-Identifier-value
+          - FLD-Identifier-scheme_version
+      csv:
+        name: batch_id
+        header: batch_id
+        format: text
+    - step: MAP-ERP-005
+      role: field
+      property: ALU-D105
+      reads:
+        kind: value
+      csv:
+        name: commodity_code
+        header: commodity_code
+        format: text
+    - step: MAP-ERP-006
+      role: field
+      property: ALU-D106
+      reads:
+        kind: value
+      csv:
+        name: alloy_designation
+        header: alloy_designation
+        format: text
+    - step: MAP-ERP-007
+      role: field
+      property: ALU-D107
+      reads:
+        kind: value
+      csv:
+        name: temper_designation
+        header: temper_designation
+        format: text
+    - step: MAP-ERP-008
+      role: field
+      property: ALU-D108
+      reads:
+        kind: value
+      unit: mm
+      csv:
+        name: nominal_thickness
+        header: nominal_thickness_mm
+        format: number
+    - step: MAP-ERP-009
+      role: field
+      property: ALU-D109
+      reads:
+        kind: value
+      unit: mm
+      csv:
+        name: measured_thickness
+        header: measured_thickness_mm
+        format: number
+    - step: MAP-ERP-010
+      role: field
+      property: ALU-D110
+      reads:
+        kind: value
+      unit: mm
+      csv:
+        name: nominal_width
+        header: nominal_width_mm
+        format: number
+    - step: MAP-ERP-011
+      role: field
+      property: ALU-D111
+      reads:
+        kind: value
+      unit: mm
+      csv:
+        name: nominal_length
+        header: nominal_length_mm
+        format: number
+    - step: MAP-ERP-012
+      role: field
+      property: ALU-D112
+      reads:
+        kind: value
+      unit: kg
+      csv:
+        name: net_mass
+        header: net_mass_kg
+        format: number
+    - step: MAP-ERP-013
+      role: field
+      property: ALU-D113
+      reads:
+        kind: value
+      csv:
+        name: surface_finish
+        header: surface_finish
+        format: text
+    - step: MAP-ERP-014
+      role: field
+      property: ALU-D114
+      reads:
+        kind: value
+      unit: "%"
+      csv:
+        name: recycled_content
+        header: recycled_content_pct
+        format: number
+    - step: MAP-ERP-015
+      role: field
+      property: ALU-D115
+      reads:
+        kind: value
+      unit: MPa
+      csv:
+        name: tensile_strength
+        header: tensile_strength_mpa
+        format: number
+    - step: MAP-ERP-016
+      role: field
+      property: ALU-D116
+      reads:
+        kind: value
+      csv:
+        name: country_of_casting
+        header: country_of_casting
+        format: text
+    - step: MAP-ERP-017
+      role: field
+      property: ALU-D117
+      reads:
+        kind: value
+      csv:
+        name: production_date
+        header: production_date
+        format: text
+    - step: MAP-ERP-018
+      role: field
+      property: ALU-D118
+      reads:
+        kind: value
+        details:
+          - FLD-Evidence-issuer
+          - FLD-Evidence-revision
+          - FLD-Evidence-digest
+          - FLD-Evidence-access_policy_ref
+      csv:
+        name: evidence_references
+        header: evidence_references
+        format: text
+    - step: MAP-ERP-019
+      role: field
+      property: ALU-D119
+      reads:
+        kind: value
+      unit: kg{CO2e}/kg
+      csv:
+        name: carbon_footprint
+        header: carbon_footprint_kgco2e_per_kg
+        format: number
+    - step: MAP-ERP-020
+      role: context
+      property: ALU-D119
+      reads:
+        kind: member
+        member: FLD-Footprint-method
+      csv:
+        name: footprint_method
+        header: footprint_method
+        format: text
+    - step: MAP-ERP-021
+      role: context
+      property: ALU-D119
+      reads:
+        kind: member
+        member: FLD-Footprint-system_boundary
+      csv:
+        name: footprint_system_boundary
+        header: footprint_system_boundary
+        format: text
+    - step: MAP-ERP-022
+      role: context
+      property: ALU-D119
+      reads:
+        kind: member
+        member: FLD-Footprint-reference_year
+      csv:
+        name: footprint_reference_year
+        header: footprint_reference_year
+        format: number
+    - step: MAP-ERP-023
+      role: context
+      property: ALU-D119
+      reads:
+        kind: member
+        member: FLD-Footprint-calculated_by
+      csv:
+        name: footprint_calculated_by
+        header: footprint_calculated_by
+        format: text
+    - step: MAP-ERP-024
+      role: field
+      property: ALU-D120
+      reads:
+        kind: value
+      unit: "%"
+      csv:
+        name: post_consumer_share
+        header: post_consumer_share_pct
+        format: number
+    - step: MAP-ERP-025
+      role: field
+      property: ALU-D122
+      reads:
+        kind: members
+        members:
+          - FLD-Identifier-scope
+          - FLD-Identifier-value
+      csv:
+        name: customer_article_number
+        header: customer_article_number
+        format: text
+    - step: MAP-ERP-026
+      role: field
+      property: ALU-D123
+      reads:
+        kind: value
+      unit: "%"
+      csv:
+        name: chemical_composition
+        header: chemical_composition_pct
+        format: text
+    - step: MAP-ERP-027
+      role: field
+      property: ALU-D124
+      reads:
+        kind: value
+      csv:
+        name: primary_supplier
+        header: primary_supplier
+        format: text

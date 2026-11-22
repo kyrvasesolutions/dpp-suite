@@ -1,0 +1,21 @@
+{
+  "document": "registry-preparation-draft",
+  "hold_reason": "No applicable external registry contract for aluminium has been established. This hold stays after the pack is frozen.",
+  "holds": [
+    {
+      "rule": "RR-STANDING-HOLD",
+      "text": "The route itself is on hold: no applicable external contract has been established."
+    }
+  ],
+  "properties": {
+    "commodity_code": "76061293",
+    "manufacturer_id": "STANDIN-MFR-01",
+    "product_model_id": {
+      "scheme": "DEMO-PM",
+      "scheme_version": "1.0",
+      "value": "PM-5754-H111-2000"
+    }
+  },
+  "status": "HOLD",
+  "submission": "never"
+}

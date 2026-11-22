@@ -30,6 +30,8 @@ export interface HoldReason {
   /** The property that causes the hold; null only for the standing hold of the route itself. */
   property: string | null;
   member?: string;
+  /** Further fact the rule names, for a hold made at output time (the code point for RR-PDF-CHARACTER). */
+  detail?: string;
   /** Where the assertions behind the hold are. Empty only for RR-MISSING and RR-STANDING-HOLD. */
   sources: Assertion["source"][];
 }

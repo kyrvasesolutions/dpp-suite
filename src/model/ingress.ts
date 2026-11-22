@@ -11,6 +11,7 @@
  * The resulting record state depends only on the file bytes and the pack, so importing again gives the
  * same record and the same digest (C2-07). There is no overall quality score (FUNC-017 slice).
  */
+import { canonical } from "./canonical";
 import { JsonSyntaxError, parseStrictJson, type JsonValue } from "./strictJson";
 import { sha256Hex, type CodeList, type ProfilePack } from "./profile";
 
@@ -650,6 +651,7 @@ export async function importLabJson(
 
 const ROLE_SLUGS = {
   model: "product-model-id",
+  name: "product-name",
   batch: "batch-id",
   alloy: "alloy-designation",
   temper: "temper-designation",
@@ -701,16 +703,6 @@ const keyOf = (a: { property: string; member?: string; qualifier?: string }) => 
 
 const same = (a: Assertion, b: Assertion) => (typeof a.value === "number" && typeof b.value === "number" ? a.value === b.value : a.raw === b.raw);
 
-const canonical = (x: unknown): string =>
-  Array.isArray(x)
-    ? `[${x.map(canonical).join(",")}]`
-    : x && typeof x === "object"
-      ? `{${Object.keys(x)
-          .sort()
-          .map((k) => `${JSON.stringify(k)}:${canonical((x as Record<string, unknown>)[k])}`)
-          .join(",")}}`
-      : JSON.stringify(x);
-
 /**
  * Combines accepted imports into one record per product model and batch (FUNC-065 references). When two
  * sources state different values for the same property, both stay and the value is challenged (C2-05).
@@ -734,7 +726,7 @@ export async function buildRecords(results: ImportResult[]): Promise<RecordState
       const values: RecordValue[] = [...groups.entries()]
         .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
         .map(([, as]) => {
-          const status: ValueStatus = as.length === 1 ? "single" : as.every((a) => same(a, as[0])) ? "agreeing" : "challenged";
+          const status: ValueStatus = valueStatus(as);
           const assertions = status === "challenged" ? as.map((a) => ({ ...a, flags: [...a.flags, "challenged" as Flag] })) : as;
           return { property: as[0].property, ...(as[0].member ? { member: as[0].member } : {}), ...(as[0].qualifier ? { qualifier: as[0].qualifier } : {}), status, assertions };
         });
@@ -745,4 +737,181 @@ export async function buildRecords(results: ImportResult[]): Promise<RecordState
   }
   for (const l of lab) if (!attachedLab.has(l)) unattached.push(...l.assertions);
   return { records, unattached };
+}
+
+/** How many assertions say the same: one value, several that agree, or several that differ (C2-05). */
+export const valueStatus = (assertions: Assertion[]): ValueStatus =>
+  assertions.length === 1 ? "single" : assertions.every((a) => same(a, assertions[0])) ? "agreeing" : "challenged";
+
+/**
+ * Re-checks a stored record against the pinned pack the way ingress checked the files (Cycle 4, central-record import):
+ * the status of every value and the flags of every assertion are derived again from the assertions, codes are looked up
+ * in the pinned code lists, numbers must be literal numbers in their physical range, units must be the contract's, and
+ * every assertion must name a column or a place the contract has and a source file the record lists. It cannot tell a
+ * value that was changed to another valid value: only signing could (out of scope). Returns every problem found.
+ */
+export function recheckRecord(pack: ProfilePack, record: ProductRecord): string[] {
+  const problems: string[] = [];
+  const props = new Map(pack.properties.map((p) => [p.id, p]));
+  const evidenceProperty = byRole(pack, "evidence");
+  const narrativeProperty = byRole(pack, "narrative");
+  const footprintProperty = byRole(pack, "footprint");
+  const evidenceIds = new Set(record.values.filter((v) => v.property === evidenceProperty).map((v) => v.qualifier));
+  const footprintResults = record.values.filter((v) => v.property === footprintProperty && !v.member).flatMap((v) => v.assertions).length;
+  const erpColumns = new Map(pack.inputs.erp.columns.map((c) => [c.name, c]));
+
+  for (const v of record.values) {
+    const where = `${v.property}${v.member ? `/${v.member}` : ""}${v.qualifier ? ` (${v.qualifier})` : ""}`;
+    const prop = props.get(v.property);
+    if (!prop) {
+      problems.push(`${where}: not a property of the profile`);
+      continue;
+    }
+    if (v.member && !prop.members.some((m) => m.id === v.member)) problems.push(`${where}: not a member of the property`);
+    const status = valueStatus(v.assertions);
+    if (v.status !== status) problems.push(`${where}: status is ${v.status}, the assertions make it ${status}`);
+
+    for (const a of v.assertions) {
+      const at = `${where} at ${a.source.location}`;
+      if (a.property !== v.property || a.member !== v.member || a.qualifier !== v.qualifier) problems.push(`${at}: the assertion is filed under another key`);
+      if (a.flags.includes("challenged") !== (status === "challenged")) problems.push(`${at}: the challenged flag does not match the status`);
+      if (!record.sources.some((s) => s.name === a.source.file && s.role === a.source.role && s.sha256 === a.source.sha256)) problems.push(`${at}: its source file is not listed in the record`);
+      if (!a.source.location.startsWith(`${a.source.file}, `)) problems.push(`${at}: the location is not in its source file`);
+      const expected = new Set<Flag>();
+      const rest = a.source.location.slice(a.source.file.length + 2);
+
+      if (a.source.role === "erp") {
+        const m = /^row (\d+), column (.+)$/.exec(rest);
+        const c = m ? erpColumns.get(m[2]) : undefined;
+        if (!m || !c) {
+          problems.push(`${at}: not a column of the ERP contract`);
+          continue;
+        }
+        const [cp, cm] = c.maps_to.split("/");
+        if (cp !== a.property || cm !== a.member || c.language !== a.qualifier) problems.push(`${at}: the column maps to ${c.maps_to}, not to this value`);
+        if (a.source.row !== Number(m[1]) - 1) problems.push(`${at}: the row does not match the location`);
+        if (a.raw.replace(INVISIBLE, "").trim() === "") problems.push(`${at}: an empty value`);
+        if ((c.code_list || cm?.startsWith("FLD-Identifier-")) && (a.raw !== a.raw.trim() || HAS_INVISIBLE.test(a.raw))) problems.push(`${at}: a padded identifier`);
+        expected.add("declared");
+        let value: string | number | null = a.raw;
+        if (c.unit) {
+          if (!DECIMAL.test(a.raw) || !exact(a.raw)) problems.push(`${at}: "${a.raw}" is not a literal number`);
+          else {
+            value = Number(a.raw);
+            if (!inRange(value, c.unit)) problems.push(`${at}: ${a.raw} ${c.unit} is out of range`);
+          }
+          expected.add("unit-from-contract");
+        }
+        if (a.unit !== (c.unit ?? null)) problems.push(`${at}: the unit is ${a.unit}, the contract says ${c.unit ?? "none"}`);
+        if (c.format === "ISO 8601 date" && !isCalendarDate(a.raw)) problems.push(`${at}: not a calendar date`);
+        const list = codeListOf(pack, c.code_list);
+        if (list) {
+          const known = list.codes.find((x) => x.code === a.raw);
+          if (!known) expected.add("unknown-code");
+          else if (known.mapsTo !== undefined) {
+            value = known.mapsTo;
+            expected.add("code-mapped");
+          }
+          if (!known && list.codes.some((x) => x.mapsTo !== undefined)) value = null;
+        }
+        if (a.value !== value) problems.push(`${at}: the value is ${JSON.stringify(a.value)}, the source text gives ${JSON.stringify(value)}`);
+      } else {
+        const pointer = rest;
+        const kind = /^\/(product|observations|footprints|evidence|texts)(\/|$)/.exec(pointer)?.[1];
+        if (!kind) {
+          problems.push(`${at}: not a place the laboratory contract has`);
+          continue;
+        }
+        const linked = () => {
+          const id = a.details?.evidence_id;
+          if (id !== undefined && evidenceIds.has(id)) expected.add("evidence-linked");
+          else problems.push(`${at}: names evidence ${JSON.stringify(id)}, which the record does not hold`);
+        };
+        // The same JSON-Schema rules and enums the laboratory contract applies at ingress, on the object this assertion stands for
+        const schemaCheck = () => {
+          const groups: Record<string, string> = { observations: "observations", footprints: "footprints", evidence: "evidence", texts: "texts" };
+          const structure = pack.inputs.lab.structure as { properties?: Record<string, { items?: Schema }> };
+          const itemSchema = structure.properties?.[groups[kind!]]?.items;
+          if (!itemSchema) return;
+          const props = (itemSchema.properties ?? {}) as Record<string, Schema>;
+          const d = a.details ?? {};
+          const typed = (key: string, text: string | undefined): JsonValue => {
+            const types = ([] as string[]).concat((props[key]?.type as string | string[] | undefined) ?? []);
+            if (text === undefined) return { kind: "null" };
+            if (types.includes("null") && text === "") return { kind: "null" };
+            if ((types.includes("number") || types.includes("integer")) && text.trim() !== "" && Number.isFinite(Number(text))) return { kind: "number", value: Number(text), raw: text };
+            return { kind: "string", value: text };
+          };
+          const entries = new Map<string, JsonValue>();
+          const put = (key: string, text: string | undefined) => text !== undefined && entries.set(key, typed(key, text));
+          if (kind === "observations") {
+            put("observation_id", d.observation_id);
+            put("property", a.property);
+            if (a.qualifier !== undefined) put("element", a.qualifier);
+            entries.set("value", typeof a.value === "number" ? { kind: "number", value: a.value, raw: a.raw } : { kind: "string", value: a.raw });
+            put("unit", a.unit ?? undefined);
+            const num = (t: string | undefined): JsonValue => (t !== undefined && t.trim() !== "" && Number.isFinite(Number(t)) ? { kind: "number", value: Number(t), raw: t } : { kind: "string", value: t ?? "" });
+            entries.set("uncertainty", { kind: "object", entries: new Map<string, JsonValue>([["expanded", num(d.expanded_uncertainty)], ["coverage_factor", num(d.coverage_factor)], ["uncertainty_kind", { kind: "string", value: d.uncertainty_kind ?? "" }]]) });
+            put("method", d.method);
+            put("evidence_id", d.evidence_id);
+          } else if (kind === "footprints") {
+            put("result_id", a.qualifier);
+            put("property", a.property);
+            entries.set("value", typeof a.value === "number" ? { kind: "number", value: a.value, raw: a.raw } : { kind: "string", value: a.raw });
+            put("unit", a.unit ?? undefined);
+            for (const k of ["method", "system_boundary", "reference_year", "calculated_by", "evidence_id"]) put(k, d[k]);
+          } else if (kind === "evidence") {
+            put("evidence_id", a.raw);
+            for (const k of ["issuer", "revision", "record_kind", "scope", "digest", "access_policy_ref"]) put(k, d[k]);
+          } else {
+            for (const k of ["text_id", "subject_ref", "language", "sector", "market", "approval_state", "revision"]) put(k, d[k]);
+            put("text", a.raw);
+          }
+          const issues: IngressIssue[] = [];
+          validate(itemSchema, { kind: "object", entries }, "", "record", issues);
+          for (const i of issues) problems.push(`${at}: breaks the laboratory contract: ${i.message}`);
+        };
+        const number = () => {
+          if (a.value === null) return;
+          if (typeof a.value !== "number" || !Number.isFinite(a.value) || Number(a.raw) !== a.value || !exact(a.raw)) problems.push(`${at}: "${a.raw}" is not the literal of its number`);
+        };
+        const unit = () => {
+          if (!(pack.inputs.lab.allowed_units[a.property] ?? []).includes(a.unit ?? "")) problems.push(`${at}: the unit ${a.unit} is not allowed for ${a.property}`);
+        };
+        if (kind !== "product") schemaCheck();
+        if (kind === "product") {
+          expected.add("declared");
+          if (a.value !== a.raw) problems.push(`${at}: the value differs from its text`);
+        } else if (kind === "observations") {
+          for (const f of ["measured", "unit-stated", "uncertainty-stated"] as Flag[]) expected.add(f);
+          linked();
+          unit();
+          number();
+          if (typeof a.value === "number" && a.unit && !inRange(a.value, a.unit)) problems.push(`${at}: ${a.raw} ${a.unit} is out of range`);
+        } else if (kind === "footprints") {
+          for (const f of ["calculated-externally", "unit-stated"] as Flag[]) expected.add(f);
+          if (footprintResults > 1) expected.add("several-results");
+          if (a.property !== footprintProperty) problems.push(`${at}: not the footprint property`);
+          linked();
+          unit();
+          number();
+        } else if (kind === "evidence") {
+          expected.add("declared");
+          if (a.property !== evidenceProperty) problems.push(`${at}: not the evidence property`);
+          if ((a.details?.digest ?? "") === "") expected.add("evidence-digest-missing");
+          if (a.value !== a.raw || a.qualifier !== a.raw) problems.push(`${at}: the identifier differs from its text`);
+        } else {
+          expected.add("declared");
+          if (a.property !== narrativeProperty) problems.push(`${at}: not the narrative property`);
+          if (a.details?.approval_state !== "approved") expected.add("draft-text");
+          if (a.value !== a.raw) problems.push(`${at}: the value differs from its text`);
+          if (a.qualifier !== `${a.details?.language}/${a.details?.sector}/${a.details?.market}`) problems.push(`${at}: the qualifier does not match the text's language, sector and market`);
+        }
+      }
+      const have = a.flags.filter((f) => f !== "challenged");
+      const sameFlags = have.length === expected.size && have.every((f) => expected.has(f));
+      if (!sameFlags) problems.push(`${at}: the flags are [${have.join(", ")}], the contract gives [${[...expected].join(", ")}]`);
+    }
+  }
+  return problems;
 }

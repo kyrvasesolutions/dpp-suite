@@ -20,11 +20,13 @@
     "check-fixtures": "node scripts/check-fixtures.mjs",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "check-bundle": "node scripts/check-bundle.mjs"
+    "check-bundle": "node scripts/check-bundle.mjs",
+    "golden": "node scripts/golden.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.4.0",
     "d3-force": "^3.0.1",
+    "pdf-lib": "1.17.1",
     "react": "^19.3.1",
     "react-aria-components": "^1.22.1",
     "react-dom": "^19.3.1",
@@ -42,6 +44,7 @@
     "@vite-pwa/assets-generator": "^2.0.0",
     "@vitejs/plugin-react": "^6.2.1",
     "jsdom": "29.1.1",
+    "pdfjs-dist": "6.5.438",
     "typescript": "^7.0.2",
     "vite": "^8.3.5",
     "vite-plugin-pwa": "^2.0.0",

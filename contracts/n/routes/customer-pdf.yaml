@@ -29,3 +29,336 @@ fields:
   - ALU-D121
   - ALU-D122
   - ALU-D123
+output:
+  sections:
+    - id: identification
+      en: Identification
+      de: Kennung
+    - id: material
+      en: Material and properties
+      de: Werkstoff und Eigenschaften
+    - id: dimensions
+      en: Dimensions and mass
+      de: Abmessungen und Masse
+    - id: production
+      en: Production and origin
+      de: Herstellung und Herkunft
+    - id: environment
+      en: Environmental data
+      de: Umweltdaten
+    - id: description
+      en: Description
+      de: Beschreibung
+  items:
+    - step: MAP-PDF-001
+      role: field
+      property: ALU-D101
+      reads:
+        kind: members
+        members:
+          - FLD-Identifier-scheme
+          - FLD-Identifier-value
+          - FLD-Identifier-scheme_version
+      pdf:
+        section: identification
+        label:
+          en: Product model identifier
+          de: Produktmodellkennung
+        order: 1
+    - step: MAP-PDF-002
+      role: field
+      property: ALU-D102
+      reads:
+        kind: value
+      pdf:
+        section: identification
+        label:
+          en: Manufacturer identifier
+          de: Herstellerkennung
+        order: 2
+    - step: MAP-PDF-003
+      role: field
+      property: ALU-D103
+      reads:
+        kind: value
+      pdf:
+        section: identification
+        label:
+          en: Product name
+          de: Produktbezeichnung
+        order: 3
+    - step: MAP-PDF-004
+      role: field
+      property: ALU-D104
+      reads:
+        kind: members
+        members:
+          - FLD-Identifier-value
+          - FLD-Identifier-scheme_version
+      pdf:
+        section: identification
+        label:
+          en: Batch identifier
+          de: Chargenkennung
+        order: 4
+    - step: MAP-PDF-005
+      role: field
+      property: ALU-D105
+      reads:
+        kind: value
+      pdf:
+        section: identification
+        label:
+          en: Commodity code (CN)
+          de: Warennummer (KN)
+        order: 5
+    - step: MAP-PDF-006
+      role: field
+      property: ALU-D122
+      reads:
+        kind: members
+        members:
+          - FLD-Identifier-scope
+          - FLD-Identifier-value
+      pdf:
+        section: identification
+        label:
+          en: Customer article number
+          de: Kundenartikelnummer
+        order: 6
+    - step: MAP-PDF-007
+      role: field
+      property: ALU-D106
+      reads:
+        kind: value
+      pdf:
+        section: material
+        label:
+          en: Alloy designation
+          de: Legierungsbezeichnung
+        order: 7
+    - step: MAP-PDF-008
+      role: field
+      property: ALU-D107
+      reads:
+        kind: value
+      pdf:
+        section: material
+        label:
+          en: Temper designation
+          de: Werkstoffzustand
+        order: 8
+    - step: MAP-PDF-009
+      role: field
+      property: ALU-D114
+      reads:
+        kind: value
+      unit: "%"
+      pdf:
+        section: material
+        label:
+          en: Recycled content
+          de: Rezyklatanteil
+        order: 9
+    - step: MAP-PDF-010
+      role: field
+      property: ALU-D115
+      reads:
+        kind: derived
+        rule: DR-TENSILE-LIMITS
+      unit: MPa
+      pdf:
+        section: material
+        label:
+          en: Tensile strength Rm (measured)
+          de: Zugfestigkeit Rm (gemessen)
+        order: 10
+    - step: MAP-PDF-011
+      role: field
+      property: ALU-D120
+      reads:
+        kind: value
+      unit: "%"
+      pdf:
+        section: material
+        label:
+          en: Post-consumer recycled share
+          de: Post-Consumer-Rezyklatanteil
+        order: 11
+    - step: MAP-PDF-012
+      role: field
+      property: ALU-D123
+      reads:
+        kind: derived
+        rule: DR-COMPOSITION-LIMITS
+      unit: "%"
+      pdf:
+        section: material
+        label:
+          en: Chemical composition (measured)
+          de: Chemische Zusammensetzung (gemessen)
+        order: 12
+    - step: MAP-PDF-013
+      role: field
+      property: ALU-D108
+      reads:
+        kind: value
+      unit: mm
+      pdf:
+        section: dimensions
+        label:
+          en: Nominal thickness
+          de: Nenndicke
+        order: 13
+    - step: MAP-PDF-014
+      role: field
+      property: ALU-D109
+      reads:
+        kind: value
+      unit: mm
+      pdf:
+        section: dimensions
+        label:
+          en: Measured thickness
+          de: Gemessene Dicke
+        order: 14
+    - step: MAP-PDF-015
+      role: field
+      property: ALU-D110
+      reads:
+        kind: value
+      unit: mm
+      pdf:
+        section: dimensions
+        label:
+          en: Nominal width
+          de: Nennbreite
+        order: 15
+    - step: MAP-PDF-016
+      role: field
+      property: ALU-D111
+      reads:
+        kind: value
+      unit: mm
+      pdf:
+        section: dimensions
+        label:
+          en: Nominal length
+          de: Nennlänge
+        order: 16
+    - step: MAP-PDF-017
+      role: field
+      property: ALU-D112
+      reads:
+        kind: value
+      unit: kg
+      pdf:
+        section: dimensions
+        label:
+          en: Net mass of the batch
+          de: Nettomasse der Charge
+        order: 17
+    - step: MAP-PDF-018
+      role: field
+      property: ALU-D113
+      reads:
+        kind: value
+      pdf:
+        section: production
+        label:
+          en: Surface finish
+          de: Oberflächenausführung
+        order: 18
+    - step: MAP-PDF-019
+      role: field
+      property: ALU-D116
+      reads:
+        kind: value
+      pdf:
+        section: production
+        label:
+          en: Country of casting
+          de: Gießland
+        order: 19
+    - step: MAP-PDF-020
+      role: field
+      property: ALU-D117
+      reads:
+        kind: value
+      pdf:
+        section: production
+        label:
+          en: Production date
+          de: Herstelldatum
+        order: 20
+    - step: MAP-PDF-021
+      role: field
+      property: ALU-D119
+      reads:
+        kind: value
+      unit: kg{CO2e}/kg
+      pdf:
+        section: environment
+        label:
+          en: Product carbon footprint
+          de: CO2-Fußabdruck des Produkts
+        order: 21
+    - step: MAP-PDF-022
+      role: context
+      property: ALU-D119
+      reads:
+        kind: member
+        member: FLD-Footprint-method
+      pdf:
+        section: environment
+        label:
+          en: Footprint method
+          de: Berechnungsmethode
+        order: 22
+    - step: MAP-PDF-023
+      role: context
+      property: ALU-D119
+      reads:
+        kind: member
+        member: FLD-Footprint-system_boundary
+      pdf:
+        section: environment
+        label:
+          en: System boundary
+          de: Systemgrenze
+        order: 23
+    - step: MAP-PDF-024
+      role: context
+      property: ALU-D119
+      reads:
+        kind: member
+        member: FLD-Footprint-reference_year
+      pdf:
+        section: environment
+        label:
+          en: Reference year
+          de: Bezugsjahr
+        order: 24
+    - step: MAP-PDF-025
+      role: context
+      property: ALU-D119
+      reads:
+        kind: member
+        member: FLD-Footprint-calculated_by
+      pdf:
+        section: environment
+        label:
+          en: Calculated by
+          de: Berechnet von
+        order: 25
+    - step: MAP-PDF-026
+      role: field
+      property: ALU-D121
+      reads:
+        kind: value
+      pdf:
+        section: description
+        label:
+          en: Product narrative
+          de: Produktbeschreibung
+        order: 26

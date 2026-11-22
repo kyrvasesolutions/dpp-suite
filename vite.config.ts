@@ -1,6 +1,7 @@
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
+import { buildDefines } from "./config/build.ts";
 import { CONTENT_SECURITY_POLICY } from "./config/csp.ts";
 import { resolve } from "node:path";
 import { checkPack, fixtureDir, packDir, readPack } from "./config/contractPack.ts";
@@ -47,6 +48,8 @@ const contractPack = (): Plugin => {
 };
 
 export default defineConfig({
+  // The software version every output and the release manifest state: package.json version plus the commit.
+  define: buildDefines(),
   // GitHub Pages serves the site from /<repo>/; the workflow sets BASE_PATH.
   base: process.env.BASE_PATH ?? "/",
   plugins: [
