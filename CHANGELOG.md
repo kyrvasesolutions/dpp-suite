@@ -20,6 +20,9 @@ Functional changes to the DPP suite, one entry per merged pull request, newest f
 
 - **Export time as declared generated metadata.** The release manifest has `generated` (the ISO time and the role that made the release) and a `substantiveDigest` over everything except `generated`. The time is in no digest and in no comparison: the three output files stay byte-identical on every run, and the golden files and the double-run check compare the substantive content. Verification now also recomputes the substantive digest, so a changed manifest is caught while a changed generation time is not. The Outputs screen shows the time, the role and the substantive digest.
 
+- **A pack-only acceptance change is tested.** A test copies the stand-in pack to a temporary directory, adds one optional ERP column for a property no column filled yet, brings the manifest up to date with the contract checker alone, and then checks import, readiness and all three outputs: the customer PDF and the ERP staging CSV carry the new value, the registry route stays on its hold, a value that disagrees with the laboratory is still challenged, and no file under `src/` changes.
+- **The PDF character hold names the exact field.** When a text holds a character the PDF font cannot draw, the hold now names the key of the source object that holds it (for example `calculated_by`) and that key's own place (`/footprints/0/calculated_by`), not the whole value. The release manifest and the Outputs screen show it too.
+
 ## [#13](https://github.com/kyrvasesolutions/dpp-suite/pull/13) Outputs screen supported (22 November 2026)
 
 - The Outputs screen is labelled Supported. The three outputs, the central record with its versions, lineage and the release manifest passed an independent review in three rounds. In about 100 attempts, no denied field, raw derived value, live spreadsheet formula or undetected change reached an output.

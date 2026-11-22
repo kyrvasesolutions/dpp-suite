@@ -20,7 +20,7 @@ import { buildLineage } from "../lineage";
 import { byRole, type ProductRecord } from "../ingress";
 import type { ProfilePack, Route } from "../profile";
 import type { HoldReason } from "../readiness";
-import { prepare, RouteRefusedError, type OutputValue } from "./items";
+import { fieldSource, prepare, RouteRefusedError, type OutputValue } from "./items";
 import { safeName, type OutputFile } from "./types";
 
 const ROUTE: Route = "customer-pdf";
@@ -63,6 +63,16 @@ export function winAnsi(text: string): string {
   }
   return out;
 }
+
+/** Whether the PDF font can draw this text (after the fixed ASCII spellings). */
+const drawable = (text: string) => {
+  try {
+    winAnsi(text);
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 const A4 = { w: 595.28, h: 841.89 };
 const M = { left: 48, right: 48, top: 56, bottom: 74 };
@@ -117,11 +127,16 @@ export async function buildCustomerPdf(pack: ProfilePack, record: ProductRecord,
     } catch (e) {
       if (!(e instanceof PdfTextError)) throw e;
       firstMessage ||= `${it.label.en}: ${e.message}`;
-      const sources = it.refs.flatMap((r) => {
-        const a = record.values.find((v) => v.property === r.property && v.member === r.member && v.qualifier === r.qualifier)?.assertions[r.index];
-        return a ? [a.source] : [];
-      });
-      offenders.push({ ruleId: "RR-PDF-CHARACTER", property: it.property, detail: e.codePoint, sources });
+      // Name the exact field: the one source text the font lacks a character for, with the key it comes from and its own place
+      const bad = it.fields.find((f) => !drawable(f.text));
+      const exact = bad && fieldSource(record, bad.ref);
+      const sources = exact
+        ? [exact]
+        : it.refs.flatMap((r) => {
+            const a = record.values.find((v) => v.property === r.property && v.member === r.member && v.qualifier === r.qualifier)?.assertions[r.index];
+            return a ? [a.source] : [];
+          });
+      offenders.push({ ruleId: "RR-PDF-CHARACTER", property: it.property, ...(bad?.ref.detail ? { field: bad.ref.detail } : {}), detail: e.codePoint, sources });
       return it;
     }
   };

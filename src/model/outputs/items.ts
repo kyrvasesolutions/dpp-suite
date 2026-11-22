@@ -11,7 +11,7 @@ import type { Projection, ProjectedValue } from "../disclosure";
 import { decide } from "../policy";
 import type { OutputItem, ProfilePack, Route } from "../profile";
 import { assess, type HoldReason } from "../readiness";
-import type { ProductRecord } from "../ingress";
+import type { Assertion, ProductRecord } from "../ingress";
 import { project } from "../disclosure";
 
 /** Thrown when an output is asked for a route that is on hold, or for a projection of another route. */
@@ -43,6 +43,17 @@ export interface AssertionRef {
  */
 export const detailPosition = (position: string, key: string) => (/(^|, )\//.test(position) ? position.replace(/\/[^/]+$/, `/${key}`) : position);
 
+/**
+ * The source of the text one `fields` entry of an output value stands for: the assertion's own place, or, when the text is another
+ * key of the source object, that key's place (/footprints/0/calculated_by rather than /footprints/0/value).
+ */
+export function fieldSource(record: ProductRecord, ref: AssertionRef): Assertion["source"] | undefined {
+  const a = record.values.find((v) => v.property === ref.property && v.member === ref.member && v.qualifier === ref.qualifier)?.assertions[ref.index];
+  if (!a) return undefined;
+  if (!ref.detail) return a.source;
+  return { ...a.source, location: `${a.source.file}, ${detailPosition(a.source.location.slice(a.source.file.length + 2), ref.detail)}` };
+}
+
 export interface OutputValue {
   step: string;
   role: OutputItem["role"];
@@ -66,6 +77,11 @@ export interface OutputValue {
   sources: PublicSource[];
   /** Where the values are in the record, for lineage. A derived statement has none: lineage asks the derived rule. */
   refs: AssertionRef[];
+  /**
+   * Every piece of source text the output states, each with the assertion and, when it is not the value, the key of the source
+   * object it comes from. A guard that must refuse one piece names exactly that field. A derived statement has none.
+   */
+  fields: Array<{ ref: AssertionRef; text: string }>;
 }
 
 /**
@@ -100,14 +116,14 @@ export function buildItems(pack: ProfilePack, projection: Projection): OutputVal
       ...(item.unit ? { unit: item.unit } : {}),
       format,
     };
-    const absent = (challenged = false): OutputValue => ({ ...base, present: false, challenged, text: "", lines: [], numeric: false, sources: [], refs: [] });
+    const absent = (challenged = false): OutputValue => ({ ...base, present: false, challenged, text: "", lines: [], numeric: false, sources: [], refs: [], fields: [] });
     if (access === "deny") return absent();
 
     if (item.reads.kind === "derived") {
       const d = projection.derived.find((x) => x.property === item.property);
       if (!d) return absent();
       const text = `${d.within ? "within" : "outside"} the limits (${d.basis})`;
-      return { ...base, present: true, challenged: false, text, lines: [{ text }], numeric: false, ruleId: d.rule, sources: d.sources, refs: [] };
+      return { ...base, present: true, challenged: false, text, lines: [{ text }], numeric: false, ruleId: d.rule, sources: d.sources, refs: [], fields: [] };
     }
 
     const own = projection.values.filter((v) => v.property === item.property);
@@ -118,6 +134,7 @@ export function buildItems(pack: ProfilePack, projection: Projection): OutputVal
       const lines: OutputValue["lines"] = [];
       const sources: PublicSource[] = [];
       const refs: AssertionRef[] = [];
+      const fields: OutputValue["fields"] = [];
       let challenged = false;
       for (const m of item.reads.members) {
         const v = own.find((x) => x.member === m);
@@ -127,11 +144,12 @@ export function buildItems(pack: ProfilePack, projection: Projection): OutputVal
           continue;
         }
         lines.push({ key: tail(m), text: shown(v.assertions[0]) });
+        fields.push({ ref: refOf(v, 0), text: shown(v.assertions[0]) });
         sources.push(...v.assertions.map((_, i) => source(v, i)));
         refs.push(...v.assertions.map((_, i) => refOf(v, i)));
       }
       if (!lines.length) return absent(challenged);
-      return { ...base, present: true, challenged, text: lines.map((l) => `${escapeKey(l.key!)}=${escapePart(l.text)}`).join("|"), lines, numeric: false, sources, refs };
+      return { ...base, present: true, challenged, text: lines.map((l) => `${escapeKey(l.key!)}=${escapePart(l.text)}`).join("|"), lines, numeric: false, sources, refs, fields };
     }
 
     if (item.reads.kind === "member") {
@@ -139,6 +157,7 @@ export function buildItems(pack: ProfilePack, projection: Projection): OutputVal
       const lines: OutputValue["lines"] = [];
       const sources: PublicSource[] = [];
       const refs: AssertionRef[] = [];
+      const fields: OutputValue["fields"] = [];
       let challenged = false;
       for (const v of own.filter((x) => !x.member)) {
         if (!usable(v)) {
@@ -151,10 +170,11 @@ export function buildItems(pack: ProfilePack, projection: Projection): OutputVal
         const at = source(v, 0);
         sources.push({ ...at, position: detailPosition(at.position, key) });
         refs.push({ ...refOf(v, 0), detail: key });
+        fields.push({ ref: { ...refOf(v, 0), detail: key }, text });
       }
       if (!lines.length) return absent(challenged);
       const text = lines.length === 1 ? lines[0].text : lines.map((l) => (l.key ? `${escapeKey(l.key)}=${escapePart(l.text)}` : escapePart(l.text))).join("|");
-      return { ...base, present: true, challenged, text, lines, numeric: format === "number" && lines.length === 1 && NUMBER.test(text), sources, refs };
+      return { ...base, present: true, challenged, text, lines, numeric: format === "number" && lines.length === 1 && NUMBER.test(text), sources, refs, fields };
     }
 
     // value: one value gives its literal text; several (languages, elements, evidence records) give qualifier=text
@@ -162,6 +182,7 @@ export function buildItems(pack: ProfilePack, projection: Projection): OutputVal
     const sources: PublicSource[] = [];
     const refs: AssertionRef[] = [];
     const cells: string[] = [];
+    const fields: OutputValue["fields"] = [];
     let challenged = false;
     let numberLike = false;
     for (const v of own.filter((x) => !x.member)) {
@@ -179,6 +200,8 @@ export function buildItems(pack: ProfilePack, projection: Projection): OutputVal
       }
       const key = v.qualifier && !details.length ? v.qualifier : undefined;
       lines.push({ ...(key ? { key } : {}), text });
+      fields.push({ ref: refOf(v, 0), text: shown(v.assertions[0]) });
+      for (const m of details) fields.push({ ref: { ...refOf(v, 0), detail: tail(m) }, text: v.assertions[0].details?.[tail(m)] ?? "" });
       cells.push(key ? `${escapeKey(key)}=${escapePart(cell)}` : details.length ? cell : escapePart(cell));
       sources.push(...v.assertions.map((_, i) => source(v, i)));
       refs.push(...v.assertions.map((_, i) => refOf(v, i)));
@@ -191,7 +214,7 @@ export function buildItems(pack: ProfilePack, projection: Projection): OutputVal
     const keyed = format === "text" && lines.some((l) => l.key);
     const text = single && !(item.reads.details ?? []).length && !keyed ? lines[0].text : cells.join("|");
     // A cell is numeric only when the source's own text is a number: never because a text looks like one by accident
-    return { ...base, present: true, challenged, text, lines, numeric: format === "number" && single && numberLike && NUMBER.test(lines[0].text), sources, refs };
+    return { ...base, present: true, challenged, text, lines, numeric: format === "number" && single && numberLike && NUMBER.test(lines[0].text), sources, refs, fields };
   });
 }
 

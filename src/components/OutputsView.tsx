@@ -379,7 +379,11 @@ function RouteOutput({ route, outcome, profile }: { route: Route; outcome: Relea
             <li key={i} data-testid="hold-reason" data-rule={h.ruleId}>
               <strong>{h.ruleId}</strong> {ruleText(profile, h.ruleId)}
               {h.property && <span className="small hint"> ({profile.properties.find((p) => p.id === h.property)?.labels.en ?? h.property})</span>}
-              {h.detail && <span className="small" data-testid="hold-detail"> Character {h.detail}.</span>}
+              {h.detail && <span className="small" data-testid="hold-detail">
+                  {" "}
+                  Character {h.detail}
+                  {h.field ? ` in ${h.field}` : ""}.
+                </span>}
               {h.sources.map((x, j) => (
                 <div key={j} className="small hint" data-testid="hold-source">
                   {x.location}

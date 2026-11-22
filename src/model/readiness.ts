@@ -32,6 +32,8 @@ export interface HoldReason {
   member?: string;
   /** Further fact the rule names, for a hold made at output time (the code point for RR-PDF-CHARACTER). */
   detail?: string;
+  /** The key of the source object that holds the offending text, when it is not the value itself (RR-PDF-CHARACTER). */
+  field?: string;
   /** Where the assertions behind the hold are. Empty only for RR-MISSING and RR-STANDING-HOLD. */
   sources: Assertion["source"][];
 }

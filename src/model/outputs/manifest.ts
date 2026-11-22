@@ -23,7 +23,7 @@ import type { OutputFile } from "./types";
 
 const Sha = z.string().regex(/^[0-9a-f]{64}$/);
 const Pin = z.object({ ref: z.string(), path: z.string(), digest: Sha });
-const Hold = z.object({ rule: z.string(), property: z.string().nullable(), member: z.string().optional(), detail: z.string().optional(), locations: z.array(z.string()).optional() });
+const Hold = z.object({ rule: z.string(), property: z.string().nullable(), member: z.string().optional(), detail: z.string().optional(), field: z.string().optional(), locations: z.array(z.string()).optional() });
 
 export const ManifestSchema = z.object({
   format: z.literal("dpp-release-manifest"),
@@ -96,6 +96,7 @@ const holdOf = (h: HoldReason) => ({
   property: h.property,
   ...(h.member ? { member: h.member } : {}),
   ...(h.detail ? { detail: h.detail } : {}),
+  ...(h.field ? { field: h.field } : {}),
   ...(h.sources.length ? { locations: h.sources.map((x) => x.location) } : {}),
 });
 

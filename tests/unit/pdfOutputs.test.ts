@@ -98,10 +98,33 @@ describe("customer PDF", () => {
     expect(error).toBeInstanceOf(RouteRefusedError);
     expect(error.holds).toHaveLength(1);
     expect(error.holds[0]).toMatchObject({ ruleId: "RR-PDF-CHARACTER", property: propertyBySlug(pack, "carbon-footprint") });
-    expect(error.holds[0].sources[0].location).toContain("/footprints/0/value");
+    // the hold names the exact field (the key calculated_by and its own place), not the footprint value it belongs to
+    expect(error.holds[0].field).toBe("calculated_by");
+    expect(error.holds[0].sources).toHaveLength(1);
+    expect(error.holds[0].sources[0].location).toBe("d03a-lab-assessment.json, /footprints/0/calculated_by");
     expect(error.holds[0].detail).toBe("U+041B");
     expect(error.message).toContain("U+041B");
     expect(pack.policy.readiness.rules.some((r) => r.id === "RR-PDF-CHARACTER")).toBe(true);
+  });
+
+  it("names the field that holds the character, whichever key of the footprint it is in, and the value itself when it is the value", async () => {
+    for (const key of ["method", "calculated_by"]) {
+      const record = await recordFor(pack, { ...CLEAN, editLab: (d) => (d.footprints[0][key] = "Лаборатория") });
+      const error = await buildCustomerPdf(pack, record).catch((e) => e);
+      expect(error, key).toBeInstanceOf(RouteRefusedError);
+      expect(error.holds.map((h: { field?: string }) => h.field), key).toEqual([key]);
+      expect(error.holds[0].sources.map((s: { location: string }) => s.location), key).toEqual([`d03a-lab-assessment.json, /footprints/0/${key}`]);
+    }
+    // a character in a text that is the value itself: no detail key, the value's own place
+    const record = await recordFor(pack, { ...CLEAN, editLab: (d) => (d.texts[0].text = "Описание") });
+    const error = await buildCustomerPdf(pack, record).catch((e) => e);
+    expect(error).toBeInstanceOf(RouteRefusedError);
+    expect(error.holds[0]).not.toHaveProperty("field");
+    expect(error.holds[0].sources[0].location).toMatch(/\/texts\/0\/text$/);
+    // two bad fields in one release are two holds, each with its own place
+    const both = await recordFor(pack, { ...CLEAN, editLab: (d) => ((d.footprints[0].method = "Метод"), (d.footprints[0].calculated_by = "Лаборатория")) });
+    const e2 = await buildCustomerPdf(pack, both).catch((e) => e);
+    expect(e2.holds.map((h: { field?: string }) => h.field).sort()).toEqual(["calculated_by", "method"]);
   });
 
   it("lists the refusal with its rule in the release manifest, and the other outputs are still made", async () => {
@@ -110,8 +133,8 @@ describe("customer PDF", () => {
     expect(entry).toMatchObject({ fileName: null, sha256: null, status: "hold" });
     expect(entry.holds.map((h) => h.rule)).toEqual(["RR-PDF-CHARACTER"]);
     // the manifest names the code point, the property and where the value is
-    expect(entry.holds[0]).toMatchObject({ detail: "U+041B", property: propertyBySlug(pack, "carbon-footprint") });
-    expect(entry.holds[0].locations).toEqual(["d03a-lab-assessment.json, /footprints/0/value"]);
+    expect(entry.holds[0]).toMatchObject({ detail: "U+041B", field: "calculated_by", property: propertyBySlug(pack, "carbon-footprint") });
+    expect(entry.holds[0].locations).toEqual(["d03a-lab-assessment.json, /footprints/0/calculated_by"]);
     expect(release.files.map((f) => f.route).sort()).toEqual(["erp-staging-csv", "registry-prep-json"]);
   });
 

@@ -324,8 +324,9 @@ test("a PDF refused for a character the font lacks names the code point and the 
   const card = route(page, "customer-pdf");
   await expect(card).toHaveAttribute("data-state", "refused");
   await expect(card.locator('[data-testid="hold-reason"][data-rule="RR-PDF-CHARACTER"]')).toHaveCount(1);
-  await expect(card.getByTestId("hold-detail")).toContainText("U+041B");
-  await expect(card.getByTestId("hold-source").first()).toContainText("/footprints/0/value");
+  await expect(card.getByTestId("hold-detail")).toContainText("U+041B in calculated_by");
+  await expect(card.getByTestId("hold-source")).toHaveCount(1);
+  await expect(card.getByTestId("hold-source").first()).toContainText("/footprints/0/calculated_by");
   await expect(card.getByTestId("download")).toHaveCount(0);
   await expect(route(page, "erp-staging-csv")).toHaveAttribute("data-state", "ready");
 });
