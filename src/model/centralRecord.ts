@@ -69,7 +69,8 @@ const SnapshotSchema = z.strictObject({
   digest: Sha,
   actor: z.literal(OPERATOR),
   reason: z.string(),
-  origin: z.string().optional(),
+  // a file may carry no origin or exactly the fixed text; anything else is not trusted and refuses the file
+  origin: z.literal(ORIGIN_IMPORTED).optional(),
   sources: z.array(z.strictObject({ role: Role, name: z.string(), sha256: Sha })),
   record: ProductRecord,
 });
@@ -150,6 +151,8 @@ export async function importCentralRecord(bytes: Uint8Array, pack: ProfilePack, 
     for (const s of doc.snapshots) {
       if (s.model !== doc.model || s.batch !== doc.batch) throw new RepositoryError(`${s.model} / ${s.batch} v${s.version} is another record than ${doc.model} / ${doc.batch}`);
       await verifySnapshot(s as Snapshot);
+      const listed = (x: Array<{ role: string; name: string; sha256: string }>) => canonical(x.map(({ role, name, sha256 }) => ({ role, name, sha256 })));
+      if (listed(s.sources) !== listed(s.record.sources)) throw new RepositoryError(`${s.model} / ${s.batch} v${s.version}: the snapshot's sources are not the record's sources`);
       const problems = recheckRecord(pack, s.record as Snapshot["record"]);
       if (problems.length) throw new RepositoryError(`${s.model} / ${s.batch} v${s.version} does not pass the contract checks: ${problems[0]}${problems.length > 1 ? ` (and ${problems.length - 1} more)` : ""}`);
       checkAppend(seen, s as Snapshot);
@@ -176,7 +179,8 @@ export async function restoreCentralRecord(target: RecordRepository, imported: I
       if (mine.digest !== s.digest) throw new CentralRecordError(`Version ${s.version} here differs from the imported version ${s.version}; nothing was changed beyond the versions before it.`);
       skipped++;
     } else {
-      await target.put({ ...s, origin: s.origin ?? ORIGIN_IMPORTED });
+      // whatever the file says, a version restored here records that it came from a file
+      await target.put({ ...s, origin: ORIGIN_IMPORTED });
       added++;
     }
   }

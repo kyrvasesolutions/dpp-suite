@@ -827,6 +827,50 @@ export function recheckRecord(pack: ProfilePack, record: ProductRecord): string[
           if (id !== undefined && evidenceIds.has(id)) expected.add("evidence-linked");
           else problems.push(`${at}: names evidence ${JSON.stringify(id)}, which the record does not hold`);
         };
+        // The same JSON-Schema rules and enums the laboratory contract applies at ingress, on the object this assertion stands for
+        const schemaCheck = () => {
+          const groups: Record<string, string> = { observations: "observations", footprints: "footprints", evidence: "evidence", texts: "texts" };
+          const structure = pack.inputs.lab.structure as { properties?: Record<string, { items?: Schema }> };
+          const itemSchema = structure.properties?.[groups[kind!]]?.items;
+          if (!itemSchema) return;
+          const props = (itemSchema.properties ?? {}) as Record<string, Schema>;
+          const d = a.details ?? {};
+          const typed = (key: string, text: string | undefined): JsonValue => {
+            const types = ([] as string[]).concat((props[key]?.type as string | string[] | undefined) ?? []);
+            if (text === undefined) return { kind: "null" };
+            if (types.includes("null") && text === "") return { kind: "null" };
+            if ((types.includes("number") || types.includes("integer")) && text.trim() !== "" && Number.isFinite(Number(text))) return { kind: "number", value: Number(text), raw: text };
+            return { kind: "string", value: text };
+          };
+          const entries = new Map<string, JsonValue>();
+          const put = (key: string, text: string | undefined) => text !== undefined && entries.set(key, typed(key, text));
+          if (kind === "observations") {
+            put("observation_id", d.observation_id);
+            put("property", a.property);
+            if (a.qualifier !== undefined) put("element", a.qualifier);
+            entries.set("value", typeof a.value === "number" ? { kind: "number", value: a.value, raw: a.raw } : { kind: "string", value: a.raw });
+            put("unit", a.unit ?? undefined);
+            const num = (t: string | undefined): JsonValue => (t !== undefined && t.trim() !== "" && Number.isFinite(Number(t)) ? { kind: "number", value: Number(t), raw: t } : { kind: "string", value: t ?? "" });
+            entries.set("uncertainty", { kind: "object", entries: new Map<string, JsonValue>([["expanded", num(d.expanded_uncertainty)], ["coverage_factor", num(d.coverage_factor)], ["uncertainty_kind", { kind: "string", value: d.uncertainty_kind ?? "" }]]) });
+            put("method", d.method);
+            put("evidence_id", d.evidence_id);
+          } else if (kind === "footprints") {
+            put("result_id", a.qualifier);
+            put("property", a.property);
+            entries.set("value", typeof a.value === "number" ? { kind: "number", value: a.value, raw: a.raw } : { kind: "string", value: a.raw });
+            put("unit", a.unit ?? undefined);
+            for (const k of ["method", "system_boundary", "reference_year", "calculated_by", "evidence_id"]) put(k, d[k]);
+          } else if (kind === "evidence") {
+            put("evidence_id", a.raw);
+            for (const k of ["issuer", "revision", "record_kind", "scope", "digest", "access_policy_ref"]) put(k, d[k]);
+          } else {
+            for (const k of ["text_id", "subject_ref", "language", "sector", "market", "approval_state", "revision"]) put(k, d[k]);
+            put("text", a.raw);
+          }
+          const issues: IngressIssue[] = [];
+          validate(itemSchema, { kind: "object", entries }, "", "record", issues);
+          for (const i of issues) problems.push(`${at}: breaks the laboratory contract: ${i.message}`);
+        };
         const number = () => {
           if (a.value === null) return;
           if (typeof a.value !== "number" || !Number.isFinite(a.value) || Number(a.raw) !== a.value || !exact(a.raw)) problems.push(`${at}: "${a.raw}" is not the literal of its number`);
@@ -834,6 +878,7 @@ export function recheckRecord(pack: ProfilePack, record: ProductRecord): string[
         const unit = () => {
           if (!(pack.inputs.lab.allowed_units[a.property] ?? []).includes(a.unit ?? "")) problems.push(`${at}: the unit ${a.unit} is not allowed for ${a.property}`);
         };
+        if (kind !== "product") schemaCheck();
         if (kind === "product") {
           expected.add("declared");
           if (a.value !== a.raw) problems.push(`${at}: the value differs from its text`);

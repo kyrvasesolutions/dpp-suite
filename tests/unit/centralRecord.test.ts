@@ -202,3 +202,55 @@ describe("re-checks on import: a file sealed again consistently is still checked
     expect(valueOf(imported.snapshots[0], "net-mass").assertions[0].raw).toBe("9999");
   });
 });
+
+describe("the origin in a file is not trusted", () => {
+  it("refuses a file that carries any origin other than the fixed text, an empty one included", async () => {
+    for (const origin of ["Made in this browser", "", "imported from a central-record file", "First import"]) {
+      await expect(importCentralRecord(await resealed((s) => (s.origin = origin)), pack), JSON.stringify(origin)).rejects.toThrow(/not a central-record export/);
+    }
+  });
+
+  it("accepts the fixed text or none, and always stores the fixed text on restore", async () => {
+    for (const edit of [(s: Snapshot) => void s, (s: Snapshot) => (s.origin = ORIGIN_IMPORTED)]) {
+      const imported = await importCentralRecord(await resealed(edit), pack);
+      const target = new MemoryRepository();
+      await restoreCentralRecord(target, imported);
+      expect((await target.history(imported.model, imported.batch))[0].origin).toBe(ORIGIN_IMPORTED);
+    }
+  });
+
+  it("does not let a local version pretend to come from a file, or hide that a restored one did", async () => {
+    const { repo, model, batch } = await build(1);
+    // a version made here has no origin; exporting it adds none, and restoring it elsewhere sets the fixed text
+    const exported = JSON.parse((await exportCentralRecord(repo, pack, model, batch)).text);
+    expect(exported.snapshots[0].origin).toBeUndefined();
+    const target = new MemoryRepository();
+    await restoreCentralRecord(target, await importCentralRecord(utf8(JSON.stringify(exported)), pack));
+    expect((await target.history(model, batch))[0].origin).toBe(ORIGIN_IMPORTED);
+  });
+});
+
+describe("re-checks against the laboratory contract's own schema rules", () => {
+  const lab = (slug: string, i = 0) => (s: Snapshot) => valueOf(s, slug).assertions[i];
+
+  it("refuses an evidence digest that does not match the pattern, an enum value the contract lacks, and a negative uncertainty", async () => {
+    await expect(importCentralRecord(await resealed((s) => (lab("evidence-references")(s).details!.digest = "sha256:" + "zz".repeat(32))), pack)).rejects.toThrow(/laboratory contract: .*Does not match/);
+    await expect(importCentralRecord(await resealed((s) => (lab("evidence-references")(s).details!.record_kind = "rumour")), pack)).rejects.toThrow(/Must be one of/);
+    await expect(importCentralRecord(await resealed((s) => (lab("product-narrative")(s).details!.language = "fr")), pack)).rejects.toThrow(/Must be one of en, de/);
+    await expect(importCentralRecord(await resealed((s) => (lab("measured-thickness")(s).details!.expanded_uncertainty = "-5")), pack)).rejects.toThrow(/Must be at least 0/);
+    await expect(importCentralRecord(await resealed((s) => (lab("measured-thickness")(s).details!.coverage_factor = "0")), pack)).rejects.toThrow(/Must be more than 0/);
+    await expect(importCentralRecord(await resealed((s) => (lab("carbon-footprint")(s).details!.system_boundary = "cradle-to-grave")), pack)).rejects.toThrow(/Must be one of cradle-to-gate/);
+    await expect(importCentralRecord(await resealed((s) => (lab("carbon-footprint")(s).details!.reference_year = "20.5")), pack)).rejects.toThrow(/integer/);
+  });
+
+  it("accepts what ingress accepts: a method that starts with = is a valid text", async () => {
+    const imported = await importCentralRecord(await resealed((s) => (lab("tensile-strength")(s).details!.method = "=cmd|calc")), pack);
+    expect(valueOf(imported.snapshots[0], "tensile-strength").assertions[0].details!.method).toBe("=cmd|calc");
+  });
+
+  it("refuses snapshot sources that disagree with the record's sources", async () => {
+    await expect(importCentralRecord(await resealed((s) => (s.sources[0].sha256 = "2".repeat(64))), pack)).rejects.toThrow(/sources are not the record's sources/);
+    await expect(importCentralRecord(await resealed((s) => s.sources.pop()), pack)).rejects.toThrow(/sources are not the record's sources/);
+    await expect(importCentralRecord(await resealed((s) => (s.sources[0].name = "other.csv")), pack)).rejects.toThrow(/sources are not the record's sources/);
+  });
+});
