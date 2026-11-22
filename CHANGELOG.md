@@ -12,6 +12,12 @@ Functional changes to the DPP suite, one entry per merged pull request, newest f
   - The public field set is fixed: sequence, event, stage, code, route, rule, step, record (model and batch as digests only), version, file role, file digest and outcome. A value, a code value, a file name or free text is never logged; any other field, or content of the wrong shape, is dropped, and content without a confidentiality class is treated as restricted. Error messages on the screen may still show the operator's own values.
   - A test runs every fixture and failure fixture through import, readiness, outputs and export and checks that no source value or file name is in the log.
 
+- **Packaging, configuration and dependencies.**
+  - Every dependency is pinned to one exact version, matching the lockfile. Node 24 is set in `.nvmrc` and in `package.json` engines, and `npm run serve` serves the build on port 4173.
+  - `config/env.example` lists the four configuration points (contract pack, fixture pack, the Claude flag, base path) with no secret values.
+  - `npm run check-secrets` scans tracked files for Anthropic, GitHub and AWS keys, private key blocks and committed `.env` files; `npm run check-licences` checks the licence of every production dependency, nested ones included, against an allow-list and prints the table. Both run in CI, with a non-blocking `npm audit` report for production dependencies.
+  - `scripts/rehearse-install.sh` clones a ref into a temporary directory, installs, typechecks, checks the contract pack, builds, checks the bundle and serves the build, then prints a dated summary.
+
 ## [#13](https://github.com/kyrvasesolutions/dpp-suite/pull/13) Outputs screen supported (22 November 2026)
 
 - The Outputs screen is labelled Supported. The three outputs, the central record with its versions, lineage and the release manifest passed an independent review in three rounds. In about 100 attempts, no denied field, raw derived value, live spreadsheet formula or undetected change reached an output.
