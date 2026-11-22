@@ -1,0 +1,115 @@
+// @vitest-environment node
+/**
+ * The local notes (operator install notes, Record notes, developer handover) say what the repository does. The notes are
+ * git-ignored (decision D2-02), so CI has no copy and these tests run only where the files are.
+ */
+import { existsSync, readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+import { FLAG_TEXT } from "../../src/model/ingress";
+
+const pkg = JSON.parse(readFileSync("package.json", "utf8")) as { scripts: Record<string, string> };
+const golden = JSON.parse(readFileSync("tests/golden/digests.json", "utf8")) as Record<string, string>;
+const read = (f: string) => readFileSync(f, "utf8");
+const npmRuns = (text: string) => [...text.matchAll(/npm run ([a-z0-9:-]+)/g)].map((m) => m[1]);
+const paths = (text: string) => [...text.matchAll(/`((?:src|scripts|tests|config|contracts|fixtures|spec)\/[\w./@-]+)`/g)].map((m) => m[1]);
+
+describe.runIf(existsSync("docs/operator/install-notes.md"))("install notes", () => {
+  const notes = existsSync("docs/operator/install-notes.md") ? read("docs/operator/install-notes.md") : "";
+
+  it("names the Node version the repository pins, and the port the build is served on", () => {
+    expect(notes).toContain(`Node.js | ${read(".nvmrc").trim()}`);
+    expect(notes).toContain("4173");
+    expect(notes).toContain("npm ci");
+  });
+
+  it("gives the install steps in the order that works", () => {
+    const steps = ["npm ci", "npm run typecheck", "npm run check-contracts -- --require-frozen --require-signed", "npm run build", "npm run check-bundle", "npm run serve"];
+    const at = steps.map((s) => notes.indexOf(s));
+    expect(at.every((n) => n >= 0)).toBe(true);
+    expect([...at].sort((a, b) => a - b)).toEqual(at);
+  });
+
+  it("only tells the operator to run npm scripts that exist", () => {
+    for (const s of npmRuns(notes)) expect(Object.keys(pkg.scripts), s).toContain(s);
+  });
+
+  it("lists every configuration variable of config/env.example, and the declared limits", () => {
+    const vars = read("config/env.example").split("\n").filter((l) => /^[A-Z_]+=/.test(l)).map((l) => l.split("=")[0]);
+    expect(vars).toHaveLength(4);
+    for (const v of vars) expect(notes, v).toContain(`\`${v}\``);
+    for (const limit of ["10 MiB", "**12**", "30 seconds", "one data row"]) expect(notes, limit).toContain(limit);
+    const limits = read("contracts/n/policy/LIMITS@1.0.0.yaml");
+    expect(limits).toMatch(/max_file_bytes: 10485760/);
+    expect(limits).toMatch(/max_json_depth: 12/);
+    expect(limits).toMatch(/job_deadline_ms: 30000/);
+    expect(limits).toMatch(/max_erp_data_rows: 1\b/);
+  });
+
+  it("states the sha256 of the three outputs of the sample run, as the golden files have them", () => {
+    for (const route of ["customer-pdf", "erp-staging-csv", "registry-prep-json"]) expect(notes, route).toContain(golden[route]);
+  });
+
+  it("says how to reset, and what the demonstrator does not do", () => {
+    expect(notes).toMatch(/Clear site data/);
+    expect(notes).toMatch(/IndexedDB/);
+    for (const claim of ["hosted", "availability", "disaster recovery", "never submits", "synthetic"]) expect(notes.toLowerCase(), claim).toContain(claim.toLowerCase());
+  });
+
+  it("names the sample files and results that exist", () => {
+    expect(notes).toContain("Clean pair");
+    expect(notes).toContain("ERP value with a decimal comma");
+    expect(existsSync("fixtures/n/erp-decimal-comma.csv")).toBe(true);
+    expect(notes).toContain("RR-STANDING-HOLD");
+    expect(notes).toContain("decimal-comma");
+    expect(existsSync("scripts/rehearse-install.sh")).toBe(true);
+  });
+});
+
+describe.runIf(existsSync("docs/operator/record-notes.md"))("record notes", () => {
+  const notes = existsSync("docs/operator/record-notes.md") ? read("docs/operator/record-notes.md") : "";
+
+  it("explains every value status and the correction flag in the words of the screen", () => {
+    for (const status of ["single", "agreeing", "challenged", "corrected"]) expect(notes, status).toContain(`\`${status}\``);
+    expect(notes).toContain(FLAG_TEXT["operator-corrected"].replace(": the earlier value stays visible", ""));
+  });
+
+  it("states the correction rules", () => {
+    for (const rule of ["A reason is required", "new version", "earlier value stays visible", "cannot touch another record", "never adds a code", "cannot be corrected by hand", "latest version"]) {
+      expect(notes, rule).toContain(rule);
+    }
+    expect(notes).toMatch(/lineage and the release manifest name the correction/);
+    expect(notes).toMatch(/never holds the value or the reason/);
+  });
+
+  it("names the parts of the screen and the buttons it has", () => {
+    for (const part of ["Sources", "Record values", "Routes and outputs", "Versions and differences", "Open Readiness", "Open Outputs", "Save as a new version", "Access to each property"]) {
+      expect(notes, part).toContain(part);
+      expect(read("src/components/RecordView.tsx"), part).toContain(part);
+    }
+  });
+});
+
+describe.runIf(existsSync("docs/developer/handover.md"))("developer handover", () => {
+  const notes = existsSync("docs/developer/handover.md") ? read("docs/developer/handover.md") : "";
+
+  it("mentions only files and folders that exist", () => {
+    const named = paths(notes);
+    expect(named.length).toBeGreaterThan(30);
+    for (const p of named) expect(existsSync(p), p).toBe(true);
+  });
+
+  it("documents every npm script", () => {
+    for (const s of Object.keys(pkg.scripts)) expect(notes, s).toContain(s === "generate-icons" ? "generate-icons" : s);
+  });
+
+  it("covers the architecture, the pack workflow with signing, the tests, the release process, the known limits and the open items", () => {
+    for (const heading of ["## Architecture", "## The pack and the spec generator", "## Tests, golden files and scripts", "## Release process", "## Known limits", "## Open items for P"]) expect(notes, heading).toContain(heading);
+    for (const text of ["node spec/tools/build-packs.mjs", "--write", "SIGNATURES.json", "--require-signed", "CHANGELOG.md", "D3-02", "D4-03", "D5-05", "source, record, route, output"]) expect(notes, text).toContain(text);
+  });
+
+  it("names every module of the model the data flow passes through", () => {
+    for (const m of ["ingress", "strictJson", "recordRepository", "correction", "centralRecord", "policy", "disclosure", "readiness", "derived", "lineage", "log", "profile"]) {
+      expect(notes, m).toContain(`src/model/${m}.ts`);
+    }
+  });
+});
