@@ -6,6 +6,7 @@ import type { ProductRecord } from "../ingress";
 import type { ProfilePack, Route } from "../profile";
 import { ROUTES } from "../profile";
 import type { Snapshot } from "../recordRepository";
+import { buildCustomerPdf } from "./customerPdf";
 import { buildErpCsv } from "./erpCsv";
 import { RouteRefusedError } from "./items";
 import { buildManifest, manifestFile, type ReleaseManifest, type RouteOutcome } from "./manifest";
@@ -13,10 +14,12 @@ import { buildRegistryJson } from "./registryJson";
 import { softwareInfo, type SoftwareInfo } from "./software";
 import type { OutputFile } from "./types";
 
-export type Builder = (pack: ProfilePack, record: ProductRecord) => OutputFile | Promise<OutputFile>;
+/** `context.version` is the record version the release is made from, for outputs that state it (the PDF footer). */
+export type Builder = (pack: ProfilePack, record: ProductRecord, context: { version: number }) => OutputFile | Promise<OutputFile>;
 
 /** The builder of each route. A route without one is not part of the release. */
 export const BUILDERS: Partial<Record<Route, Builder>> = {
+  "customer-pdf": buildCustomerPdf,
   "erp-staging-csv": buildErpCsv,
   "registry-prep-json": buildRegistryJson,
 };
@@ -40,7 +43,7 @@ export async function generateRelease(
     const build = builders[route];
     if (!build) continue;
     try {
-      outcomes.push({ route, file: await build(pack, record) });
+      outcomes.push({ route, file: await build(pack, record, { version: snapshot.version }) });
     } catch (e) {
       if (e instanceof RouteRefusedError) outcomes.push({ route, refused: e });
       else throw e;

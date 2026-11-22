@@ -651,6 +651,7 @@ export async function importLabJson(
 
 const ROLE_SLUGS = {
   model: "product-model-id",
+  name: "product-name",
   batch: "batch-id",
   alloy: "alloy-designation",
   temper: "temper-designation",

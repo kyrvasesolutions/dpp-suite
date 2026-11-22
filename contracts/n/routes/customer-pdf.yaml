@@ -30,6 +30,25 @@ fields:
   - ALU-D122
   - ALU-D123
 output:
+  sections:
+    - id: identification
+      en: Identification
+      de: Kennung
+    - id: material
+      en: Material and properties
+      de: Werkstoff und Eigenschaften
+    - id: dimensions
+      en: Dimensions and mass
+      de: Abmessungen und Masse
+    - id: production
+      en: Production and origin
+      de: Herstellung und Herkunft
+    - id: environment
+      en: Environmental data
+      de: Umweltdaten
+    - id: description
+      en: Description
+      de: Beschreibung
   items:
     - step: MAP-PDF-001
       role: field

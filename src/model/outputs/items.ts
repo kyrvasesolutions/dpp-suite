@@ -64,6 +64,8 @@ const tail = (member: string) => member.replace(/^FLD-[A-Za-z]+-/, "");
 const NUMBER = /^-?\d+(\.\d+)?$/;
 
 const source = (v: ProjectedValue, i: number) => v.assertions[i].source;
+/** A code that a pinned code list maps (a company code) is shown as what it maps to; every other text is the source's own. */
+const shown = (a: ProjectedValue["assertions"][number]) => (typeof a.value === "string" ? a.value : a.raw);
 
 /** The values of the output of `route`, one per mapping item, from the projection only. */
 export function buildItems(pack: ProfilePack, projection: Projection): OutputValue[] {
@@ -108,7 +110,7 @@ export function buildItems(pack: ProfilePack, projection: Projection): OutputVal
           challenged = true;
           continue;
         }
-        lines.push({ key: tail(m), text: v.assertions[0].raw });
+        lines.push({ key: tail(m), text: shown(v.assertions[0]) });
         sources.push(...v.assertions.map((_, i) => source(v, i)));
         refs.push(...v.assertions.map((_, i) => refOf(v, i)));
       }
@@ -149,7 +151,7 @@ export function buildItems(pack: ProfilePack, projection: Projection): OutputVal
         challenged = true;
         continue;
       }
-      let text = v.assertions[0].raw;
+      let text = shown(v.assertions[0]);
       const details = item.reads.details ?? [];
       if (details.length) {
         const parts = details.map((m) => `${tail(m)}=${v.assertions[0].details?.[tail(m)] ?? ""}`);

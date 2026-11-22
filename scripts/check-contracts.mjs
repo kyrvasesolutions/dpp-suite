@@ -308,6 +308,9 @@ if (profileFrozen) {
       continue;
     }
     const fields = doc.fields ?? [];
+    const sectionIds = (doc.output.sections ?? []).map((x) => x.id);
+    if (route === "customer-pdf" && (!sectionIds.length || (doc.output.sections ?? []).some((x) => !x.en || !x.de))) fail(`${where}: output.sections needs EN and DE titles`);
+    if (route !== "customer-pdf" && doc.output.sections) fail(`${where}: only the customer PDF has sections`);
     const prefix = { "customer-pdf": "PDF", "erp-staging-csv": "ERP", "registry-prep-json": "REG" }[route];
     const permitted = propertyIds.filter((id) => accessOf(id, route) !== "deny");
     if (JSON.stringify([...fields].sort()) !== JSON.stringify([...permitted].sort())) fail(`${where}: fields must be exactly the properties the matrix permits or derives for the route`);
@@ -349,7 +352,7 @@ if (profileFrozen) {
       } else if (route === "registry-prep-json") {
         if (!String(place.path ?? "").startsWith("/") || names.has(place.path)) fail(`${id}: json path "${place.path}" must start with / and be unique`);
         names.add(place.path);
-      } else if (!place.label?.en || !place.label?.de || !place.section || place.order !== n + 1) fail(`${id}: pdf section, EN and DE labels and a running order are required`);
+      } else if (!place.label?.en || !place.label?.de || !sectionIds.includes(place.section) || place.order !== n + 1) fail(`${id}: pdf section, EN and DE labels and a running order are required`);
     });
     for (const f of fields) if (!fieldItems.has(f)) fail(`${where}: field ${f} has no output item`);
     if (route === "registry-prep-json" && items.some((i) => accessOf(i.property, route) !== "permit")) fail(`${where}: the registry output names only permitted fields`);

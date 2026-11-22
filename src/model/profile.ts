@@ -149,7 +149,7 @@ const RouteDoc = z.object({
   submission: z.string().optional(),
   hold_reason: z.string().optional(),
   fields: z.array(z.string()),
-  output: z.object({ items: z.array(OutputItemDoc).min(1) }),
+  output: z.object({ sections: z.array(z.object({ id: z.string(), en: z.string(), de: z.string() })).optional(), items: z.array(OutputItemDoc).min(1) }),
 });
 
 const RuleText = z.object({ id: z.string().regex(/^[A-Z]{2}-[A-Z-]+$/), text: z.string().min(1) });
@@ -198,6 +198,8 @@ export interface RouteInfo {
   id: Route;
   /** The pinned output mapping: every route field has exactly one `field` item (checked by check-contracts). */
   output: OutputItem[];
+  /** The titles of the PDF sections, in order (the customer PDF only; empty for the other routes). */
+  sections: Array<{ id: string; en: string; de: string }>;
   recipient: string;
   format: string;
   /** HOLD for a route that is on hold in the pack itself (the registry route, which is never submitted). */
@@ -416,7 +418,7 @@ export async function loadProfilePack(source: PackSource): Promise<ProfilePack> 
     ROUTES.map((r) => {
       const doc = parseWith(RouteDoc, `routes/${r}.yaml`, files[`routes/${r}.yaml`] ?? "");
       if (doc.id !== r) throw new ProfileError(`routes/${r}.yaml: id is ${doc.id}`);
-      return [r, { id: r, recipient: doc.recipient, format: doc.format, status: doc.status, output: doc.output.items, ...(doc.hold_reason ? { holdReason: doc.hold_reason } : {}) }];
+      return [r, { id: r, recipient: doc.recipient, format: doc.format, status: doc.status, output: doc.output.items, sections: doc.output.sections ?? [], ...(doc.hold_reason ? { holdReason: doc.hold_reason } : {}) }];
     }),
   ) as Record<Route, RouteInfo>;
 
