@@ -98,6 +98,7 @@ describe("customer PDF", () => {
     expect(error.holds).toHaveLength(1);
     expect(error.holds[0]).toMatchObject({ ruleId: "RR-PDF-CHARACTER", property: propertyBySlug(pack, "carbon-footprint") });
     expect(error.holds[0].sources[0].location).toContain("/footprints/0/value");
+    expect(error.holds[0].detail).toBe("U+041B");
     expect(error.message).toContain("U+041B");
     expect(pack.policy.readiness.rules.some((r) => r.id === "RR-PDF-CHARACTER")).toBe(true);
   });
@@ -107,6 +108,9 @@ describe("customer PDF", () => {
     const entry = release.manifest.outputs.find((o) => o.route === "customer-pdf")!;
     expect(entry).toMatchObject({ fileName: null, sha256: null, status: "hold" });
     expect(entry.holds.map((h) => h.rule)).toEqual(["RR-PDF-CHARACTER"]);
+    // the manifest names the code point, the property and where the value is
+    expect(entry.holds[0]).toMatchObject({ detail: "U+041B", property: propertyBySlug(pack, "carbon-footprint") });
+    expect(entry.holds[0].locations).toEqual(["d03a-lab-assessment.json, /footprints/0/value"]);
     expect(release.files.map((f) => f.route).sort()).toEqual(["erp-staging-csv", "registry-prep-json"]);
   });
 

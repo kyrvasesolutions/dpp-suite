@@ -22,7 +22,7 @@ import type { OutputFile } from "./types";
 
 const Sha = z.string().regex(/^[0-9a-f]{64}$/);
 const Pin = z.object({ ref: z.string(), path: z.string(), digest: Sha });
-const Hold = z.object({ rule: z.string(), property: z.string().nullable(), member: z.string().optional() });
+const Hold = z.object({ rule: z.string(), property: z.string().nullable(), member: z.string().optional(), detail: z.string().optional(), locations: z.array(z.string()).optional() });
 
 export const ManifestSchema = z.object({
   format: z.literal("dpp-release-manifest"),
@@ -72,7 +72,13 @@ export type ReleaseManifest = z.infer<typeof ManifestSchema>;
 /** What happened for one route: a file, or the refusal that says why there is none. */
 export type RouteOutcome = { route: Route; file: OutputFile } | { route: Route; refused: RouteRefusedError };
 
-const holdOf = (h: HoldReason) => ({ rule: h.ruleId, property: h.property, ...(h.member ? { member: h.member } : {}) });
+const holdOf = (h: HoldReason) => ({
+  rule: h.ruleId,
+  property: h.property,
+  ...(h.member ? { member: h.member } : {}),
+  ...(h.detail ? { detail: h.detail } : {}),
+  ...(h.sources.length ? { locations: h.sources.map((x) => x.location) } : {}),
+});
 
 const pinsOf = (pack: ProfilePack, prefix: string): PinnedFile[] => pack.pins.filter((p) => p.path.startsWith(prefix)).map(({ ref, path, digest }) => ({ ref, path, digest }));
 

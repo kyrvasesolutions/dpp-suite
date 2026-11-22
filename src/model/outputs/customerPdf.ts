@@ -27,6 +27,13 @@ const ROUTE: Route = "customer-pdf";
 
 export class PdfTextError extends Error {
   override name = "PdfTextError";
+  constructor(
+    message: string,
+    /** The first character the font lacks, as U+XXXX. */
+    readonly codePoint: string,
+  ) {
+    super(message);
+  }
 }
 
 /** Characters outside WinAnsi that the layout spells in ASCII, fixed and in this order. */
@@ -49,7 +56,10 @@ export function winAnsi(text: string): string {
   let out = text.replace(/[\r\n\t]+/g, " ");
   for (const [from, to] of ASCII_SPELLING) out = out.split(from).join(to);
   for (const c of out) {
-    if (!isWinAnsi(c)) throw new PdfTextError(`The character U+${c.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0")} is not in the PDF font's character set, so no PDF is made.`);
+    if (!isWinAnsi(c)) {
+      const codePoint = `U+${c.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0")}`;
+      throw new PdfTextError(`The character ${codePoint} is not in the PDF font's character set, so no PDF is made.`, codePoint);
+    }
   }
   return out;
 }
@@ -111,7 +121,7 @@ export async function buildCustomerPdf(pack: ProfilePack, record: ProductRecord,
         const a = record.values.find((v) => v.property === r.property && v.member === r.member && v.qualifier === r.qualifier)?.assertions[r.index];
         return a ? [a.source] : [];
       });
-      offenders.push({ ruleId: "RR-PDF-CHARACTER", property: it.property, sources });
+      offenders.push({ ruleId: "RR-PDF-CHARACTER", property: it.property, detail: e.codePoint, sources });
       return it;
     }
   };
