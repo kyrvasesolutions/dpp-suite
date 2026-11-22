@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
-import { FLAG_TEXT, STAGES, type ImportResult, type RecordValue } from "../model/ingress";
+import { LogPanel } from "./LogPanel";
+import { importEvents } from "../model/log";
+import { flagTextFor, STAGES, type ImportResult, type RecordValue } from "../model/ingress";
 import { useRecordStore, type StoredNote } from "../model/recordStore";
 import { IMPORT_SAMPLES as SAMPLES, importInputs, importSample, type Input } from "./sampleFiles";
 
@@ -13,18 +15,21 @@ const readFile = async (file: File): Promise<Input> => ({ bytes: new Uint8Array(
  * typed error; accepted files show each value verbatim with its source location, status and flags.
  */
 export function ImportView() {
-  const { profile, error, state, setState, saveImport } = useRecordStore();
-  const [inputs, setInputs] = useState<{ erp?: Input; lab?: Input }>({});
-  const [results, setResults] = useState<{ erp?: ImportResult; lab?: ImportResult }>({});
+  const { profile, error, state, setState, imports: results, setImports, inputs, setInputs, saveImport, record } = useRecordStore();
   const [previousDigests, setPreviousDigests] = useState<string[] | null>(null);
   const [sample, setSample] = useState(SAMPLES[0].id);
   const [notes, setNotes] = useState<StoredNote[]>([]);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const keep = async (built: typeof state) => {
+  // The pair is stored as one version only once both files are in and accepted; a lone file waits for the other, and a rejected
+  // file stores nothing. The operator can still store an accepted ERP-only record on purpose.
+  // "attached": the laboratory file is about the record the ERP extract made (a file for another model or batch is kept apart, not attached)
+  const attached = (built: typeof state) => !!built && built.unattached.length === 0 && built.records.length > 0 && built.records.every((r) => r.sources.some((x) => x.role === "lab"));
+  const complete = (r: { erp?: ImportResult; lab?: ImportResult }, built: typeof state = state) => !!r.erp?.ok && !!r.lab?.ok && attached(built);
+  const keep = async (built: typeof state, r: { erp?: ImportResult; lab?: ImportResult }, label?: string) => {
     setSaveError(null);
-    if (!built) return setNotes([]);
+    if (!built || (!label && !complete(r, built))) return setNotes([]);
     try {
-      setNotes(await saveImport(built));
+      setNotes(await saveImport(built, label));
     } catch (e) {
       setNotes([]);
       setSaveError(e instanceof Error ? e.message : String(e));
@@ -34,11 +39,12 @@ export function ImportView() {
   const run = async (next: { erp?: Input; lab?: Input }, again = false) => {
     if (!profile) return;
     const { results: imported, state: built } = await importInputs(profile, next);
+    await record([imported.erp, imported.lab].flatMap((r) => (r ? importEvents(r) : [])));
     setPreviousDigests(again && state ? state.records.map((r) => r.digest) : null);
     setInputs(next);
-    setResults(imported);
+    setImports(imported);
     setState(built);
-    await keep(built);
+    await keep(built, imported);
   };
 
   const label = useMemo(() => new Map(profile?.properties.map((p) => [p.id, p.labels.en]) ?? []), [profile]);
@@ -106,11 +112,12 @@ export function ImportView() {
               if (!profile) return;
               const s = SAMPLES.find((x) => x.id === sample)!;
               const loaded = await importSample(profile, s);
+              await record([loaded.results.erp, loaded.results.lab].flatMap((r) => (r ? importEvents(r) : [])));
               setPreviousDigests(null);
               setInputs(loaded.inputs);
-              setResults(loaded.results);
+              setImports(loaded.results);
               setState(loaded.state);
-              await keep(loaded.state);
+              await keep(loaded.state, loaded.results);
             }}
           >
             Import sample
@@ -125,6 +132,25 @@ export function ImportView() {
         {results.erp && <FileResult result={results.erp} />}
         {results.lab && <FileResult result={results.lab} />}
       </div>
+
+      {(results.erp || results.lab) && !complete(results) && notes.length === 0 && (
+        <div className="banner info" data-testid="pair-pending">
+          <span>
+            {results.erp && !results.lab
+              ? "Waiting for the laboratory file: nothing is stored until both files are in and accepted."
+              : results.lab && !results.erp
+                ? "Waiting for the ERP extract: nothing is stored until both files are in and accepted."
+                : results.erp?.ok && results.lab?.ok
+                  ? "The laboratory file is about another product model or batch than the ERP extract, so it is not attached and nothing is stored."
+                  : "A file was rejected, so nothing is stored. Fix the file and pick it again."}
+          </span>
+          {state && state.records.length > 0 && (
+            <button type="button" className="ghost" data-testid="store-erp-only" onClick={() => keep(state, results, "ERP-only record, stored by the operator")}>
+              Store the accepted record without the other file
+            </button>
+          )}
+        </div>
+      )}
 
       {sameAgain !== null && (
         <p className={`banner ${sameAgain ? "info" : "warn"}`} data-testid="reimport" data-same={sameAgain}>
@@ -143,6 +169,8 @@ export function ImportView() {
             {n.stored
               ? `Central record: ${n.model}, batch ${n.batch} stored as version ${n.version}${n.supersedes ? `, replacing version ${n.supersedes}, which stays readable` : ""}.`
               : `Central record: ${n.model}, batch ${n.batch} is unchanged, so version ${n.version} stays the latest and nothing new is stored.`}
+            {n.stored && n.carried ? ` ${n.carried} correction${n.carried === 1 ? "" : "s"} by the operator carried forward onto this version.` : ""}
+            {n.stored && n.disputed ? ` ${n.disputed} corrected value${n.disputed === 1 ? " is" : "s are"} challenged: the source now says something else. See the Record screen.` : ""}
           </span>
         </p>
       ))}
@@ -213,6 +241,8 @@ export function ImportView() {
           </table>
         </section>
       ))}
+
+      <LogPanel />
     </div>
   );
 }
@@ -297,7 +327,7 @@ function ValueRow({ value: v, label }: { value: RecordValue; label?: string }) {
         </span>
         <span className="import-flags">
           {[...new Set(v.assertions.flatMap((a) => a.flags))].map((f) => (
-            <span key={f} className="import-flag" data-flag={f} title={FLAG_TEXT[f]}>
+            <span key={f} className="import-flag" data-flag={f} title={flagTextFor(f, v.assertions.find((a) => a.flags.includes(f))!.source.role)}>
               {f}
             </span>
           ))}

@@ -29,8 +29,12 @@ export type IngressCode =
   | "missing-column"
   | "unexpected-column"
   | "no-rows"
+  | "multiple-records"
+  | "too-large"
+  | "deadline"
   | "json-syntax"
   | "duplicate-key"
+  | "too-deep"
   | "non-finite-number"
   | "schema"
   | "missing-value"
@@ -60,6 +64,10 @@ export const ERROR_TEXT: Record<IngressCode, string> = {
   "missing-column": "A column the contract requires is missing from the header.",
   "unexpected-column": "The header has a column the contract does not know. Remove it or ask for the contract to change.",
   "no-rows": "The extract has a header but no data rows.",
+  "multiple-records": "The extract has more than one data row. One import is one product record, so nothing is imported. Split the extract into one file per record.",
+  "too-large": "The file is larger than the declared limit for a source file, so it was not read.",
+  "deadline": "The import ran past its time limit and was stopped. Nothing is imported.",
+  "too-deep": "The JSON is nested deeper than the declared limit.",
   "json-syntax": "The JSON text is malformed.",
   "duplicate-key": "An object in the JSON has the same key twice, so it is unclear which value is meant.",
   "non-finite-number": "A number is too large to represent, or not a number at all.",
@@ -101,7 +109,9 @@ export type Flag =
   | "unknown-code"
   | "several-results"
   | "draft-text"
-  | "challenged";
+  | "challenged"
+  | "corrected"
+  | "source-changed";
 
 export const FLAG_TEXT: Record<Flag, string> = {
   declared: "Declared in the ERP extract",
@@ -117,11 +127,20 @@ export const FLAG_TEXT: Record<Flag, string> = {
   "several-results": "Several results and no rule to select one",
   "draft-text": "Text not yet approved",
   challenged: "The sources disagree: both values are kept",
+  "corrected": "Corrected by the operator: the earlier value stays visible",
+  "source-changed": "The source now says something else than the value the operator corrected: both are kept until the operator decides",
 };
+
+/** The flag's text for the kind of file the value came from (the ERP text says "ERP extract", which is wrong for a laboratory value). */
+export const flagTextFor = (flag: Flag, role: SourceRole): string =>
+  flag === "declared" && role === "lab" ? "Declared in the laboratory file" : flag === "declared" && role === "correction" ? "Stated by the operator" : FLAG_TEXT[flag];
+
+/** Where a source assertion comes from: an imported file, or an operator correction (Cycle 5). */
+export type SourceRole = "erp" | "lab" | "correction";
 
 export interface SourceFile {
   name: string;
-  role: "erp" | "lab";
+  role: SourceRole;
   mediaType: string;
   sha256: string;
   size: number;
@@ -140,6 +159,8 @@ export interface Assertion {
   /** Where the text is; `row` is the ERP data row (1 for the first after the header), never parsed from text. */
   source: { file: string; role: SourceFile["role"]; sha256: string; location: string; row?: number };
   flags: Flag[];
+  /** Only for an operator correction: the record version it made, who made it, and why. */
+  correction?: { version: number; actor: string; reason: string };
 }
 
 export type ImportResult =
@@ -169,7 +190,36 @@ const failIf = (stage: Stage, errors: IngressIssue[]) => {
   if (errors.length) throw new StageFailure(stage, errors);
 };
 
-async function bytesStage(bytes: Uint8Array, name: string, declaredType: string, role: SourceFile["role"]) {
+/** The job deadline: checked at each stage boundary and inside the parsers, so a slow input stops with a bounded error. */
+class Deadline {
+  private readonly start: number;
+  constructor(
+    private readonly limitMs: number,
+    private readonly clock: () => number,
+    private readonly name: string,
+    startedAt?: number,
+  ) {
+    // the deadline belongs to the job (the whole import of the pair), so a second file inherits the time the first one used
+    this.start = startedAt ?? clock();
+  }
+  check(stage: Stage) {
+    if (this.clock() - this.start > this.limitMs) {
+      throw new StageFailure(stage, [issue(stage, "deadline", this.name, `The limit is ${this.limitMs / 1000} s.`)]);
+    }
+  }
+}
+
+/** Optional clock, so tests can run a job past its deadline without waiting for it. */
+export interface ImportInput {
+  bytes: Uint8Array;
+  name: string;
+  type: string;
+  now?: () => number;
+  /** When the job began, on the same clock: the deadline counts from here, not from this file. */
+  startedAt?: number;
+}
+
+async function bytesStage(bytes: Uint8Array, name: string, declaredType: string, role: SourceFile["role"], maxBytes: number) {
   const expected = role === "erp" ? { type: "text/csv", ext: ".csv" } : { type: "application/json", ext: ".json" };
   // Browsers often send no type, or an Excel type for .csv, so the extension decides when the type is absent.
   // Windows browsers send application/vnd.ms-excel for .csv when Excel is installed.
@@ -177,6 +227,7 @@ async function bytesStage(bytes: Uint8Array, name: string, declaredType: string,
   const typeOk = declaredType === expected.type || (tolerated.includes(declaredType) && name.toLowerCase().endsWith(expected.ext));
   const extOk = name.toLowerCase().endsWith(expected.ext);
   failIf("bytes", typeOk && extOk ? [] : [issue("bytes", "media-type", name, `Expected ${expected.type} (${expected.ext}), got "${declaredType || "no type"}".`)]);
+  failIf("bytes", bytes.length > maxBytes ? [issue("bytes", "too-large", name, `${bytes.length} bytes, the limit is ${maxBytes}.`)] : []);
   failIf("bytes", bytes.length === 0 ? [issue("bytes", "empty-file", name)] : []);
   failIf("bytes", bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf ? [issue("bytes", "byte-order-mark", `${name}, byte 0`)] : []);
   let text: string;
@@ -205,7 +256,7 @@ function authorise(actor: string, name: string) {
 // ---------- ERP CSV ----------
 
 /** RFC 4180 rows with a one-character delimiter; quotes may enclose delimiters, quotes ("") and line breaks. */
-function csvRows(text: string, delimiter: string, name: string): string[][] {
+function csvRows(text: string, delimiter: string, name: string, tick: () => void): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
   let field = "";
@@ -213,6 +264,7 @@ function csvRows(text: string, delimiter: string, name: string): string[][] {
   let wasQuoted = false;
   let line = 1;
   for (let i = 0; i < text.length; i++) {
+    if (i % 4096 === 0) tick();
     const c = text[i];
     if (quoted) {
       if (c === '"' && text[i + 1] === '"') {
@@ -294,18 +346,22 @@ const codeListOf = (pack: ProfilePack, ref?: string): CodeList | undefined => (r
 
 export async function importErpCsv(
   pack: ProfilePack,
-  input: { bytes: Uint8Array; name: string; type: string },
+  input: ImportInput,
   actor = "ACT-01",
 ): Promise<ImportResult> {
   const contract = pack.inputs.erp;
+  const limits = pack.policy.limits;
+  const deadline = new Deadline(limits.job_deadline_ms, input.now ?? (() => performance.now()), input.name, input.startedAt);
   let file: SourceFile = { name: input.name, role: "erp", mediaType: input.type, sha256: "", size: input.bytes.length };
   try {
-    const decoded = await bytesStage(input.bytes, input.name, input.type, "erp");
+    deadline.check("bytes");
+    const decoded = await bytesStage(input.bytes, input.name, input.type, "erp", limits.max_file_bytes);
     file = decoded.file;
     const name = input.name;
 
     // parse
-    const rows = csvRows(decoded.text, contract.delimiter, name);
+    deadline.check("parse");
+    const rows = csvRows(decoded.text, contract.delimiter, name, () => deadline.check("parse"));
     const [header = [], ...body] = rows;
     failIf(
       "parse",
@@ -325,9 +381,13 @@ export async function importErpCsv(
     });
     for (const c of contract.columns) if (!seen.has(c.name)) structure.push(issue("structure", "missing-column", name, `"${c.name}".`));
     if (!body.length) structure.push(issue("structure", "no-rows", name));
+    if (body.length > limits.max_erp_data_rows) {
+      structure.push(issue("structure", "multiple-records", `${name}, row ${limits.max_erp_data_rows + 2}`, `${body.length} data rows, the limit is ${limits.max_erp_data_rows}.`));
+    }
     failIf("structure", structure);
 
     // semantics
+    deadline.check("semantics");
     const at = (row: number, col: string) => `${name}, row ${row}, column ${col}`;
     const assertions: Assertion[] = [];
     const errors: IngressIssue[] = [];
@@ -447,7 +507,7 @@ function validate(schema: Schema, v: JsonValue, path: string, name: string, out:
     const props = (schema.properties ?? {}) as Record<string, Schema>;
     for (const k of (schema.required as string[] | undefined) ?? []) if (!v.entries.has(k)) out.push(issue("structure", "schema", at, `"${k}" is required.`));
     for (const [k, x] of v.entries) {
-      if (props[k]) validate(props[k], x, `${path}/${k}`, name, out);
+      if (Object.hasOwn(props, k)) validate(props[k], x, `${path}/${k}`, name, out);
       else if (schema.additionalProperties === false) out.push(issue("structure", "schema", `${name}, ${path}/${k}`, `"${k}" is not allowed.`));
     }
   }
@@ -459,25 +519,30 @@ const list = (v: JsonValue) => (v.kind === "array" ? v.items : []);
 
 export async function importLabJson(
   pack: ProfilePack,
-  input: { bytes: Uint8Array; name: string; type: string },
+  input: ImportInput,
   actor = "ACT-01",
 ): Promise<ImportResult> {
   const contract = pack.inputs.lab;
+  const limits = pack.policy.limits;
+  const deadline = new Deadline(limits.job_deadline_ms, input.now ?? (() => performance.now()), input.name, input.startedAt);
   let file: SourceFile = { name: input.name, role: "lab", mediaType: input.type, sha256: "", size: input.bytes.length };
   try {
-    const decoded = await bytesStage(input.bytes, input.name, input.type, "lab");
+    deadline.check("bytes");
+    const decoded = await bytesStage(input.bytes, input.name, input.type, "lab", limits.max_file_bytes);
     file = decoded.file;
     const name = input.name;
 
     let doc: JsonValue;
     try {
-      doc = parseStrictJson(decoded.text);
+      deadline.check("parse");
+      doc = parseStrictJson(decoded.text, { maxDepth: limits.max_json_depth, tick: () => deadline.check("parse") });
     } catch (e) {
       if (!(e instanceof JsonSyntaxError)) throw e;
-      const code: IngressCode = e.code === "duplicate-key" ? "duplicate-key" : e.code === "non-finite-number" ? "non-finite-number" : "json-syntax";
+      const code: IngressCode = e.code === "duplicate-key" ? "duplicate-key" : e.code === "non-finite-number" ? "non-finite-number" : e.code === "too-deep" ? "too-deep" : "json-syntax";
       throw new StageFailure("parse", [issue("parse", code, `${name}, ${e.path || "/"}`, e.message)]);
     }
 
+    deadline.check("structure");
     const structure: IngressIssue[] = [];
     validate(contract.structure as Schema, doc, "", name, structure);
     failIf("structure", structure);
@@ -674,7 +739,7 @@ export function byRole(pack: ProfilePack, role: Role): string {
 
 // ---------- Record state ----------
 
-export type ValueStatus = "single" | "agreeing" | "challenged";
+export type ValueStatus = "single" | "agreeing" | "challenged" | "corrected";
 
 export interface RecordValue {
   property: string;
@@ -701,6 +766,8 @@ export interface RecordState {
 
 const keyOf = (a: { property: string; member?: string; qualifier?: string }) => `${a.property}|${a.member ?? ""}|${a.qualifier ?? ""}`;
 
+export const sameAssertion = (a: Assertion, b: Assertion) =>
+  typeof a.value === "number" && typeof b.value === "number" ? a.value === b.value : a.raw === b.raw;
 const same = (a: Assertion, b: Assertion) => (typeof a.value === "number" && typeof b.value === "number" ? a.value === b.value : a.raw === b.raw);
 
 /**
@@ -741,7 +808,7 @@ export async function buildRecords(results: ImportResult[]): Promise<RecordState
 
 /** How many assertions say the same: one value, several that agree, or several that differ (C2-05). */
 export const valueStatus = (assertions: Assertion[]): ValueStatus =>
-  assertions.length === 1 ? "single" : assertions.every((a) => same(a, assertions[0])) ? "agreeing" : "challenged";
+  assertions.some((a) => a.flags.includes("source-changed")) ? "challenged" : assertions.some((a) => a.flags.includes("corrected")) ? "corrected" : assertions.length === 1 ? "single" : assertions.every((a) => same(a, assertions[0])) ? "agreeing" : "challenged";
 
 /**
  * Re-checks a stored record against the pinned pack the way ingress checked the files (Cycle 4, central-record import):
@@ -757,7 +824,7 @@ export function recheckRecord(pack: ProfilePack, record: ProductRecord): string[
   const narrativeProperty = byRole(pack, "narrative");
   const footprintProperty = byRole(pack, "footprint");
   const evidenceIds = new Set(record.values.filter((v) => v.property === evidenceProperty).map((v) => v.qualifier));
-  const footprintResults = record.values.filter((v) => v.property === footprintProperty && !v.member).flatMap((v) => v.assertions).length;
+  const footprintResults = record.values.filter((v) => v.property === footprintProperty && !v.member).flatMap((v) => v.assertions).filter((a) => a.source.role !== "correction").length;
   const erpColumns = new Map(pack.inputs.erp.columns.map((c) => [c.name, c]));
 
   for (const v of record.values) {
@@ -774,9 +841,13 @@ export function recheckRecord(pack: ProfilePack, record: ProductRecord): string[
     for (const a of v.assertions) {
       const at = `${where} at ${a.source.location}`;
       if (a.property !== v.property || a.member !== v.member || a.qualifier !== v.qualifier) problems.push(`${at}: the assertion is filed under another key`);
-      if (a.flags.includes("challenged") !== (status === "challenged")) problems.push(`${at}: the challenged flag does not match the status`);
+      if (!v.assertions.some((x) => x.source.role === "correction") && a.flags.includes("challenged") !== (status === "challenged")) problems.push(`${at}: the challenged flag does not match the status`);
       if (!record.sources.some((s) => s.name === a.source.file && s.role === a.source.role && s.sha256 === a.source.sha256)) problems.push(`${at}: its source file is not listed in the record`);
       if (!a.source.location.startsWith(`${a.source.file}, `)) problems.push(`${at}: the location is not in its source file`);
+      if (a.source.role === "correction") {
+        problems.push(...recheckCorrection(pack, v, a, at));
+        continue;
+      }
       const expected = new Set<Flag>();
       const rest = a.source.location.slice(a.source.file.length + 2);
 
@@ -908,10 +979,66 @@ export function recheckRecord(pack: ProfilePack, record: ProductRecord): string[
           if (a.qualifier !== `${a.details?.language}/${a.details?.sector}/${a.details?.market}`) problems.push(`${at}: the qualifier does not match the text's language, sector and market`);
         }
       }
-      const have = a.flags.filter((f) => f !== "challenged");
+      const have = a.flags.filter((f) => f !== "challenged" && f !== "source-changed");
       const sameFlags = have.length === expected.size && have.every((f) => expected.has(f));
       if (!sameFlags) problems.push(`${at}: the flags are [${have.join(", ")}], the contract gives [${[...expected].join(", ")}]`);
     }
   }
+  return problems;
+}
+
+// ---------- Operator correction (Cycle 5) ----------
+
+/** The assertion a correction is measured against: the first one that came from a file, never an earlier correction. */
+export const baseAssertion = (v: RecordValue): Assertion | undefined => v.assertions.find((a) => a.source.role !== "correction");
+
+/**
+ * Checks a corrected value the way ingress checked the original: the same kind of text, a plain number in its range and unit,
+ * a date that exists, and for a coded column a code the pinned list already has (a correction never adds a code).
+ * Returns the value to store, or the reason it is refused.
+ */
+export function checkCorrectedValue(pack: ProfilePack, base: Assertion, raw: string): { ok: true; value: string | number | null } | { ok: false; reason: string } {
+  const no = (reason: string) => ({ ok: false as const, reason });
+  if (raw.replace(INVISIBLE, "").trim() === "") return no("The corrected value is empty.");
+  if (raw !== raw.trim() || HAS_INVISIBLE.test(raw)) return no("The corrected value has spaces at its ends or invisible characters.");
+  if (/[\u0000-\u001f\u007f]/.test(raw)) return no("The corrected value has a control character or a line break.");
+  let value: string | number | null = raw;
+  const unit = base.unit;
+  const rest = base.source.location.slice(base.source.file.length + 2);
+  const column = base.source.role === "erp" ? pack.inputs.erp.columns.find((c) => c.name === /^row \d+, column (.+)$/.exec(rest)?.[1]) : undefined;
+  if (unit !== null) {
+    if (DECIMAL_COMMA.test(raw)) return no("The corrected value uses a decimal comma; the contract requires a point.");
+    if (!DECIMAL.test(raw)) return no("The corrected value is not a plain number with a point as decimal separator.");
+    if (!exact(raw)) return no("The corrected number has more significant digits than can be kept exactly.");
+    value = Number(raw);
+    if (!inRange(value, unit)) return no(`The corrected value is outside its possible range for ${unit}.`);
+  }
+  if (column) {
+    if (column.format === "ISO 8601 date" && !isCalendarDate(raw)) return no("The corrected value is not a real calendar date in the form YYYY-MM-DD.");
+    const list = codeListOf(pack, column.code_list);
+    if (list) {
+      const known = list.codes.find((x) => x.code === raw);
+      if (!known) return no("The corrected value is not in the pinned code list; a correction cannot add a code.");
+      if (known.mapsTo !== undefined) value = known.mapsTo;
+    }
+  }
+  return { ok: true, value };
+}
+
+/** What a stored operator-correction assertion must satisfy: its fixed shape, and a value that passes the same checks. */
+function recheckCorrection(pack: ProfilePack, v: RecordValue, a: Assertion, at: string): string[] {
+  const problems: string[] = [];
+  const c = a.correction;
+  if (!c || !Number.isInteger(c.version) || c.version < 2 || c.actor !== "ACT-01" || c.reason.trim() === "") return [`${at}: a correction needs its version, its actor and a reason`];
+  if (a.source.file !== `Operator correction v${c.version}`) problems.push(`${at}: the correction is named for another version`);
+  if (a.flags.length !== 1 || a.flags[0] !== "corrected") problems.push(`${at}: a correction carries exactly the corrected flag`);
+  if (v.assertions[0] !== a && v.assertions.findIndex((x) => x.source.role !== "correction") < v.assertions.indexOf(a)) problems.push(`${at}: a correction comes before the values it replaces`);
+  const base = baseAssertion(v);
+  if (!base) return [...problems, `${at}: a correction with nothing to correct`];
+  const checked = checkCorrectedValue(pack, base, a.raw);
+  if (!checked.ok) problems.push(`${at}: ${checked.reason}`);
+  else if (a.value !== checked.value) problems.push(`${at}: the value is ${JSON.stringify(a.value)}, the corrected text gives ${JSON.stringify(checked.value)}`);
+  if (a.unit !== base.unit) problems.push(`${at}: the unit differs from the value it corrects`);
+  if (JSON.stringify(a.details ?? null) !== JSON.stringify(base.details ?? null)) problems.push(`${at}: the details differ from the value it corrects`);
   return problems;
 }

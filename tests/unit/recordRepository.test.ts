@@ -38,7 +38,7 @@ describe("snapshots", () => {
     expect(stored).toBe(true);
     expect(v2.version).toBe(2);
     expect(v2.supersedes).toEqual({ version: 1, digest: v1.digest });
-    expect(v2.reason).toBe("Corrected import");
+    expect(v2.reason).toBe("Re-import");
     const read = await repo.get(first.model, first.batch, 1);
     expect(JSON.stringify(read)).toBe(before);
     expect((await repo.history(first.model, first.batch)).map((s) => s.version)).toEqual([1, 2]);

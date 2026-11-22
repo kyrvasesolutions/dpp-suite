@@ -71,6 +71,8 @@ describe("C2-02 strict ingress: a typed error at a named stage", () => {
     "lab-missing-unit.json": { stage: "semantics", code: "missing-unit" },
     "lab-wrong-unit.json": { stage: "semantics", code: "wrong-unit" },
     "lab-unit-alias.json": { stage: "semantics", code: "wrong-unit" },
+    "erp-two-rows.csv": { stage: "structure", code: "multiple-records" },
+    "lab-too-deep.json": { stage: "parse", code: "too-deep" },
     "erp-unknown-company-code.csv": "accepted",
     "erp-missing-recycled-content.csv": "accepted",
     "lab-two-footprints.json": "accepted",
@@ -385,11 +387,15 @@ describe("Cycle 2 re-assessment findings", () => {
     return enc(`${head}\n${row}\n${row.replace("B-2026-0417", "B-2026-0999").replace(";2412.5;", ";1999.0;")}\n`);
   };
 
+  // One product record per ERP extract is the declared default; a pack that declares a higher limit is the only way two rows load.
+  const twoRowPack = () => ({ ...pack, policy: { ...pack.policy, limits: { ...pack.policy.limits, max_erp_data_rows: 2 } } });
+  const erpTwo = (bytes: Uint8Array, name = "erp.csv") => importErpCsv(twoRowPack(), { bytes, name, type: "text/csv" });
+
   it("R2-1 attaches every ERP value to its own row's record, whatever the file is called", async () => {
     for (const name of ["export row 9.csv", "tomorrow 3.csv", "row 2.csv"]) {
       const one = await buildRecords([await erp(fixture("d03a-erp-extract.csv"), name)]);
       expect(one.records[0].values.length, name).toBe(23);
-      const two = await buildRecords([await erp(twoRows(), name)]);
+      const two = await buildRecords([await erpTwo(twoRows(), name)]);
       const [a, b] = two.records;
       expect([a.batch, b.batch]).toEqual(["B-2026-0417", "B-2026-0999"]);
       const mass = (r: (typeof two.records)[number]) => r.values.find((v) => v.assertions[0].source.location.endsWith("net_mass_kg"))!.assertions;
@@ -398,10 +404,15 @@ describe("Cycle 2 re-assessment findings", () => {
     }
   });
 
+  it("D5-02 the declared default rejects a two-row extract: one file is one record, nothing is partly imported", async () => {
+    expect(rejected(await erp(twoRows()))).toEqual({ stage: "structure", codes: ["multiple-records"] });
+  });
+
   it("R2-2 refuses two rows for the same model and batch", async () => {
     const [head, row] = VALID_ERP().trimEnd().split("\n");
-    const r = await erp(enc(`${head}\n${row}\n${row.replace(";2.0;", ";3.0;")}\n`));
-    expect(rejected(r)).toEqual({ stage: "semantics", codes: ["duplicate-record"] });
+    const same = enc(`${head}\n${row}\n${row.replace(";2.0;", ";3.0;")}\n`);
+    expect(rejected(await erpTwo(same))).toEqual({ stage: "semantics", codes: ["duplicate-record"] });
+    expect(rejected(await erp(same))).toEqual({ stage: "structure", codes: ["multiple-records"] });
   });
 
   it.each([

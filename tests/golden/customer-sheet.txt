@@ -88,14 +88,13 @@ Post-consumer recycled share
 Post-Consumer-Rezyklatanteil
  
 38.5 %
+Basis: mass share of the product
 Source: ERP extract, row 2, column post_consumer_pct
 Chemical composition (measured)
  
 Chemische Zusammensetzung
- 
-within the limits (illustrative limits after EN 573-3, EN
 (gemessen)
- 
+within the limits (illustrative limits after EN 573-3, EN
 AW-5754)
 Rule DR-COMPOSITION-LIMITS
 Source: Laboratory file, /observations/2/value
@@ -109,17 +108,17 @@ Nenndicke
  
 2.0 mm
 Source: ERP extract, row 2, column thickness_nominal_mm
+Record version 1
+ 
+Record digest 321191e612f317a76fbcd5cf2b06a6c5734c04067eedbb2fe9cac3484d5be463
+Contract pack manifest digest 4ac87f92beab8e654394c83946733dcc58314a349621d08c7d7ad4671394bbec
+Page 1 of 2. Illustrative values are marked as such; this sheet is not a conformity statement.
 Measured thickness
  
 Gemessene Dicke
  
 2.01 mm
 Source: Laboratory file, /observations/0/value
-Record version 1
- 
-Record digest 321191e612f317a76fbcd5cf2b06a6c5734c04067eedbb2fe9cac3484d5be463
-Contract pack manifest digest 394e1cd765a4d79bdac670d500ab204544de9e0472eec6740a17fb59195bcbf7
-Page 1 of 2. Illustrative values are marked as such; this sheet is not a conformity statement.
 Nominal width
  
 Nennbreite
@@ -199,8 +198,15 @@ en/construction/EU: Rolled aluminium sheet for facade
 and roofing applications, supplied in mill finish.
 Source: Laboratory file, /texts/1/text
 Source: Laboratory file, /texts/0/text
+Reading this sheet
+PCF-1: the footprint result ID, the identifier the laboratory file gives to one calculated footprint result.
+scope: the customer-scoped alias. It names the customer whose own article number is shown next to it.
+en/construction/EU: a qualifier of a text. It gives the language, the sector and the market the text is approved for.
+Rule DR-TENSILE-LIMITS: a rule ID. It names the rule in the pinned contract pack that made a derived statement, which says whether a value lies
+within limits; the value itself is not shown.
+The record digest and the contract pack digest in the footer identify exactly which record and which contract this sheet was made from.
 Record version 1
  
 Record digest 321191e612f317a76fbcd5cf2b06a6c5734c04067eedbb2fe9cac3484d5be463
-Contract pack manifest digest 394e1cd765a4d79bdac670d500ab204544de9e0472eec6740a17fb59195bcbf7
+Contract pack manifest digest 4ac87f92beab8e654394c83946733dcc58314a349621d08c7d7ad4671394bbec
 Page 2 of 2. Illustrative values are marked as such; this sheet is not a conformity statement.

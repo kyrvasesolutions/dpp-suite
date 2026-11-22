@@ -59,8 +59,10 @@ export async function importInputs(
   profile: ProfilePack,
   inputs: { erp?: Input; lab?: Input },
 ): Promise<{ results: { erp?: ImportResult; lab?: ImportResult }; state: RecordState }> {
-  const erp = inputs.erp ? await importErpCsv(profile, inputs.erp) : undefined;
-  const lab = inputs.lab ? await importLabJson(profile, inputs.lab) : undefined;
+  // one deadline for the whole job: both files count against the same 30 seconds
+  const startedAt = performance.now();
+  const erp = inputs.erp ? await importErpCsv(profile, { ...inputs.erp, startedAt }) : undefined;
+  const lab = inputs.lab ? await importLabJson(profile, { ...inputs.lab, startedAt }) : undefined;
   const state = await buildRecords([erp, lab].filter((r): r is ImportResult => !!r));
   return { results: { erp, lab }, state };
 }

@@ -23,6 +23,7 @@ import { ProfileView } from "./components/ProfileView";
 import { ImportView } from "./components/ImportView";
 import { OutputsView } from "./components/OutputsView";
 import { ReadinessView } from "./components/ReadinessView";
+import { RecordView } from "./components/RecordView";
 import { RequirementsExplorer } from "./components/RequirementsExplorer";
 import { SamplesSidebar } from "./components/SamplesSidebar";
 import { TraceTree } from "./components/TraceTree";
@@ -605,12 +606,13 @@ export function Workspace({ database, nav }: WorkspaceProps) {
   );
 }
 
-type LaneView = "profile" | "import" | "readiness" | "outputs" | "requirements" | "prepare" | "validation" | "mapping";
+type LaneView = "profile" | "import" | "record" | "readiness" | "outputs" | "requirements" | "prepare" | "validation" | "mapping";
 type View = LaneView | "graph";
 
 const LANES: Array<{ id: LaneView; label: string }> = [
   { id: "profile", label: "Profile" },
   { id: "import", label: "Import" },
+  { id: "record", label: "Record" },
   { id: "readiness", label: "Readiness" },
   { id: "outputs", label: "Outputs" },
   { id: "requirements", label: "Requirements" },
@@ -692,13 +694,15 @@ function Shell() {
             </ToggleButton>
           ))}
         </ToggleButtonGroup>
-        {view !== "graph" && view !== "profile" && view !== "import" && view !== "readiness" && view !== "outputs" && <SamplesSidebar />}
+        {view !== "graph" && view !== "profile" && view !== "import" && view !== "record" && view !== "readiness" && view !== "outputs" && <SamplesSidebar />}
         {view === "graph" ? (
           <GraphView chain={chain} chainError={loadError} />
         ) : view === "profile" ? (
           <ProfileView chain={chain} />
         ) : view === "import" ? (
           <ImportView />
+        ) : view === "record" ? (
+          <RecordView />
         ) : view === "readiness" ? (
           <ReadinessView />
         ) : view === "outputs" ? (

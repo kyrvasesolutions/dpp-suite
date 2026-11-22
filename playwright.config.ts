@@ -7,6 +7,7 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: 0,
   reporter: process.env.CI ? [["html", { open: "never" }], ["list"]] : "list",
+  outputDir: "test-results/e2e-artifacts",
   use: {
     baseURL: "http://localhost:4173",
     trace: "retain-on-failure",

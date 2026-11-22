@@ -8,6 +8,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import { canonicalPretty } from "../../src/model/canonical";
 import { byRole } from "../../src/model/ingress";
 import { outputRef, trace } from "../../src/model/lineage";
 import { buildCustomerPdf, PdfTextError, winAnsi } from "../../src/model/outputs/customerPdf";
@@ -97,10 +98,33 @@ describe("customer PDF", () => {
     expect(error).toBeInstanceOf(RouteRefusedError);
     expect(error.holds).toHaveLength(1);
     expect(error.holds[0]).toMatchObject({ ruleId: "RR-PDF-CHARACTER", property: propertyBySlug(pack, "carbon-footprint") });
-    expect(error.holds[0].sources[0].location).toContain("/footprints/0/value");
+    // the hold names the exact field (the key calculated_by and its own place), not the footprint value it belongs to
+    expect(error.holds[0].field).toBe("calculated_by");
+    expect(error.holds[0].sources).toHaveLength(1);
+    expect(error.holds[0].sources[0].location).toBe("d03a-lab-assessment.json, /footprints/0/calculated_by");
     expect(error.holds[0].detail).toBe("U+041B");
     expect(error.message).toContain("U+041B");
     expect(pack.policy.readiness.rules.some((r) => r.id === "RR-PDF-CHARACTER")).toBe(true);
+  });
+
+  it("names the field that holds the character, whichever key of the footprint it is in, and the value itself when it is the value", async () => {
+    for (const key of ["method", "calculated_by"]) {
+      const record = await recordFor(pack, { ...CLEAN, editLab: (d) => (d.footprints[0][key] = "Лаборатория") });
+      const error = await buildCustomerPdf(pack, record).catch((e) => e);
+      expect(error, key).toBeInstanceOf(RouteRefusedError);
+      expect(error.holds.map((h: { field?: string }) => h.field), key).toEqual([key]);
+      expect(error.holds[0].sources.map((s: { location: string }) => s.location), key).toEqual([`d03a-lab-assessment.json, /footprints/0/${key}`]);
+    }
+    // a character in a text that is the value itself: no detail key, the value's own place
+    const record = await recordFor(pack, { ...CLEAN, editLab: (d) => (d.texts[0].text = "Описание") });
+    const error = await buildCustomerPdf(pack, record).catch((e) => e);
+    expect(error).toBeInstanceOf(RouteRefusedError);
+    expect(error.holds[0]).not.toHaveProperty("field");
+    expect(error.holds[0].sources[0].location).toMatch(/\/texts\/0\/text$/);
+    // two bad fields in one release are two holds, each with its own place
+    const both = await recordFor(pack, { ...CLEAN, editLab: (d) => ((d.footprints[0].method = "Метод"), (d.footprints[0].calculated_by = "Лаборатория")) });
+    const e2 = await buildCustomerPdf(pack, both).catch((e) => e);
+    expect(e2.holds.map((h: { field?: string }) => h.field).sort()).toEqual(["calculated_by", "method"]);
   });
 
   it("lists the refusal with its rule in the release manifest, and the other outputs are still made", async () => {
@@ -109,8 +133,8 @@ describe("customer PDF", () => {
     expect(entry).toMatchObject({ fileName: null, sha256: null, status: "hold" });
     expect(entry.holds.map((h) => h.rule)).toEqual(["RR-PDF-CHARACTER"]);
     // the manifest names the code point, the property and where the value is
-    expect(entry.holds[0]).toMatchObject({ detail: "U+041B", property: propertyBySlug(pack, "carbon-footprint") });
-    expect(entry.holds[0].locations).toEqual(["d03a-lab-assessment.json, /footprints/0/value"]);
+    expect(entry.holds[0]).toMatchObject({ detail: "U+041B", field: "calculated_by", property: propertyBySlug(pack, "carbon-footprint") });
+    expect(entry.holds[0].locations).toEqual(["d03a-lab-assessment.json, /footprints/0/calculated_by"]);
     expect(release.files.map((f) => f.route).sort()).toEqual(["erp-staging-csv", "registry-prep-json"]);
   });
 
@@ -154,7 +178,7 @@ describe("AT-E: no forbidden content in any output, for every accepted combinati
 });
 
 describe("AT-U: reproducibility across two processes (C4-04)", () => {
-  it("gives byte-identical files and manifest in two separate runs, and the same as this process", async () => {
+  it("gives byte-identical files and the same substantive manifest in two separate runs, and the same as this process", async () => {
     const dirs = [mkdtempSync(join(tmpdir(), "dpp-run-a-")), mkdtempSync(join(tmpdir(), "dpp-run-b-"))];
     try {
       for (const dir of dirs) {
@@ -167,6 +191,17 @@ describe("AT-U: reproducibility across two processes (C4-04)", () => {
       const here = new Map([...release.files.map((f) => [f.fileName, f.bytes] as const), [release.manifestFile.fileName, release.manifestFile.bytes] as const]);
       for (const n of names) {
         const a = readFileSync(join(dirs[0], n));
+        if (n === release.manifestFile.fileName) {
+          // the manifest declares when it was made; everything else in it must be the same
+          const substantive = (bytes: Uint8Array) => {
+            const { generated, ...rest } = JSON.parse(new TextDecoder().decode(bytes));
+            expect(generated.at, n).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+            return canonicalPretty(rest);
+          };
+          expect(substantive(a), n).toBe(substantive(readFileSync(join(dirs[1], n))));
+          expect(substantive(a), `${n} in this process`).toBe(release.manifestFile.substantiveText);
+          continue;
+        }
         expect(a.equals(readFileSync(join(dirs[1], n))), n).toBe(true);
         expect(a.equals(Buffer.from(here.get(n)!)), `${n} in this process`).toBe(true);
       }
@@ -300,5 +335,68 @@ describe("long texts are never cut off or drawn over the footer", () => {
   it("keeps every line above the bottom margin when many values fill the pages", async () => {
     const { pages } = await check({ ...CLEAN, editLab: (d) => (d.texts[1].text = sentences(120).join(" ")) }, sentences(120), []);
     expect(pages).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("customer sheet clarity", () => {
+  const sheet = async () => {
+    const record = await recordFor(pack, CLEAN);
+    const out = await buildCustomerPdf(pack, record);
+    return { record, out, text: await pdfText(out.bytes), items: await pdfItems(out.bytes) };
+  };
+  const flat = (s: string) => s.replace(/\s+/g, " ").trim();
+
+  it("explains the result ID, the customer scope, the language/sector/market qualifier and the rule IDs", async () => {
+    const { text, out } = await sheet();
+    const t = flat(text);
+    expect(t).toContain("Reading this sheet");
+    expect(t).toMatch(/PCF-1: the footprint result ID, the identifier the laboratory file gives to one calculated footprint result\./);
+    expect(t).toMatch(/scope: the customer-scoped alias\. It names the customer whose own article number is shown next to it\./);
+    expect(t).toMatch(/en\/construction\/EU: a qualifier of a text\. It gives the language, the sector and the market the text is approved for\./);
+    const rule = out.items.find((i) => i.kind === "derived")!.ruleId!;
+    expect(t).toContain(`Rule ${rule}: a rule ID. It names the rule in the pinned contract pack that made a derived statement`);
+    // the legend adds no value and no denied text
+    expect(t).not.toMatch(/within limits; the value itself is not shown\.[^]*\d{3} MPa/);
+  });
+
+  it("says what the digests are for", async () => {
+    const { text } = await sheet();
+    expect(flat(text)).toContain("The record digest and the contract pack digest in the footer identify exactly which record and which contract this sheet was made from.");
+  });
+
+  it("states the post-consumer share on its basis, taken from the profile definition", async () => {
+    const { text } = await sheet();
+    const share = pack.properties.find((p) => p.id === propertyBySlug(pack, "post-consumer-share"))!;
+    expect(share.basis).toBe("mass share of the product");
+    expect(flat(text)).toMatch(/38\.5 % Basis: mass share of the product/);
+    // no other property is given a basis it does not have
+    expect(pack.properties.filter((p) => p.basis).map((p) => p.id)).toEqual([share.id]);
+    expect(flat(text).match(/Basis: /g)).toHaveLength(1);
+  });
+
+  it("keeps each label's words together in the extracted text, English and German", async () => {
+    const { text, out } = await sheet();
+    const t = flat(text);
+    const labels = out.items.filter((i) => i.present).flatMap((i) => [i.label.en, i.label.de]);
+    expect(labels.length).toBeGreaterThan(30);
+    for (const l of labels) expect(t, l).toContain(flat(l));
+    // at least one label wraps, so the check means something
+    expect(labels.some((l) => l.length > 26)).toBe(true);
+  });
+
+  it("wraps a label inside its own column: English before the German column, German before the value column", async () => {
+    const { items, out } = await sheet();
+    const labels = out.items.filter((i) => i.present).flatMap((i) => [flat(i.label.en), flat(i.label.de)]);
+    // the lines of the label columns: text that is part of a property label, not a title, heading, legend or footer
+    const inColumn = (x: number) => items.filter((i) => Math.abs(i.x - x) < 0.5 && labels.some((l) => l.includes(flat(i.str))) && i.str.length > 2);
+    const en = inColumn(48);
+    const de = inColumn(190);
+    expect(en.length).toBeGreaterThan(20);
+    expect(de.length).toBeGreaterThan(20);
+    for (const i of en) expect(i.x + i.width, i.str).toBeLessThanOrEqual(190 - 2);
+    for (const i of de) expect(i.x + i.width, i.str).toBeLessThanOrEqual(332 - 2);
+    // a label that is long enough to wrap has its second line in the same column, below the first
+    const wrapped = de.filter((i) => items.some((j) => j !== i && Math.abs(j.x - i.x) < 0.5 && j.page === i.page && j.y < i.y && i.y - j.y < 12 && /^\(/.test(j.str)));
+    expect(wrapped.length).toBeGreaterThan(0);
   });
 });

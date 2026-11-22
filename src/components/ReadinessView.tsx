@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { importEvents, readinessEvents } from "../model/log";
 import { project, type Projection } from "../model/disclosure";
 import type { ProductRecord } from "../model/ingress";
 import { assess, ruleText, structuralChecks, type RouteReadiness } from "../model/readiness";
-import { useRecordStore } from "../model/recordStore";
+import { useLatestSnapshot, useRecordStore } from "../model/recordStore";
 import { ROUTES, ROUTE_NAMES, type ProfilePack, type Route } from "../model/profile";
 import { READINESS_SAMPLES, importSample } from "./sampleFiles";
 
@@ -18,7 +19,9 @@ const STATE_TEXT = { present: "Present", missing: "Missing", inaccessible: "Not 
  * what `project` returns, so it cannot show a value the matrix does not permit for that recipient.
  */
 export function ReadinessView() {
-  const { profile, error, state, setState } = useRecordStore();
+  const { profile, error, saveImport, record } = useRecordStore();
+  const { setSelected } = useRecordStore();
+  const { records, selected, latest } = useLatestSnapshot();
   const [sample, setSample] = useState(READINESS_SAMPLES[0].id);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -68,7 +71,8 @@ export function ReadinessView() {
             setLoadError(null);
             try {
               const loaded = await importSample(profile, READINESS_SAMPLES.find((x) => x.id === sample)!);
-              setState(loaded.state);
+              await record([loaded.results.erp, loaded.results.lab].flatMap((r) => (r ? importEvents(r) : [])));
+              await saveImport(loaded.state);
             } catch (e) {
               setLoadError(e instanceof Error ? e.message : String(e));
             }
@@ -83,13 +87,39 @@ export function ReadinessView() {
         </div>
       )}
 
-      {!state || state.records.length === 0 ? (
+      {records.length > 1 && (
+        <div className="import-samples">
+          <label>
+            Record
+            <select
+              value={selected ? `${selected.model}|${selected.batch}` : ""}
+              onChange={(e) => {
+                const [model, batch] = e.target.value.split("|");
+                setSelected({ model, batch });
+              }}
+            >
+              {records.map((r) => (
+                <option key={`${r.model}|${r.batch}`} value={`${r.model}|${r.batch}`}>
+                  {r.model}, batch {r.batch}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
+
+      {!latest ? (
         <p className="hint" data-testid="readiness-empty">
-          No record yet. Import an ERP extract on the Import screen, or load a prepared record state above. A record exists once the ERP
-          extract is accepted.
+          No record yet. Import an ERP extract and a laboratory file on the Import screen, or load a prepared record state above. A record is
+          stored once both files are accepted.
         </p>
       ) : (
-        state.records.map((r) => <RecordReadiness key={`${r.model}|${r.batch}`} profile={profile} record={r} />)
+        <>
+          <p className="hint small" data-testid="readiness-version">
+            Latest version of the record: version {latest.version}. It is the version the Record and Outputs screens show.
+          </p>
+          <RecordReadiness key={`${latest.model}|${latest.batch}|${latest.version}`} profile={profile} record={latest.record} />
+        </>
       )}
     </div>
   );
@@ -97,6 +127,11 @@ export function ReadinessView() {
 
 function RecordReadiness({ profile, record }: { profile: ProfilePack; record: ProductRecord }) {
   const readiness = useMemo(() => assess(profile, record), [profile, record]);
+  const { record: log } = useRecordStore();
+  // Each assessment of a record state is logged once: the verdict per route and the rules that hold it, never a value.
+  useEffect(() => {
+    void log(readinessEvents(record.model, record.batch, readiness));
+  }, [log, record, readiness]);
   const checks = useMemo(() => structuralChecks(profile, record), [profile, record]);
   const label = useMemo(() => new Map(profile.properties.map((p) => [p.id, p.labels.en])), [profile]);
   const [viewRoute, setViewRoute] = useState<Route>("customer-pdf");

@@ -26,6 +26,7 @@ import {
   type RecordRepository,
   type Snapshot,
 } from "./recordRepository";
+import { diffHistory } from "./correction";
 import { parseStrictJson, toPlain } from "./strictJson";
 
 export class CentralRecordError extends Error {
@@ -33,7 +34,7 @@ export class CentralRecordError extends Error {
 }
 
 const Sha = z.string().regex(/^[0-9a-f]{64}$/);
-const Role = z.enum(["erp", "lab"]);
+const Role = z.enum(["erp", "lab", "correction"]);
 const FLAGS = Object.keys(FLAG_TEXT) as [Flag, ...Flag[]];
 
 const Assertion = z.strictObject({
@@ -46,12 +47,13 @@ const Assertion = z.strictObject({
   details: z.record(z.string(), z.string()).optional(),
   source: z.strictObject({ file: z.string(), role: Role, sha256: Sha, location: z.string(), row: z.number().int().optional() }),
   flags: z.array(z.enum(FLAGS)),
+  correction: z.strictObject({ version: z.number().int().min(2), actor: z.string(), reason: z.string() }).optional(),
 });
 const RecordValue = z.strictObject({
   property: z.string(),
   member: z.string().optional(),
   qualifier: z.string().optional(),
-  status: z.enum(["single", "agreeing", "challenged"]),
+  status: z.enum(["single", "agreeing", "challenged", "corrected"]),
   assertions: z.array(Assertion).min(1),
 });
 const ProductRecord = z.strictObject({
@@ -81,6 +83,8 @@ const ExportSchema = z.strictObject({
   batch: z.string(),
   packManifestDigest: Sha,
   snapshots: z.array(SnapshotSchema).min(1),
+  /** The field-level difference between each version and the next, derived from the snapshots (G09). A file without it is still read. */
+  diffs: z.array(z.unknown()).optional(),
   sha256: Sha,
 });
 
@@ -108,7 +112,7 @@ export async function exportCentralRecord(repo: RecordRepository, pack: ProfileP
   requireOperator(role, "export");
   const snapshots = await repo.history(model, batch);
   if (!snapshots.length) throw new CentralRecordError(`There is no central record for ${model}, batch ${batch}.`);
-  const body = { format: "dpp-central-record", version: 1, model, batch, packManifestDigest: pack.manifestDigest, snapshots };
+  const body = { format: "dpp-central-record", version: 1, model, batch, packManifestDigest: pack.manifestDigest, snapshots, diffs: diffHistory(snapshots) };
   const doc = { ...body, sha256: await contentDigest(body) };
   const text = canonicalPretty(doc);
   const bytes = utf8(text);
@@ -129,12 +133,21 @@ export interface ImportedCentralRecord {
  * Reads a central-record file. Refuses it, with the reason, on bad JSON (a duplicate key included), a schema break, a changed
  * digest anywhere, a broken chain of versions, or a contract pack other than `pack`. Nothing is stored here.
  */
-export async function importCentralRecord(bytes: Uint8Array, pack: ProfilePack, role: string = OPERATOR): Promise<ImportedCentralRecord> {
+export async function importCentralRecord(bytes: Uint8Array, pack: ProfilePack, role: string = OPERATOR, now: () => number = () => performance.now()): Promise<ImportedCentralRecord> {
   requireOperator(role, "import");
+  // the declared limits apply here as to every source file: size before decoding, nesting depth, and the job deadline
+  const limits = pack.policy.limits;
+  if (bytes.length > limits.max_file_bytes) throw new CentralRecordError(`The file is larger than the declared limit of ${limits.max_file_bytes} bytes (${bytes.length} bytes), so it was not read.`);
+  const started = now();
+  const tick = () => {
+    if (now() - started > limits.job_deadline_ms) throw new CentralRecordError(`The import ran past its time limit of ${limits.job_deadline_ms / 1000} s and was stopped. Nothing is imported.`);
+  };
   let plain: unknown;
   try {
-    plain = toPlain(parseStrictJson(new TextDecoder("utf-8", { fatal: true }).decode(bytes)));
+    tick();
+    plain = toPlain(parseStrictJson(new TextDecoder("utf-8", { fatal: true }).decode(bytes), { maxDepth: limits.max_json_depth, tick }));
   } catch (e) {
+    if (e instanceof CentralRecordError) throw e;
     throw new CentralRecordError(`The file is not valid JSON: ${e instanceof Error ? e.message : String(e)}`);
   }
   const parsed = ExportSchema.safeParse(plain);
@@ -153,6 +166,13 @@ export async function importCentralRecord(bytes: Uint8Array, pack: ProfilePack, 
       await verifySnapshot(s as Snapshot);
       const listed = (x: Array<{ role: string; name: string; sha256: string }>) => canonical(x.map(({ role, name, sha256 }) => ({ role, name, sha256 })));
       if (listed(s.sources) !== listed(s.record.sources)) throw new RepositoryError(`${s.model} / ${s.batch} v${s.version}: the snapshot's sources are not the record's sources`);
+      // a correction in a version belongs to that version or an earlier one, and the version it made says why and by whom
+      for (const v of s.record.values) {
+        for (const a of v.assertions) {
+          if (a.correction && a.correction.version > s.version) throw new RepositoryError(`${s.model} / ${s.batch} v${s.version}: it holds a correction from a later version`);
+          if (a.correction && a.correction.version === s.version && (a.correction.reason !== s.reason || a.correction.actor !== s.actor)) throw new RepositoryError(`${s.model} / ${s.batch} v${s.version}: the correction's reason or actor is not the version's`);
+        }
+      }
       const problems = recheckRecord(pack, s.record as Snapshot["record"]);
       if (problems.length) throw new RepositoryError(`${s.model} / ${s.batch} v${s.version} does not pass the contract checks: ${problems[0]}${problems.length > 1 ? ` (and ${problems.length - 1} more)` : ""}`);
       checkAppend(seen, s as Snapshot);
@@ -162,6 +182,8 @@ export async function importCentralRecord(bytes: Uint8Array, pack: ProfilePack, 
   } catch (e) {
     throw new CentralRecordError(`The file is inconsistent: ${e instanceof Error ? e.message : String(e)}`);
   }
+  // The differences are derived data: a file whose differences are not the ones its own versions give has been changed
+  if (doc.diffs !== undefined && canonical(doc.diffs) !== canonical(diffHistory(seen))) throw new CentralRecordError("The file is inconsistent: its version differences are not the differences of its versions.");
   return { model: doc.model, batch: doc.batch, packManifestDigest: doc.packManifestDigest, snapshots: seen, repository };
 }
 

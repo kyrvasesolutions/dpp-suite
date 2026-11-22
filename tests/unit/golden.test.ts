@@ -20,14 +20,15 @@ async function current() {
   const text = {
     "erp-staging.csv": new TextDecoder().decode(file("erp-staging-csv").bytes),
     "registry-draft.json": new TextDecoder().decode(file("registry-prep-json").bytes),
-    "release-manifest.json": release.manifestFile.text,
+    // the manifest is compared without its generated time and role: those change on every run
+    "release-manifest.json": release.manifestFile.substantiveText,
     "customer-sheet.txt": `${await pdfText(pdf.bytes)}\n`,
   };
   const digests = {
     "customer-pdf": sha(pdf.bytes),
     "erp-staging-csv": sha(file("erp-staging-csv").bytes),
     "registry-prep-json": sha(file("registry-prep-json").bytes),
-    "release-manifest": release.manifestFile.sha256,
+    "release-manifest": release.manifestFile.substantiveDigest,
   };
   return { text, digests };
 }

@@ -1,0 +1,120 @@
+{
+  "schema_id": "LAB-ASSESSMENT@1.0.0",
+  "product": {
+    "model_id": "PM-5754-H111-2000",
+    "batch_id": "B-2026-0417",
+    "alloy": "EN AW-5754"
+  },
+  "nested": [[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]],
+  "observations": [
+    {
+      "observation_id": "OBS-1",
+      "property": "ALU-D109",
+      "value": 2.01,
+      "unit": "mm",
+      "uncertainty": {
+        "expanded": 0.02,
+        "coverage_factor": 2,
+        "uncertainty_kind": "expanded"
+      },
+      "method": "EN 485-4 thickness measurement",
+      "evidence_id": "EV-TR-0417"
+    },
+    {
+      "observation_id": "OBS-2",
+      "property": "ALU-D115",
+      "value": 228,
+      "unit": "MPa",
+      "uncertainty": {
+        "expanded": 6,
+        "coverage_factor": 2,
+        "uncertainty_kind": "expanded"
+      },
+      "method": "EN ISO 6892-1 tensile test",
+      "evidence_id": "EV-TR-0417"
+    },
+    {
+      "observation_id": "OBS-3",
+      "property": "ALU-D123",
+      "element": "Mg",
+      "value": 3.05,
+      "unit": "%",
+      "uncertainty": {
+        "expanded": 0.08,
+        "coverage_factor": 2,
+        "uncertainty_kind": "expanded"
+      },
+      "method": "Spark optical emission spectrometry",
+      "evidence_id": "EV-TR-0417"
+    },
+    {
+      "observation_id": "OBS-4",
+      "property": "ALU-D123",
+      "element": "Mn",
+      "value": 0.31,
+      "unit": "%",
+      "uncertainty": {
+        "expanded": 0.02,
+        "coverage_factor": 2,
+        "uncertainty_kind": "expanded"
+      },
+      "method": "Spark optical emission spectrometry",
+      "evidence_id": "EV-TR-0417"
+    }
+  ],
+  "footprints": [
+    {
+      "result_id": "PCF-1",
+      "property": "ALU-D119",
+      "value": 4.2,
+      "unit": "kg{CO2e}/kg",
+      "method": "ISO 14067:2018",
+      "system_boundary": "cradle-to-gate",
+      "reference_year": 2025,
+      "calculated_by": "Demo LCA consultancy (synthetic)",
+      "evidence_id": "EV-CR-0099"
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_id": "EV-TR-0417",
+      "issuer": "Demo test laboratory (synthetic)",
+      "revision": "1",
+      "record_kind": "test-report",
+      "scope": "batch B-2026-0417",
+      "digest": "sha256:bf76f470b099696443515416c25e2a494377ef5fb62cedad40bc6ee8cec99fd8",
+      "access_policy_ref": "POL-INTERNAL"
+    },
+    {
+      "evidence_id": "EV-CR-0099",
+      "issuer": "Demo LCA consultancy (synthetic)",
+      "revision": "2",
+      "record_kind": "calculation-report",
+      "scope": "product model PM-5754-H111-2000",
+      "digest": "sha256:a0d6b6f41399fbf6c40e70d854f2a07ee3efcba775c0391a72055e49fec578c5",
+      "access_policy_ref": "POL-INTERNAL"
+    }
+  ],
+  "texts": [
+    {
+      "text_id": "TXT-1",
+      "subject_ref": "PM-5754-H111-2000",
+      "language": "en",
+      "sector": "construction",
+      "market": "EU",
+      "approval_state": "approved",
+      "revision": "2",
+      "text": "Rolled aluminium sheet for facade and roofing applications, supplied in mill finish."
+    },
+    {
+      "text_id": "TXT-2",
+      "subject_ref": "PM-5754-H111-2000",
+      "language": "de",
+      "sector": "construction",
+      "market": "EU",
+      "approval_state": "approved",
+      "revision": "2",
+      "text": "Gewalztes Aluminiumblech für Fassaden und Dächer, walzblank geliefert."
+    }
+  ]
+}

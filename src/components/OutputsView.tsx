@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { importEvents, recordExportEvent, recordImportEvent, recordImportRefusedEvent, releaseEvents } from "../model/log";
 import { CentralRecordError, exportCentralRecord, importCentralRecord, restoreCentralRecord } from "../model/centralRecord";
 import { outputRef, trace } from "../model/lineage";
 import { verifyRelease, type VerifyResult } from "../model/outputs/manifest";
@@ -8,6 +9,7 @@ import { ROUTES, ROUTE_NAMES, type Route } from "../model/profile";
 import { ruleText } from "../model/readiness";
 import { useRecordStore } from "../model/recordStore";
 import type { Snapshot } from "../model/recordRepository";
+import { LogPanel } from "./LogPanel";
 import { READINESS_SAMPLES, importSample } from "./sampleFiles";
 
 const short = (digest: string) => `${digest.slice(0, 12)}…`;
@@ -32,9 +34,8 @@ const bytesOf = async (f: File) => ({ name: f.name, bytes: new Uint8Array(await 
  * always a HOLD draft and is never sent).
  */
 export function OutputsView() {
-  const { profile, error, repository, state, setState, saveImport } = useRecordStore();
+  const { profile, error, repository, state, setState, saveImport, record: log, selected, setSelected, repoVersion } = useRecordStore();
   const [records, setRecords] = useState<Array<{ model: string; batch: string }>>([]);
-  const [selected, setSelected] = useState<{ model: string; batch: string } | null>(null);
   const [history, setHistory] = useState<Snapshot[]>([]);
   const [version, setVersion] = useState<number | null>(null);
   const [release, setRelease] = useState<Release | null>(null);
@@ -49,7 +50,7 @@ export function OutputsView() {
     return () => {
       live = false;
     };
-  }, [repository, tick]);
+  }, [repository, tick, repoVersion]);
 
   // The record shown: the chosen one, else the one just imported or loaded, else the first stored
   useEffect(() => {
@@ -73,7 +74,7 @@ export function OutputsView() {
     return () => {
       live = false;
     };
-  }, [repository, selected, tick]);
+  }, [repository, selected, tick, repoVersion]);
 
   const snapshot = history.find((s) => s.version === version) ?? null;
 
@@ -82,13 +83,17 @@ export function OutputsView() {
     setRelease(null);
     if (!profile || !snapshot) return;
     generateRelease(profile, snapshot).then(
-      (r) => live && setRelease(r),
+      (r) => {
+        if (!live) return;
+        setRelease(r);
+        void log(releaseEvents(snapshot.model, snapshot.batch, snapshot.version, r.outcomes));
+      },
       (e: unknown) => live && setMessage({ kind: "warn", text: `The outputs could not be made: ${e instanceof Error ? e.message : String(e)}` }),
     );
     return () => {
       live = false;
     };
-  }, [profile, snapshot]);
+  }, [profile, snapshot, log]);
 
   if (error) {
     return (
@@ -137,6 +142,7 @@ export function OutputsView() {
           onClick={async () => {
             try {
               const loaded = await importSample(profile, READINESS_SAMPLES.find((x) => x.id === sample)!);
+              await log([loaded.results.erp, loaded.results.lab].flatMap((r) => (r ? importEvents(r) : [])));
               setState(loaded.state);
               await saveImport(loaded.state);
               setSelected(null);
@@ -184,7 +190,7 @@ export function OutputsView() {
         <>
           <p className="hint small" data-testid="outputs-record">
             Record {snapshot.model}, batch {snapshot.batch}, version {snapshot.version} of {latest?.version}
-            {snapshot.version !== latest?.version ? " (an earlier version, read only)" : ""}. Digest <code title={snapshot.digest}>{short(snapshot.digest)}</code>.
+            {snapshot.version !== latest?.version ? " (an earlier version, read only)" : ""}. Version digest <code title={snapshot.digest}>{short(snapshot.digest)}</code> (the record digest on the customer sheet is on the Record screen).
           </p>
 
           <section className="profile-section" aria-label="Outputs by route">
@@ -208,10 +214,14 @@ export function OutputsView() {
               <h2>Release</h2>
               <p className="hint small">
                 The release manifest lists the software version, the contract pack and every file it pins, the input files, the record
-                version and each output by digest, and where every output value came from. It has no date or time.
+                version and each output by digest, and where every output value came from. Its only date and time is the generated time and role, which are in no digest: the substantive digest covers everything else.
               </p>
-              <p data-testid="manifest" data-digest={release.manifestFile.sha256}>
-                <strong>{release.manifestFile.fileName}</strong> <code title={release.manifestFile.sha256}>{short(release.manifestFile.sha256)}</code>{" "}
+              <p data-testid="manifest" data-digest={release.manifestFile.substantiveDigest}>
+                <strong>{release.manifestFile.fileName}</strong>, substantive digest{" "}
+                <code title={release.manifestFile.substantiveDigest}>{short(release.manifestFile.substantiveDigest)}</code>. Generated{" "}
+                <span data-testid="manifest-generated">
+                  {release.manifest.generated.at} by {release.manifest.generated.by}
+                </span>{" "}
                 <button type="button" className="ghost" onClick={() => save(release.manifestFile.fileName, release.manifestFile.mediaType, release.manifestFile.bytes)}>
                   Download manifest
                 </button>
@@ -305,6 +315,7 @@ export function OutputsView() {
             onClick={async () => {
               try {
                 const file = await exportCentralRecord(repository, profile, selected!.model, selected!.batch);
+                await log([await recordExportEvent(selected!.model, selected!.batch, history[history.length - 1].version)]);
                 save(file.fileName, file.mediaType, file.bytes);
                 setMessage({ kind: "info", text: `Exported ${history.length} version${history.length === 1 ? "" : "s"} as ${file.fileName}.` });
               } catch (e) {
@@ -327,12 +338,14 @@ export function OutputsView() {
                 try {
                   const imported = await importCentralRecord((await bytesOf(f)).bytes, profile);
                   const { added, skipped } = await restoreCentralRecord(repository, imported);
+                  await log([await recordImportEvent(imported.model, imported.batch, imported.snapshots[imported.snapshots.length - 1].version)]);
                   setSelected({ model: imported.model, batch: imported.batch });
                   // show the latest version of what was imported, not the version that was open before
                   setVersion(null);
                   refresh();
                   setMessage({ kind: "info", text: `Central record imported: ${added} version${added === 1 ? "" : "s"} added, ${skipped} already here.` });
                 } catch (err) {
+                  await log([recordImportRefusedEvent()]);
                   setMessage({ kind: "warn", text: err instanceof CentralRecordError || err instanceof Error ? err.message : String(err) });
                 }
               }}
@@ -340,6 +353,8 @@ export function OutputsView() {
           </label>
         </div>
       </section>
+
+      <LogPanel />
     </div>
   );
 }
@@ -363,7 +378,11 @@ function RouteOutput({ route, outcome, profile }: { route: Route; outcome: Relea
             <li key={i} data-testid="hold-reason" data-rule={h.ruleId}>
               <strong>{h.ruleId}</strong> {ruleText(profile, h.ruleId)}
               {h.property && <span className="small hint"> ({profile.properties.find((p) => p.id === h.property)?.labels.en ?? h.property})</span>}
-              {h.detail && <span className="small" data-testid="hold-detail"> Character {h.detail}.</span>}
+              {h.detail && <span className="small" data-testid="hold-detail">
+                  {" "}
+                  Character {h.detail}
+                  {h.field ? ` in ${h.field}` : ""}.
+                </span>}
               {h.sources.map((x, j) => (
                 <div key={j} className="small hint" data-testid="hold-source">
                   {x.location}

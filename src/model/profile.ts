@@ -66,6 +66,7 @@ const ProfileDoc = z.object({
       required_by: z.object({ "customer-pdf": z.boolean(), "erp-staging-csv": z.boolean(), "registry-prep-json": z.boolean() }),
       members: z.array(z.string()),
       context_labels: z.array(ContextLabel).optional(),
+      basis: z.string().min(1).optional(),
     }),
   ),
 });
@@ -183,10 +184,24 @@ const DerivedDoc = z.object({
   }),
 });
 
+/** Declared input limits (design targets, configurable by pinning a new version of the file). */
+const LimitsDoc = z.object({
+  id: z.literal("LIMITS"),
+  version: z.string(),
+  limits: z.object({
+    max_file_bytes: z.number().int().positive(),
+    max_json_depth: z.number().int().positive(),
+    job_deadline_ms: z.number().int().positive(),
+    max_erp_data_rows: z.number().int().positive(),
+    note: z.string(),
+  }),
+});
+
 export type ErpContract = z.infer<typeof ErpContractDoc>;
 export type LabContract = z.infer<typeof LabContractDoc>;
 export type ReadinessRules = z.infer<typeof ReadinessDoc>;
 export type DerivedRules = z.infer<typeof DerivedDoc>;
+export type InputLimits = z.infer<typeof LimitsDoc>["limits"];
 
 /** What the actor/field matrix says about one property for one route (FUNC-019 slice). */
 export type Access = "permit" | "deny" | "derived";
@@ -229,6 +244,8 @@ export interface ResolvedProperty {
   unitName: string | null;
   requiredBy: Record<Route, boolean>;
   members: Array<{ id: string; definition: string }>;
+  /** What the value is a share or measure of, where the profile definition says (for example a mass share of the product). */
+  basis?: string;
   legal: { status: string; statusText: string; requirement?: string; legislation?: string };
 }
 
@@ -257,7 +274,7 @@ export interface ProfilePack {
   /** Property → route → access, as the pack states it. Read only through `decide` in policy.ts. */
   matrix: Record<string, Record<Route, Access>>;
   /** The pinned readiness rules and derived-disclosure rules (Cycle 3). */
-  policy: { readiness: ReadinessRules; derived: DerivedRules };
+  policy: { readiness: ReadinessRules; derived: DerivedRules; limits: InputLimits };
 }
 
 /** Reads the actor/field matrix CSV: comment lines start with "#", then `property,<routes…>`, then one row per property. */
@@ -372,10 +389,12 @@ export async function loadProfilePack(source: PackSource): Promise<ProfilePack> 
 
   const readiness = pinnedDoc("policy", "READINESS-RULES@1.0.0", ReadinessDoc);
   const derived = pinnedDoc("policy", "DERIVED-RULES@1.0.0", DerivedDoc);
+  const limits = pinnedDoc("policy", "LIMITS@1.0.0", LimitsDoc);
+  const policyRefs = ["READINESS-RULES@1.0.0", "DERIVED-RULES@1.0.0", "LIMITS@1.0.0"];
   for (const ref of profile.pins.policy) {
-    if (ref !== "READINESS-RULES@1.0.0" && ref !== "DERIVED-RULES@1.0.0") throw new ProfileError(`${ref} is not a policy file this build reads`);
+    if (!policyRefs.includes(ref)) throw new ProfileError(`${ref} is not a policy file this build reads`);
   }
-  if (profile.pins.policy.length !== 2) throw new ProfileError("the profile must pin READINESS-RULES@1.0.0 and DERIVED-RULES@1.0.0");
+  if (profile.pins.policy.length !== policyRefs.length) throw new ProfileError(`the profile must pin ${policyRefs.join(", ")}`);
 
   const termById = new Map(terms.doc.terms.map((t) => [t.id, t]));
   const term = (owner: string, id: string) => {
@@ -403,6 +422,7 @@ export async function loadProfilePack(source: PackSource): Promise<ProfilePack> 
       unit: p.unit,
       unitName: p.unit === null ? null : (unitName.get(p.unit) ?? null),
       requiredBy: p.required_by,
+      ...(p.basis ? { basis: p.basis } : {}),
       members: p.members.map((m) => ({ id: m, definition: term(`${p.id} member`, m) })),
       legal: { status: entry.status, statusText, requirement: entry.requirement, legislation: entry.legislation },
     };
@@ -442,6 +462,7 @@ export async function loadProfilePack(source: PackSource): Promise<ProfilePack> 
       ...mappingPins,
       readiness.file,
       derived.file,
+      limits.file,
       ...codeLists.map(({ ref, path, digest }) => ({ ref, path, digest })),
     ],
     termCount: terms.doc.terms.length,
@@ -455,7 +476,7 @@ export async function loadProfilePack(source: PackSource): Promise<ProfilePack> 
     },
     routes,
     matrix,
-    policy: { readiness: readiness.doc, derived: derived.doc },
+    policy: { readiness: readiness.doc, derived: derived.doc, limits: limits.doc.limits },
   };
 }
 

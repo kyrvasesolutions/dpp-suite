@@ -22,6 +22,8 @@ export interface LineageEntry {
   /** The part of the source object that was read, when it is not the value (a footprint's method, for example). */
   detail?: string;
   assertion: { role: Assertion["source"]["role"]; file: string; sha256: string; location: string };
+  /** For a value an operator corrected: the version of the record the correction made, who made it, and the reason. */
+  correction?: { version: number; actor: string; reason: string };
 }
 
 export const outputRef = (route: Route, stepId: string) => `${route}/${stepId}`;
@@ -34,6 +36,7 @@ const entryOf = (ref: string, item: OutputValue, a: Assertion, detail?: string):
   ...(a.member ? { member: a.member } : {}),
   ...(a.qualifier ? { qualifier: a.qualifier } : {}),
   ...(detail ? { detail } : {}),
+  ...(a.correction ? { correction: { ...a.correction } } : {}),
   // the exact place: for a detail, the key of the source object that holds it
   assertion: { role: a.source.role, file: a.source.file, sha256: a.source.sha256, location: detail ? `${a.source.file}, ${detailPosition(a.source.location.slice(a.source.file.length + 2), detail)}` : a.source.location },
 });

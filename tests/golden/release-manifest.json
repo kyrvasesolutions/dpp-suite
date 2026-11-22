@@ -1005,7 +1005,7 @@
       "holds": [],
       "mediaType": "application/pdf",
       "route": "customer-pdf",
-      "sha256": "191f661e514365cf49a5d744d9336ea23a4479c4e19c2169a63955b9d8d5619e",
+      "sha256": "8e49fe869053f2728dce49eb76a88209d172686d944d73e47701304f33727a06",
       "status": "ready"
     },
     {
@@ -1031,7 +1031,7 @@
     }
   ],
   "pack": {
-    "manifestDigest": "394e1cd765a4d79bdac670d500ab204544de9e0472eec6740a17fb59195bcbf7",
+    "manifestDigest": "4ac87f92beab8e654394c83946733dcc58314a349621d08c7d7ad4671394bbec",
     "pins": {
       "codeLists": [
         {
@@ -1114,11 +1114,16 @@
           "digest": "d6b9ad13e440e185960998ea631869a5478a7262f44b1a1a38d7acd733990c5e",
           "path": "policy/DERIVED-RULES@1.0.0.yaml",
           "ref": "DERIVED-RULES@1.0.0"
+        },
+        {
+          "digest": "54c60cb5ccde21991a70c7045cdb59244c0e969f18b653ae6cf9558f28140a76",
+          "path": "policy/LIMITS@1.0.0.yaml",
+          "ref": "LIMITS@1.0.0"
         }
       ],
       "profile": [
         {
-          "digest": "aa2a8f5c7087b98b050928ef526324c05ce9c6b590806ce68219adcd15505f24",
+          "digest": "0cd69e4cb4dc8c8d6543efb996d2619292556cb274bb842cf9f272fe698ce741",
           "path": "profile/PROFILE-ALU-24-01@1.0.0.yaml",
           "ref": "PROFILE-ALU-24-01@1.0.0"
         }
@@ -1168,5 +1173,6 @@
     "name": "dpp-traceability",
     "version": "0.0.0-golden"
   },
+  "substantiveDigest": "63429ff18caa0931f54008fe3135e4850b66e49890112bc4ab8292dfd5f15eb0",
   "version": 1
 }

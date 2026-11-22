@@ -11,7 +11,7 @@ export type CapabilityLabel = (typeof CAPABILITY_LABELS)[number];
 
 export interface Capability {
   /** The screen, as in the URL hash. */
-  id: "profile" | "import" | "readiness" | "outputs" | "requirements" | "prepare" | "validation" | "mapping" | "graph";
+  id: "profile" | "import" | "record" | "readiness" | "outputs" | "requirements" | "prepare" | "validation" | "mapping" | "graph";
   name: string;
   label: CapabilityLabel;
   /**
@@ -53,6 +53,13 @@ export const CAPABILITIES: Capability[] = [
     functions: ["FUNC-039", "FUNC-017", "FUNC-065"],
     extends: ["FUNC-125"],
     basis: "Cycle 2 exit: strict import of the two N source files with verbatim source assertions, flags and challenged values. The export side of FUNC-125 is on the Outputs screen.",
+  },
+  {
+    id: "record",
+    name: "Record",
+    label: "untested",
+    functions: ["FUNC-005", "FUNC-006", "FUNC-076"],
+    basis: "Cycle 5: one record from its sources to each route's output, with status, flags, kind and access, a correction of one value as a new version, and the difference between versions. Not yet independently reviewed.",
   },
   {
     id: "readiness",
@@ -103,7 +110,8 @@ export const CAPABILITIES: Capability[] = [
     id: "graph",
     name: "Graph compliance",
     label: "experimental",
-    functions: ["FUNC-076"],
+    functions: [],
+    extends: ["FUNC-076"],
     basis: "Shows how legislation reaches data requirements; no product record or outputs.",
   },
 ];

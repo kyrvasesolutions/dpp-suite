@@ -17,7 +17,7 @@ export class JsonSyntaxError extends Error {
   override name = "JsonSyntaxError";
   constructor(
     message: string,
-    readonly code: "syntax" | "duplicate-key" | "non-finite-number",
+    readonly code: "syntax" | "duplicate-key" | "non-finite-number" | "too-deep",
     readonly offset: number,
     readonly path: string,
   ) {
@@ -27,8 +27,21 @@ export class JsonSyntaxError extends Error {
 
 const NUMBER = /-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/y;
 
-export function parseStrictJson(text: string): JsonValue {
+export interface ParseOptions {
+  /** Deepest nesting allowed; the root container is depth 1. Checked before recursing, so a hostile text cannot overflow the stack. */
+  maxDepth?: number;
+  /** Called for every value, so the caller can enforce a deadline. */
+  tick?: () => void;
+}
+
+export function parseStrictJson(text: string, options: ParseOptions = {}): JsonValue {
   let i = 0;
+  let depth = 0;
+  const maxDepth = options.maxDepth ?? Number.POSITIVE_INFINITY;
+  const enter = (path: string) => {
+    depth++;
+    if (depth > maxDepth) fail(`nesting is deeper than ${maxDepth} levels`, path, "too-deep");
+  };
 
   const fail = (message: string, path: string, code: JsonSyntaxError["code"] = "syntax"): never => {
     throw new JsonSyntaxError(`${message} at offset ${i}${path ? ` (${path})` : ""}`, code, i, path);
@@ -70,14 +83,17 @@ export function parseStrictJson(text: string): JsonValue {
   }
 
   function value(path: string): JsonValue {
+    options.tick?.();
     ws();
     const c = text[i];
     if (c === "{") {
+      enter(path);
       i++;
       const entries = new Map<string, JsonValue>();
       ws();
       if (text[i] === "}") {
         i++;
+        depth--;
         return { kind: "object", entries };
       }
       for (;;) {
@@ -101,17 +117,20 @@ export function parseStrictJson(text: string): JsonValue {
         }
         if (text[i] === "}") {
           i++;
+          depth--;
           return { kind: "object", entries };
         }
         fail("expected , or }", path);
       }
     }
     if (c === "[") {
+      enter(path);
       i++;
       const items: JsonValue[] = [];
       ws();
       if (text[i] === "]") {
         i++;
+        depth--;
         return { kind: "array", items };
       }
       for (;;) {
@@ -123,6 +142,7 @@ export function parseStrictJson(text: string): JsonValue {
         }
         if (text[i] === "]") {
           i++;
+          depth--;
           return { kind: "array", items };
         }
         fail("expected , or ]", path);

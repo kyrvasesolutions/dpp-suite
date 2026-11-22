@@ -35,17 +35,19 @@ const within = (v: number, b: { min: number | null; max: number | null }) => (b.
  * uploader chose and which can carry anything (a code, a value).
  */
 export interface PublicSource {
-  role: "ERP extract" | "Laboratory file";
+  role: "ERP extract" | "Laboratory file" | "Operator correction";
   position: string;
 }
 
 export function publicSource(source: Assertion["source"]): PublicSource {
   const prefix = `${source.file}, `;
-  return { role: source.role === "erp" ? "ERP extract" : "Laboratory file", position: source.location.startsWith(prefix) ? source.location.slice(prefix.length) : "" };
+  return { role: source.role === "erp" ? "ERP extract" : source.role === "correction" ? "Operator correction" : "Laboratory file", position: source.location.startsWith(prefix) ? source.location.slice(prefix.length) : "" };
 }
 
-const locations = (v: RecordValue[]) => v.flatMap((x) => x.assertions.map((a) => publicSource(a.source)));
-const assertionsOf = (v: RecordValue[]) => v.flatMap((x) => x.assertions);
+/** After an operator correction a value stands on the correction alone; the earlier values stay in the record but feed nothing. */
+const standing = (x: RecordValue) => (x.status === "corrected" ? x.assertions.slice(0, 1) : x.assertions);
+const locations = (v: RecordValue[]) => v.flatMap((x) => standing(x).map((a) => publicSource(a.source)));
+const assertionsOf = (v: RecordValue[]) => v.flatMap(standing);
 
 /** The one text a record states for a property, or why there is none: a challenged or repeated value cannot be relied on. */
 function onlyText(pack: ProfilePack, record: ProductRecord, role: "alloy" | "temper"): { text: string; from: RecordValue[] } | { problem: string } {

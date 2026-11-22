@@ -5,7 +5,7 @@
 import type { ProductRecord } from "../ingress";
 import type { ProfilePack, Route } from "../profile";
 import { ROUTES } from "../profile";
-import type { Snapshot } from "../recordRepository";
+import { OPERATOR, type Snapshot } from "../recordRepository";
 import { buildCustomerPdf } from "./customerPdf";
 import { buildErpCsv } from "./erpCsv";
 import { RouteRefusedError } from "./items";
@@ -34,7 +34,7 @@ export interface Release {
 export async function generateRelease(
   pack: ProfilePack,
   snapshot: Snapshot,
-  options: { software?: SoftwareInfo; builders?: Partial<Record<Route, Builder>> } = {},
+  options: { software?: SoftwareInfo; builders?: Partial<Record<Route, Builder>>; now?: () => Date; by?: string } = {},
 ): Promise<Release> {
   const builders = options.builders ?? BUILDERS;
   const record = snapshot.record;
@@ -49,7 +49,15 @@ export async function generateRelease(
       else throw e;
     }
   }
-  const manifest = await buildManifest({ pack, record, snapshot, outcomes, software: options.software ?? softwareInfo() });
+  const manifest = await buildManifest({
+    pack,
+    record,
+    snapshot,
+    outcomes,
+    software: options.software ?? softwareInfo(),
+    // declared generated metadata: the time and the role, left out of every digest and comparison
+    generated: { at: (options.now ?? (() => new Date()))().toISOString(), by: options.by ?? OPERATOR },
+  });
   return {
     outcomes,
     files: outcomes.flatMap((o) => ("file" in o ? [o.file] : [])),

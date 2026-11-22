@@ -1,8 +1,11 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const ROOT = resolve(__dirname, "../../fixtures");
+// relative to this file: vitest (also under jsdom) has __dirname, Playwright's ES modules have only import.meta.url
+const here = typeof __dirname !== "undefined" ? __dirname : fileURLToPath(new URL(".", import.meta.url));
+const ROOT = join(here, "../../fixtures");
 
 /** Reads a fixture after checking it against its pack's MANIFEST.json; a drifted file fails the test. */
 export function fixtureBytes(pack: string, name: string): Uint8Array {

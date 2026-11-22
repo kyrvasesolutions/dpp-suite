@@ -32,6 +32,8 @@ export interface HoldReason {
   member?: string;
   /** Further fact the rule names, for a hold made at output time (the code point for RR-PDF-CHARACTER). */
   detail?: string;
+  /** The key of the source object that holds the offending text, when it is not the value itself (RR-PDF-CHARACTER). */
+  field?: string;
   /** Where the assertions behind the hold are. Empty only for RR-MISSING and RR-STANDING-HOLD. */
   sources: Assertion["source"][];
 }
@@ -68,6 +70,8 @@ export interface AssessOptions {
 }
 
 const sourceOf = (a: Assertion) => a.source;
+/** The assertions that stand for a value now: after an operator correction only the correction, whose earlier values stay visible but no longer count. */
+const effective = (v: RecordValue): Assertion[] => (v.status === "corrected" ? v.assertions.slice(0, 1) : v.assertions);
 const unique = <T>(xs: T[]) => [...new Set(xs)];
 const keyOf = (s: Assertion["source"]) => `${s.file}|${s.location}`;
 
@@ -76,7 +80,7 @@ export function selectFootprint(pack: ProfilePack, record: ProductRecord): Footp
   const property = byRole(pack, "footprint");
   const candidates = record.values
     .filter((v) => v.property === property && !v.member)
-    .flatMap((v) => v.assertions.map((a) => ({ ...(v.qualifier ? { qualifier: v.qualifier } : {}), source: sourceOf(a) })));
+    .flatMap((v) => effective(v).map((a) => ({ ...(v.qualifier ? { qualifier: v.qualifier } : {}), source: sourceOf(a) })));
   if (candidates.length === 0) return { state: "none", candidates };
   if (candidates.length === 1) return { state: "selected", candidates, selected: candidates[0] };
   return { state: "several", candidates };
@@ -168,7 +172,7 @@ export function assess(pack: ProfilePack, record: ProductRecord, options: Assess
           add("RR-CHALLENGED", property, v.member, sources);
           assured = false;
         }
-        const flagged = (flag: Flag) => v.assertions.filter((a) => a.flags.includes(flag)).map(sourceOf);
+        const flagged = (flag: Flag) => effective(v).filter((a) => a.flags.includes(flag)).map(sourceOf);
         for (const [flag, rule] of [["unknown-code", "RR-UNKNOWN-CODE"], ["draft-text", "RR-DRAFT-TEXT"]] as const) {
           const at = flagged(flag);
           if (at.length) {
@@ -182,7 +186,7 @@ export function assess(pack: ProfilePack, record: ProductRecord, options: Assess
           add("RR-EVIDENCE-DIGEST", property, v.member, missingDigest);
           assured = false;
         }
-        for (const a of v.assertions) {
+        for (const a of effective(v)) {
           const evidence = a.details?.evidence_id ? evidenceById.get(a.details.evidence_id) : undefined;
           const bare = evidence?.assertions.filter((e) => e.flags.includes("evidence-digest-missing")) ?? [];
           if (bare.length) {

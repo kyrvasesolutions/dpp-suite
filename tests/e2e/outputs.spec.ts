@@ -92,6 +92,12 @@ test("the manifest verifies the downloaded files and notices a changed byte", as
   const [m] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Download manifest" }).click()]);
   const manifest = readFileSync((await m.path())!);
   expect(JSON.parse(manifest.toString("utf8")).software.commit).toBeTruthy();
+  // the time and role the release was made by are declared metadata, shown and kept out of the substantive digest
+  const declared = JSON.parse(manifest.toString("utf8")) as { generated: { at: string; by: string }; substantiveDigest: string };
+  expect(declared.generated.by).toBe("ACT-01");
+  expect(declared.generated.at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  await expect(page.getByTestId("manifest")).toHaveAttribute("data-digest", declared.substantiveDigest);
+  await expect(page.getByTestId("manifest-generated")).toContainText(declared.generated.at);
   const supply = (list: typeof files) => list.map((f) => ({ name: f.name, mimeType: "application/octet-stream", buffer: f.bytes }));
 
   await page.getByTestId("verify-manifest").setInputFiles({ name: "release-manifest.json", mimeType: "application/json", buffer: manifest });
@@ -147,7 +153,8 @@ test("the central record survives a reload; a correction makes version 2 linked 
   await expect(page.locator('[data-testid="snapshot"][data-version="1"] code')).toHaveAttribute("title", v1!);
 
   await page.goto("/#import");
-  // a corrected ERP extract on its own is a changed record for the same model and batch
+  // after a reload the picked files are gone: the pair is picked again, the laboratory file first, with a corrected ERP extract
+  await page.getByTestId("pick-lab").setInputFiles(clean.lab);
   await page.getByTestId("pick-erp").setInputFiles({ name: "d03a-erp-extract.csv", mimeType: "text/csv", buffer: Buffer.from(corrected) });
   await expect(page.getByTestId("snapshot-status")).toHaveAttribute("data-version", "2");
 
@@ -156,7 +163,7 @@ test("the central record survives a reload; a correction makes version 2 linked 
   await expect(page.getByTestId("snapshot")).toHaveCount(2);
   const v2 = page.locator('[data-testid="snapshot"][data-version="2"]');
   await expect(v2).toContainText(`version 1 (${v1!.slice(0, 12)}`);
-  await expect(v2).toContainText("Corrected import");
+  await expect(v2).toContainText("Re-import");
   await expect(page.locator('[data-testid="snapshot"][data-version="1"] code')).toHaveAttribute("title", v1!);
 
   // version 1 is still viewable, read only, with its own values
@@ -182,7 +189,7 @@ test("the central record exports and imports again with every version", async ({
   // importing what is already here adds nothing; a changed file is refused
   await page.getByTestId("pick-central").setInputFiles({ name: "central.json", mimeType: "application/json", buffer: file });
   await expect(page.getByTestId("outputs-message")).toContainText("0 versions added, 2 already here");
-  await page.getByTestId("pick-central").setInputFiles({ name: "central.json", mimeType: "application/json", buffer: Buffer.from(file.toString("utf8").replace("Corrected import", "Corrected  import")) });
+  await page.getByTestId("pick-central").setInputFiles({ name: "central.json", mimeType: "application/json", buffer: Buffer.from(file.toString("utf8").replace("Re-import", "Re-import  changed")) });
   await expect(page.getByTestId("outputs-message")).toContainText("changed");
   await expect(page.getByTestId("snapshot")).toHaveCount(2);
 });
@@ -239,8 +246,8 @@ test("the database upgrade from version 1 to 2 keeps the files store and the sav
         };
       }),
   );
-  expect(after.version).toBe(2);
-  expect(after.stores).toEqual(["files", "snapshots"]);
+  expect(after.version).toBe(3);
+  expect(after.stores).toEqual(["files", "log", "snapshots"]);
   expect(after.marker).toEqual([7, 7, 7]);
   expect(after.saved).toBe(Buffer.from(saved, "base64").length);
 });
@@ -318,8 +325,9 @@ test("a PDF refused for a character the font lacks names the code point and the 
   const card = route(page, "customer-pdf");
   await expect(card).toHaveAttribute("data-state", "refused");
   await expect(card.locator('[data-testid="hold-reason"][data-rule="RR-PDF-CHARACTER"]')).toHaveCount(1);
-  await expect(card.getByTestId("hold-detail")).toContainText("U+041B");
-  await expect(card.getByTestId("hold-source").first()).toContainText("/footprints/0/value");
+  await expect(card.getByTestId("hold-detail")).toContainText("U+041B in calculated_by");
+  await expect(card.getByTestId("hold-source")).toHaveCount(1);
+  await expect(card.getByTestId("hold-source").first()).toContainText("/footprints/0/calculated_by");
   await expect(card.getByTestId("download")).toHaveCount(0);
   await expect(route(page, "erp-staging-csv")).toHaveAttribute("data-state", "ready");
 });
