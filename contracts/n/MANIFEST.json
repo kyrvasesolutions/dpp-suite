@@ -34,9 +34,9 @@
     "policy/READINESS-RULES@1.0.0.yaml": "5f6f3f102601efcbeb15052b46785a76010b35264fc57286ea5c8d81856dfb10",
     "policy/actor-field-matrix.csv": "e02f650d50b1614402c74a876b6603fb660da05ac86df16fde24aeb6fe0d69cd",
     "profile/PROFILE-ALU-24-01@1.0.0.yaml": "aa2a8f5c7087b98b050928ef526324c05ce9c6b590806ce68219adcd15505f24",
-    "routes/customer-pdf.yaml": "8344a7fbe73a75212f7a690715377663167ddbca989848979b94e23e483cdc0a",
-    "routes/erp-staging-csv.yaml": "72e40be584840f462c433df6f078b74ad010c4a7e9921205bf7adc5b5b69571a",
-    "routes/registry-prep-json.yaml": "8af1ac8199f2b5a24952e8df46980f4e5acd4f59eb1d0e2327989ef8a11297f0",
+    "routes/customer-pdf.yaml": "d124fb5838754b4f94d841ca75375f70b5136edcefe8aa6bd7cc12ca36ba85e6",
+    "routes/erp-staging-csv.yaml": "8255b08d9f53f46cf61e6e355b2369a0c6fb387497ac5e3c85c079e30f2d9954",
+    "routes/registry-prep-json.yaml": "d579045c567418e0698e496ad0cd632c55f96365d313d827661c2c16461088ca",
     "terms/ALU-TERMS@1.0.0.yaml": "953c2646326a6e209d4f71379ad46d915b36ffec7fc4db5eb9769face69949e3",
     "units/UNITS@1.0.0.yaml": "4d75219d7ea4f71883c0d55686419d8f1e14602b44616e96926616fc0d2bbfba"
   }

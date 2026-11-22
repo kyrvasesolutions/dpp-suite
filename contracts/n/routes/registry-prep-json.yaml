@@ -6,9 +6,35 @@ recipient: EU DPP registry (ACT-16), held local target
 format: application/json
 submission: never
 status: HOLD
-hold_reason: No applicable external registry contract for aluminium has been
-  established. This hold stays after the pack is frozen.
+hold_reason: No applicable external registry contract for aluminium has been established. This hold stays after the pack is frozen.
 fields:
   - ALU-D101
   - ALU-D102
   - ALU-D105
+output:
+  items:
+    - step: MAP-REG-001
+      role: field
+      property: ALU-D101
+      reads:
+        kind: members
+        members:
+          - FLD-Identifier-scheme
+          - FLD-Identifier-value
+          - FLD-Identifier-scheme_version
+      json:
+        path: /properties/product_model_id
+    - step: MAP-REG-002
+      role: field
+      property: ALU-D102
+      reads:
+        kind: value
+      json:
+        path: /properties/manufacturer_id
+    - step: MAP-REG-003
+      role: field
+      property: ALU-D105
+      reads:
+        kind: value
+      json:
+        path: /properties/commodity_code

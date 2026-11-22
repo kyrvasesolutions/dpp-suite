@@ -295,6 +295,66 @@ if (profileFrozen) {
     }
   }
 
+  // Output mappings (Cycle 4): every field has exactly one item, every item reads a field the matrix permits or derives
+  const accessOf = (prop, route) => matrix.body.find((r) => r[0] === prop)?.[1 + ROUTES.indexOf(route)];
+  const memberOf = (prop) => new Set(properties.find((p) => p.id === prop)?.members ?? []);
+  const allSteps = new Set();
+  for (const route of ROUTES) {
+    const where = `routes/${route}.yaml`;
+    const doc = readYaml(where);
+    const items = doc.output?.items;
+    if (!Array.isArray(items) || !items.length) {
+      fail(`${where}: output.items is required (C4)`);
+      continue;
+    }
+    const fields = doc.fields ?? [];
+    const prefix = { "customer-pdf": "PDF", "erp-staging-csv": "ERP", "registry-prep-json": "REG" }[route];
+    const permitted = propertyIds.filter((id) => accessOf(id, route) !== "deny");
+    if (JSON.stringify([...fields].sort()) !== JSON.stringify([...permitted].sort())) fail(`${where}: fields must be exactly the properties the matrix permits or derives for the route`);
+    const names = new Set();
+    const fieldItems = new Map();
+    items.forEach((item, n) => {
+      const id = `${where} item ${item.step ?? n + 1}`;
+      if (!new RegExp(`^MAP-${prefix}-\\d{3}$`).test(item.step ?? "")) fail(`${id}: step ID must look like MAP-${prefix}-001`);
+      if (allSteps.has(item.step)) fail(`${id}: duplicate step ID`);
+      allSteps.add(item.step);
+      if (item.role !== "field" && item.role !== "context") fail(`${id}: role must be field or context`);
+      const access = accessOf(item.property, route);
+      if (!access) fail(`${id}: ${item.property} is not a profile property`);
+      else if (access === "deny") fail(`${id}: reads ${item.property}, which the matrix denies for ${route}`);
+      else if (!fields.includes(item.property)) fail(`${id}: reads ${item.property}, which is not a field of the route`);
+      const kind = item.reads?.kind;
+      if (!["value", "members", "member", "derived"].includes(kind)) fail(`${id}: reads.kind "${kind}" is not value, members, member or derived`);
+      if (access === "derived" && (kind !== "derived" || item.role !== "field")) fail(`${id}: ${item.property} is derived for ${route}, so its one item must be a derived statement`);
+      if (access === "permit" && kind === "derived") fail(`${id}: ${item.property} is permitted for ${route}; a derived statement is not allowed`);
+      if (kind === "derived") {
+        const own = (derived?.rules ?? []).filter((r) => r.property === item.property);
+        if (own.length !== 1 || item.reads.rule !== own[0].id) fail(`${id}: derived item must name the derived rule of ${item.property}`);
+      }
+      for (const m of [...(kind === "members" ? item.reads.members ?? [] : []), ...(kind === "member" ? [item.reads.member] : []), ...(item.reads?.details ?? [])]) {
+        if (!memberOf(item.property).has(m)) fail(`${id}: ${m} is not a member of ${item.property}`);
+      }
+      if (item.role === "field") {
+        if (fieldItems.has(item.property)) fail(`${id}: ${item.property} already has an item`);
+        fieldItems.set(item.property, item);
+      } else if (kind !== "member") fail(`${id}: a context item reads one member`);
+      const place = route === "customer-pdf" ? item.pdf : route === "erp-staging-csv" ? item.csv : item.json;
+      if (!place) fail(`${id}: no ${route === "customer-pdf" ? "pdf" : route === "erp-staging-csv" ? "csv" : "json"} placement`);
+      else if (route === "erp-staging-csv") {
+        if (!["number", "text"].includes(place.format)) fail(`${id}: csv format must be number or text`);
+        for (const [kind, k] of [["name", place.name], ["header", place.header]]) {
+          if (!k || names.has(`${kind}:${k}`)) fail(`${id}: csv ${kind} "${k}" is missing or not unique`);
+          names.add(`${kind}:${k}`);
+        }
+      } else if (route === "registry-prep-json") {
+        if (!String(place.path ?? "").startsWith("/") || names.has(place.path)) fail(`${id}: json path "${place.path}" must start with / and be unique`);
+        names.add(place.path);
+      } else if (!place.label?.en || !place.label?.de || !place.section || place.order !== n + 1) fail(`${id}: pdf section, EN and DE labels and a running order are required`);
+    });
+    for (const f of fields) if (!fieldItems.has(f)) fail(`${where}: field ${f} has no output item`);
+    if (route === "registry-prep-json" && items.some((i) => accessOf(i.property, route) !== "permit")) fail(`${where}: the registry output names only permitted fields`);
+  }
+
   // Declared mappings point at a profile property and, for a member path, one of its members (FUNC-091)
   const membersOf = new Map(properties.map((p) => [p.id, p.members ?? []]));
   for (const c of erpInput.columns ?? []) {

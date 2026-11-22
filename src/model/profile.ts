@@ -123,6 +123,23 @@ const LabContractDoc = z.object({
   allowed_units: z.record(z.string(), z.array(z.string())),
 });
 
+const OutputReads = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("value"), details: z.array(z.string()).optional() }),
+  z.object({ kind: z.literal("members"), members: z.array(z.string()).min(1) }),
+  z.object({ kind: z.literal("member"), member: z.string() }),
+  z.object({ kind: z.literal("derived"), rule: z.string() }),
+]);
+const OutputItemDoc = z.object({
+  step: z.string().regex(/^MAP-(PDF|ERP|REG)-\d{3}$/),
+  role: z.enum(["field", "context"]),
+  property: z.string(),
+  reads: OutputReads,
+  unit: z.string().optional(),
+  csv: z.object({ name: z.string().min(1), header: z.string().min(1), format: z.enum(["number", "text"]) }).optional(),
+  json: z.object({ path: z.string().startsWith("/") }).optional(),
+  pdf: z.object({ section: z.string(), order: z.number().int(), label: z.object({ en: z.string().min(1), de: z.string().min(1) }) }).optional(),
+});
+
 const RouteDoc = z.object({
   id: z.enum(ROUTES),
   version: z.string(),
@@ -132,6 +149,7 @@ const RouteDoc = z.object({
   submission: z.string().optional(),
   hold_reason: z.string().optional(),
   fields: z.array(z.string()),
+  output: z.object({ items: z.array(OutputItemDoc).min(1) }),
 });
 
 const RuleText = z.object({ id: z.string().regex(/^[A-Z]{2}-[A-Z-]+$/), text: z.string().min(1) });
@@ -173,8 +191,13 @@ export type DerivedRules = z.infer<typeof DerivedDoc>;
 /** What the actor/field matrix says about one property for one route (FUNC-019 slice). */
 export type Access = "permit" | "deny" | "derived";
 
+/** One item of a route's output, in output order: what it reads, and where it goes in the CSV, JSON or PDF (Cycle 4). */
+export type OutputItem = z.infer<typeof OutputItemDoc>;
+
 export interface RouteInfo {
   id: Route;
+  /** The pinned output mapping: every route field has exactly one `field` item (checked by check-contracts). */
+  output: OutputItem[];
   recipient: string;
   format: string;
   /** HOLD for a route that is on hold in the pack itself (the registry route, which is never submitted). */
@@ -393,7 +416,7 @@ export async function loadProfilePack(source: PackSource): Promise<ProfilePack> 
     ROUTES.map((r) => {
       const doc = parseWith(RouteDoc, `routes/${r}.yaml`, files[`routes/${r}.yaml`] ?? "");
       if (doc.id !== r) throw new ProfileError(`routes/${r}.yaml: id is ${doc.id}`);
-      return [r, { id: r, recipient: doc.recipient, format: doc.format, status: doc.status, ...(doc.hold_reason ? { holdReason: doc.hold_reason } : {}) }];
+      return [r, { id: r, recipient: doc.recipient, format: doc.format, status: doc.status, output: doc.output.items, ...(doc.hold_reason ? { holdReason: doc.hold_reason } : {}) }];
     }),
   ) as Record<Route, RouteInfo>;
 
