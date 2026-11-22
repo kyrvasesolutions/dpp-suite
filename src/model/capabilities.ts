@@ -37,7 +37,10 @@ export const CAPABILITY_TEXT: Record<CapabilityLabel, string> = {
   untested: "Untested",
 };
 
-/** Labels from the Cycle 0 baseline (20 November 2026), the Cycle 1 to 3 exits (21 November 2026), and the Cycle 4 and 5 exits (22 November 2026), docs/assessment. */
+/**
+ * Labels from the Cycle 0 baseline (20 November 2026), the Cycle 1 to 3 exits (21 November 2026), and the Cycle 4 and 5 exits (22 November 2026), docs/assessment.
+ * The server functions added in Cycle 6 carry their own "untested" label per function until the Cycle 6 exit.
+ */
 export const CAPABILITIES: Capability[] = [
   {
     id: "profile",
@@ -50,9 +53,10 @@ export const CAPABILITIES: Capability[] = [
     id: "import",
     name: "Import",
     label: "supported",
-    functions: ["FUNC-039", "FUNC-017", "FUNC-065"],
+    functions: ["FUNC-039", "FUNC-017", "FUNC-065", "FUNC-087"],
     extends: ["FUNC-125"],
-    basis: "Cycle 2 exit: strict import of the two N source files with verbatim source assertions, flags and challenged values. The export side of FUNC-125 is on the Outputs screen.",
+    functionLabels: { "FUNC-039": "untested", "FUNC-087": "untested" },
+    basis: "Cycle 2 exit: strict import of the two N source files with verbatim source assertions, flags and challenged values. The export side of FUNC-125 is on the Outputs screen. When the durable server is present, imports run there as staged, idempotent jobs with update receipts (FUNC-039 and FUNC-087, untested until the Cycle 6 exit).",
   },
   {
     id: "record",
@@ -73,7 +77,8 @@ export const CAPABILITIES: Capability[] = [
     name: "Outputs",
     label: "supported",
     functions: ["FUNC-041", "FUNC-042", "FUNC-043", "FUNC-125", "FUNC-022", "FUNC-023", "FUNC-063", "FUNC-064"],
-    basis: "Cycle 4 exit: the customer PDF, the ERP staging CSV and the registry preparation draft (on hold), the central record with versions, lineage and the release manifest.",
+    functionLabels: { "FUNC-125": "untested", "FUNC-022": "untested", "FUNC-023": "untested", "FUNC-063": "untested", "FUNC-064": "untested" },
+    basis: "Cycle 4 exit: the customer PDF, the ERP staging CSV and the registry preparation draft (on hold), the central record with versions, lineage and the release manifest. Durable storage, retention and classification, and recoverable job state on the server (FUNC-022, FUNC-023, FUNC-063, FUNC-064 and the server side of FUNC-125) are untested until the Cycle 6 exit.",
   },
   {
     id: "requirements",

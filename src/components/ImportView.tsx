@@ -25,11 +25,11 @@ export function ImportView() {
   // "attached": the laboratory file is about the record the ERP extract made (a file for another model or batch is kept apart, not attached)
   const attached = (built: typeof state) => !!built && built.unattached.length === 0 && built.records.length > 0 && built.records.every((r) => r.sources.some((x) => x.role === "lab"));
   const complete = (r: { erp?: ImportResult; lab?: ImportResult }, built: typeof state = state) => !!r.erp?.ok && !!r.lab?.ok && attached(built);
-  const keep = async (built: typeof state, r: { erp?: ImportResult; lab?: ImportResult }, label?: string) => {
+  const keep = async (built: typeof state, r: { erp?: ImportResult; lab?: ImportResult }, files: { erp?: Input; lab?: Input }, label?: string) => {
     setSaveError(null);
     if (!built || (!label && !complete(r, built))) return setNotes([]);
     try {
-      setNotes(await saveImport(built, label));
+      setNotes(await saveImport(built, label, files));
     } catch (e) {
       setNotes([]);
       setSaveError(e instanceof Error ? e.message : String(e));
@@ -44,7 +44,7 @@ export function ImportView() {
     setInputs(next);
     setImports(imported);
     setState(built);
-    await keep(built, imported);
+    await keep(built, imported, next);
   };
 
   const label = useMemo(() => new Map(profile?.properties.map((p) => [p.id, p.labels.en]) ?? []), [profile]);
@@ -117,7 +117,7 @@ export function ImportView() {
               setInputs(loaded.inputs);
               setImports(loaded.results);
               setState(loaded.state);
-              await keep(loaded.state, loaded.results);
+              await keep(loaded.state, loaded.results, loaded.inputs);
             }}
           >
             Import sample
@@ -145,7 +145,7 @@ export function ImportView() {
                   : "A file was rejected, so nothing is stored. Fix the file and pick it again."}
           </span>
           {state && state.records.length > 0 && (
-            <button type="button" className="ghost" data-testid="store-erp-only" onClick={() => keep(state, results, "ERP-only record, stored by the operator")}>
+            <button type="button" className="ghost" data-testid="store-erp-only" onClick={() => keep(state, results, { erp: inputs.erp }, "ERP-only record, stored by the operator")}>
               Store the accepted record without the other file
             </button>
           )}

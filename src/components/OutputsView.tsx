@@ -144,7 +144,7 @@ export function OutputsView() {
               const loaded = await importSample(profile, READINESS_SAMPLES.find((x) => x.id === sample)!);
               await log([loaded.results.erp, loaded.results.lab].flatMap((r) => (r ? importEvents(r) : [])));
               setState(loaded.state);
-              await saveImport(loaded.state);
+              await saveImport(loaded.state, undefined, loaded.inputs);
               setSelected(null);
               refresh();
               setMessage(null);

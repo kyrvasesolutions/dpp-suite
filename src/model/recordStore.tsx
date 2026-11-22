@@ -1,16 +1,17 @@
 /**
  * The record state shared between screens (Cycle 3): the Import screen writes it, the Readiness screen reads it.
  * It also holds the verified contract pack, so every screen reads the same profile. Nothing is stored beyond
- * this page session, and nothing leaves the device.
+ * this page session. With no server (the static build) nothing leaves the device and records live in browser storage;
+ * with the DPP server on the same origin, imports are submitted to it as durable jobs and records are read from it.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import pack from "virtual:contract-pack";
 import type { ImportResult, RecordState } from "./ingress";
 import { ExecutionLog, IdbLogStore, MemoryLogStore, type LogInput } from "./log";
 import { loadProfilePack, type ProfilePack } from "./profile";
-import { storeImport } from "./correction";
-import { IdbRepository, MemoryRepository, type RecordRepository, type Snapshot } from "./recordRepository";
-import { RemoteLogStore, RemoteRecordRepository } from "./remoteStore";
+import { correctRecord, storeImport, type CorrectionRequest } from "./correction";
+import { IdbRepository, MemoryRepository, RepositoryError, type RecordRepository, type Snapshot } from "./recordRepository";
+import { correctOnServer, probeServer, RemoteLogStore, RemoteRecordRepository, submitImportJob } from "./remoteStore";
 
 /** What storing one imported record did: a new version, or nothing because the latest version already holds it. */
 export interface StoredNote {
@@ -42,8 +43,15 @@ interface RecordStore {
   setImports: (next: { erp?: ImportResult; lab?: ImportResult }) => void;
   /** The central record: append-only snapshots kept in this browser. */
   repository: RecordRepository;
-  /** Stores each record of an accepted import as a snapshot (the Import screen calls this; nothing else does). `label` names an explicit store. */
-  saveImport: (state: RecordState, label?: string) => Promise<StoredNote[]>;
+  /**
+   * Stores each record of an accepted import as a snapshot. `label` names an explicit store. With a server, the source
+   * files (`files`) are submitted as an import job and the server stores the record; without one it is stored in this browser.
+   */
+  saveImport: (state: RecordState, label?: string, files?: { erp?: PickedInput; lab?: PickedInput }) => Promise<StoredNote[]>;
+  /** True while the DPP server on this origin holds the records (otherwise they are in this browser). */
+  serverMode: boolean;
+  /** Corrects one value of the latest version and stores the next version: on the server when there is one, otherwise in this browser. */
+  correct: (request: CorrectionRequest) => Promise<{ model: string; batch: string; version: number }>;
   /** The files picked so far (the pair is stored only once both are in and accepted). */
   inputs: { erp?: PickedInput; lab?: PickedInput };
   setInputs: (next: { erp?: PickedInput; lab?: PickedInput }) => void;
@@ -77,13 +85,25 @@ export function RecordStoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Optional Node 24 API backend when VITE_API_BASE is configured; otherwise IndexedDB (or memory fallback)
-  const apiBase = (import.meta.env.VITE_API_BASE as string | undefined)?.trim() || "";
+  // A server on this origin (the one that serves this app) is detected once; otherwise, or when VITE_API_BASE names one
+  // explicitly, the static behaviour stays: IndexedDB, or memory where the browser has none.
+  const configuredBase = (import.meta.env.VITE_API_BASE as string | undefined)?.trim() || "";
+  const [apiBase, setApiBase] = useState<string | null>(configuredBase || null);
+  useEffect(() => {
+    if (configuredBase) return;
+    let live = true;
+    probeServer("").then((health) => live && health && setApiBase(""));
+    return () => {
+      live = false;
+    };
+  }, [configuredBase]);
+  const serverMode = apiBase !== null;
   const repository = useMemo<RecordRepository>(
-    () => (apiBase ? new RemoteRecordRepository(apiBase) : typeof indexedDB === "undefined" ? new MemoryRepository() : new IdbRepository()),
+    () => (apiBase !== null ? new RemoteRecordRepository(apiBase) : typeof indexedDB === "undefined" ? new MemoryRepository() : new IdbRepository()),
     [apiBase],
   );
   const log = useMemo(
-    () => new ExecutionLog(apiBase ? new RemoteLogStore(apiBase) : typeof indexedDB === "undefined" ? new MemoryLogStore() : new IdbLogStore()),
+    () => new ExecutionLog(apiBase !== null ? new RemoteLogStore(apiBase) : typeof indexedDB === "undefined" ? new MemoryLogStore() : new IdbLogStore()),
     [apiBase],
   );
   const [logVersion, setLogVersion] = useState(0);
@@ -99,8 +119,27 @@ export function RecordStoreProvider({ children }: { children: ReactNode }) {
     [log],
   );
   const saveImport = useCallback(
-    async (next: RecordState, label?: string): Promise<StoredNote[]> => {
+    async (next: RecordState, label?: string, files?: { erp?: PickedInput; lab?: PickedInput }): Promise<StoredNote[]> => {
       const notes: StoredNote[] = [];
+      if (apiBase !== null) {
+        if (!files?.erp) throw new RepositoryError("The server stores an import from its source files, and the ERP file is missing.");
+        const out = await submitImportJob(apiBase, { erp: files.erp, ...(files.lab ? { lab: files.lab } : {}) });
+        if (!out.ok || !out.snapshot || !out.receipt) {
+          throw new RepositoryError(out.errors?.[0]?.message ?? "The server did not accept the import.");
+        }
+        notes.push({
+          model: out.snapshot.model,
+          batch: out.snapshot.batch,
+          version: out.snapshot.version,
+          stored: out.receipt.stored,
+          ...(out.snapshot.supersedes ? { supersedes: out.snapshot.supersedes.version } : {}),
+          carried: out.carried ?? 0,
+          disputed: out.disputed ?? 0,
+        });
+        setSelected({ model: out.snapshot.model, batch: out.snapshot.batch });
+        touch();
+        return notes;
+      }
       for (const record of next.records) {
         const { stored, snapshot, carried, disputed } = await storeImport(repository, record, label);
         notes.push({ model: record.model, batch: record.batch, version: snapshot.version, stored, ...(snapshot.supersedes ? { supersedes: snapshot.supersedes.version } : {}), carried, disputed });
@@ -110,12 +149,21 @@ export function RecordStoreProvider({ children }: { children: ReactNode }) {
       touch();
       return notes;
     },
-    [repository, touch],
+    [apiBase, repository, touch],
+  );
+
+  const correct = useCallback(
+    async (request: CorrectionRequest) => {
+      if (apiBase !== null) return correctOnServer(apiBase, request);
+      if (!profile) throw new RepositoryError("The contract pack is not loaded.");
+      return correctRecord(profile, repository, request);
+    },
+    [apiBase, profile, repository],
   );
 
   const value = useMemo(
-    () => ({ profile, error, state, setState, imports, setImports, inputs, setInputs, selected, setSelected, repoVersion, touch, repository, saveImport, log, logVersion, record }),
-    [profile, error, state, imports, inputs, selected, repoVersion, touch, repository, saveImport, log, logVersion, record],
+    () => ({ profile, error, state, setState, imports, setImports, inputs, setInputs, selected, setSelected, repoVersion, touch, repository, saveImport, serverMode, correct, log, logVersion, record }),
+    [profile, error, state, imports, inputs, selected, repoVersion, touch, repository, saveImport, serverMode, correct, log, logVersion, record],
   );
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }

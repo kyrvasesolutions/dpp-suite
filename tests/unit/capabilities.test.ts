@@ -61,6 +61,13 @@ describe("capability registry", () => {
     }
   });
 
+  // The Cycle 6 server functions are labelled untested until that cycle's exit, whatever label their screen carries.
+  it("labels the Cycle 6 server functions untested until the Cycle 6 exit", () => {
+    for (const f of ["FUNC-022", "FUNC-023", "FUNC-039", "FUNC-063", "FUNC-064", "FUNC-087", "FUNC-125"]) {
+      expect(labelOfFunction(f), f).toBe("untested");
+    }
+  });
+
   it("fails loudly for an unknown screen", () => {
     expect(() => capabilityOf("unknown" as never)).toThrow('No capability recorded for screen "unknown"');
   });
