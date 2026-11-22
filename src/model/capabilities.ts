@@ -124,11 +124,11 @@ export const CAPABILITIES: Capability[] = [
   {
     id: "server",
     name: "Durable server (P)",
-    label: "untested",
+    label: "supported",
     increment: "P",
     screen: false,
     functions: ["FUNC-022", "FUNC-023", "FUNC-039", "FUNC-063", "FUNC-064", "FUNC-087", "FUNC-125"],
-    basis: "The P increment, present only when the DPP server serves the app: durable storage, classification and retention, staged idempotent imports with update receipts, and recoverable job state. Untested until the Cycle 6 exit; the N labels of the same functions on the screens above are unchanged.",
+    basis: "Cycle 6 exit: the P increment, present only when the DPP server serves the app: durable storage, classification and retention, staged idempotent imports with update receipts, and recoverable job state. Real customer data, real operators and cryptographic signing remain dated holds. The N labels of the same functions on the screens above are unchanged.",
   },
 ];
 

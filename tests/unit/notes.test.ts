@@ -174,7 +174,7 @@ describe.runIf(existsSync("docs/operator/server-notes.md"))("server notes", () =
   });
 
   it("states the limits that matter: no authentication, localhost only, legal hold release, backup and recovery", () => {
-    for (const text of ["no authentication", "127.0.0.1", "cannot be released over the API", "VACUUM INTO", "POST /api/jobs/recover", "DPP_ALLOWED_ORIGIN", "Untested"]) {
+    for (const text of ["no authentication", "127.0.0.1", "cannot be released over the API", "VACUUM INTO", "POST /api/jobs/recover", "DPP_ALLOWED_ORIGIN", "Supported"]) {
       expect(notes, text).toContain(text);
     }
     expect(notes).not.toMatch(/0\.0\.0\.0/);
