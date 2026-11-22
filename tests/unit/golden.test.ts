@@ -46,6 +46,13 @@ describe("golden files (AT-S)", () => {
     for (const [name, body] of Object.entries(text)) expect(body, name).toBe(readFileSync(`${DIR}/${name}`, "utf8"));
   });
 
+  it("cites input digests that are the sha256 of the committed fixture files", () => {
+    const manifest = JSON.parse(readFileSync(`${DIR}/release-manifest.json`, "utf8")) as { inputs: Array<{ name: string; sha256: string }>; lineage: Array<{ assertion: { file: string; sha256: string } }> };
+    expect(manifest.inputs.map((i) => i.name).sort()).toEqual(["d03a-erp-extract.csv", "d03a-lab-assessment.json"]);
+    for (const i of manifest.inputs) expect(i.sha256, i.name).toBe(sha(readFileSync(`fixtures/n/${i.name}`)));
+    for (const e of manifest.lineage) expect(e.assertion.sha256).toBe(sha(readFileSync(`fixtures/n/${e.assertion.file}`)));
+  });
+
   it("states the clean pair's decisive facts in the golden texts", () => {
     const csv = readFileSync(`${DIR}/erp-staging.csv`, "utf8");
     const json = JSON.parse(readFileSync(`${DIR}/registry-draft.json`, "utf8"));

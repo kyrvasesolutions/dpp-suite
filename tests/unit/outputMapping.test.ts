@@ -54,7 +54,7 @@ describe.each(packs)("output mapping of the %s pack", (_, dir) => {
 describe("the operator notes for the outputs", () => {
   it.runIf(existsSync("docs/operator/outputs-notes.md"))("name every output, the route states of the screen, and the HOLD draft", () => {
     const notes = readFileSync("docs/operator/outputs-notes.md", "utf8");
-    for (const word of ["Customer PDF", "ERP staging CSV", "Registry preparation JSON", "Download draft (HOLD)", "No file is made", "Verify files", "Export central record", "Import central record", "hold-draft", "refused", "RR-STANDING-HOLD", "\"submission\": \"never\""]) {
+    for (const word of ["Customer PDF", "ERP staging CSV", "Registry preparation JSON", "Download draft (HOLD)", "No file is made", "Verify files", "Export central record", "Import central record", "hold-draft", "refused", "RR-STANDING-HOLD", "RR-PDF-CHARACTER", "Imported from a central-record file", "cannot be told from a genuine one", "\"submission\": \"never\""]) {
       expect(notes, word).toContain(word);
     }
   });

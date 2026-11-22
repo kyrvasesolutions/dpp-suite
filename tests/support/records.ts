@@ -30,15 +30,20 @@ export interface Combination {
 export async function recordsFor(pack: ProfilePack, c: Combination): Promise<ProductRecord[]> {
   const results = [];
   if (c.erp) {
-    const csv = c.editErp ? c.editErp(text(c.erp)) : text(c.erp);
-    const r = await importErpCsv(pack, { bytes: enc(csv), name: c.erpName ?? c.erp, type: "text/csv" });
+    // unedited files are imported as the committed bytes, so their digests are the fixtures' own
+    const bytes = c.editErp ? enc(c.editErp(text(c.erp))) : fixtureBytes("n", c.erp);
+    const r = await importErpCsv(pack, { bytes, name: c.erpName ?? c.erp, type: "text/csv" });
     if (!r.ok) throw new Error(`${c.erp} rejected: ${r.errors[0].code}`);
     results.push(r);
   }
   if (c.lab) {
-    const doc = JSON.parse(text(c.lab));
-    c.editLab?.(doc);
-    const r = await importLabJson(pack, { bytes: enc(JSON.stringify(doc)), name: c.labName ?? c.lab, type: "application/json" });
+    let bytes = fixtureBytes("n", c.lab);
+    if (c.editLab) {
+      const doc = JSON.parse(text(c.lab));
+      c.editLab(doc);
+      bytes = enc(JSON.stringify(doc));
+    }
+    const r = await importLabJson(pack, { bytes, name: c.labName ?? c.lab, type: "application/json" });
     if (!r.ok) throw new Error(`${c.lab} rejected: ${r.errors[0].code}`);
     results.push(r);
   }

@@ -92,8 +92,10 @@ Source: ERP extract, row 2, column post_consumer_pct
 Chemical composition (measured)
  
 Chemische Zusammensetzung
-(gemessen)
+ 
 within the limits (illustrative limits after EN 573-3, EN
+(gemessen)
+ 
 AW-5754)
 Rule DR-COMPOSITION-LIMITS
 Source: Laboratory file, /observations/2/value
@@ -115,8 +117,8 @@ Gemessene Dicke
 Source: Laboratory file, /observations/0/value
 Record version 1
  
-Record digest 8a7ddd8e8ded680d0340e8ac4ac046ce3c78891bc9b36dfc83511f2c09e0be93
-Contract pack manifest digest 24470e965bbc2f783f36487a9180e38423b8bb2dc73ccee54fc7dd9ff822fc29
+Record digest 321191e612f317a76fbcd5cf2b06a6c5734c04067eedbb2fe9cac3484d5be463
+Contract pack manifest digest 394e1cd765a4d79bdac670d500ab204544de9e0472eec6740a17fb59195bcbf7
 Page 1 of 2. Illustrative values are marked as such; this sheet is not a conformity statement.
 Nominal width
  
@@ -167,25 +169,25 @@ Footprint method
 Berechnungsmethode
  
 PCF-1: ISO 14067:2018
-Source: Laboratory file, /footprints/0/value
+Source: Laboratory file, /footprints/0/method
 System boundary
  
 Systemgrenze
  
 PCF-1: cradle-to-gate
-Source: Laboratory file, /footprints/0/value
+Source: Laboratory file, /footprints/0/system_boundary
 Reference year
  
 Bezugsjahr
  
 PCF-1: 2025
-Source: Laboratory file, /footprints/0/value
+Source: Laboratory file, /footprints/0/reference_year
 Calculated by
  
 Berechnet von
  
 PCF-1: Demo LCA consultancy (synthetic)
-Source: Laboratory file, /footprints/0/value
+Source: Laboratory file, /footprints/0/calculated_by
 Description / Beschreibung
 Product narrative
  
@@ -199,6 +201,6 @@ Source: Laboratory file, /texts/1/text
 Source: Laboratory file, /texts/0/text
 Record version 1
  
-Record digest 8a7ddd8e8ded680d0340e8ac4ac046ce3c78891bc9b36dfc83511f2c09e0be93
-Contract pack manifest digest 24470e965bbc2f783f36487a9180e38423b8bb2dc73ccee54fc7dd9ff822fc29
+Record digest 321191e612f317a76fbcd5cf2b06a6c5734c04067eedbb2fe9cac3484d5be463
+Contract pack manifest digest 394e1cd765a4d79bdac670d500ab204544de9e0472eec6740a17fb59195bcbf7
 Page 2 of 2. Illustrative values are marked as such; this sheet is not a conformity statement.

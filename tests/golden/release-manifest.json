@@ -10,7 +10,7 @@
     {
       "name": "d03a-lab-assessment.json",
       "role": "lab",
-      "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+      "sha256": "6c1901da276636def9b91b3869c31306e66a1783a71cdff4bacbd2e969fb3a0f"
     }
   ],
   "lineage": [
@@ -43,7 +43,7 @@
         "file": "d03a-lab-assessment.json",
         "location": "d03a-lab-assessment.json, /product/model_id",
         "role": "lab",
-        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+        "sha256": "6c1901da276636def9b91b3869c31306e66a1783a71cdff4bacbd2e969fb3a0f"
       },
       "member": "FLD-Identifier-value",
       "outputRef": "customer-pdf/MAP-PDF-001",
@@ -114,7 +114,7 @@
         "file": "d03a-lab-assessment.json",
         "location": "d03a-lab-assessment.json, /product/batch_id",
         "role": "lab",
-        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+        "sha256": "6c1901da276636def9b91b3869c31306e66a1783a71cdff4bacbd2e969fb3a0f"
       },
       "member": "FLD-Identifier-value",
       "outputRef": "customer-pdf/MAP-PDF-004",
@@ -184,7 +184,7 @@
         "file": "d03a-lab-assessment.json",
         "location": "d03a-lab-assessment.json, /product/alloy",
         "role": "lab",
-        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+        "sha256": "6c1901da276636def9b91b3869c31306e66a1783a71cdff4bacbd2e969fb3a0f"
       },
       "outputRef": "customer-pdf/MAP-PDF-007",
       "property": "ALU-D106",
@@ -217,7 +217,7 @@
         "file": "d03a-lab-assessment.json",
         "location": "d03a-lab-assessment.json, /observations/1/value",
         "role": "lab",
-        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+        "sha256": "6c1901da276636def9b91b3869c31306e66a1783a71cdff4bacbd2e969fb3a0f"
       },
       "outputRef": "customer-pdf/MAP-PDF-010",
       "property": "ALU-D115",
@@ -241,7 +241,7 @@
         "file": "d03a-lab-assessment.json",
         "location": "d03a-lab-assessment.json, /product/alloy",
         "role": "lab",
-        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+        "sha256": "6c1901da276636def9b91b3869c31306e66a1783a71cdff4bacbd2e969fb3a0f"
       },
       "outputRef": "customer-pdf/MAP-PDF-010",
       "property": "ALU-D106",
@@ -276,7 +276,7 @@
         "file": "d03a-lab-assessment.json",
         "location": "d03a-lab-assessment.json, /observations/2/value",
         "role": "lab",
-        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+        "sha256": "6c1901da276636def9b91b3869c31306e66a1783a71cdff4bacbd2e969fb3a0f"
       },
       "outputRef": "customer-pdf/MAP-PDF-012",
       "property": "ALU-D123",
@@ -289,7 +289,7 @@
         "file": "d03a-lab-assessment.json",
         "location": "d03a-lab-assessment.json, /observations/3/value",
         "role": "lab",
-        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+        "sha256": "6c1901da276636def9b91b3869c31306e66a1783a71cdff4bacbd2e969fb3a0f"
       },
       "outputRef": "customer-pdf/MAP-PDF-012",
       "property": "ALU-D123",
@@ -314,7 +314,7 @@
         "file": "d03a-lab-assessment.json",
         "location": "d03a-lab-assessment.json, /product/alloy",
         "role": "lab",
-        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+        "sha256": "6c1901da276636def9b91b3869c31306e66a1783a71cdff4bacbd2e969fb3a0f"
       },
       "outputRef": "customer-pdf/MAP-PDF-012",
       "property": "ALU-D106",
@@ -337,7 +337,7 @@
         "file": "d03a-lab-assessment.json",
         "location": "d03a-lab-assessment.json, /observations/0/value",
         "role": "lab",
-        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+        "sha256": "6c1901da276636def9b91b3869c31306e66a1783a71cdff4bacbd2e969fb3a0f"
       },
       "outputRef": "customer-pdf/MAP-PDF-014",
       "property": "ALU-D109",
@@ -414,7 +414,7 @@
         "file": "d03a-lab-assessment.json",
         "location": "d03a-lab-assessment.json, /footprints/0/value",
         "role": "lab",
-        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+        "sha256": "6c1901da276636def9b91b3869c31306e66a1783a71cdff4bacbd2e969fb3a0f"
       },
       "outputRef": "customer-pdf/MAP-PDF-021",
       "property": "ALU-D119",
@@ -424,10 +424,11 @@
     {
       "assertion": {
         "file": "d03a-lab-assessment.json",
-        "location": "d03a-lab-assessment.json, /footprints/0/value",
+        "location": "d03a-lab-assessment.json, /footprints/0/method",
         "role": "lab",
-        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+        "sha256": "6c1901da276636def9b91b3869c31306e66a1783a71cdff4bacbd2e969fb3a0f"
       },
+      "detail": "method",
       "outputRef": "customer-pdf/MAP-PDF-022",
       "property": "ALU-D119",
       "qualifier": "PCF-1",
@@ -436,10 +437,11 @@
     {
       "assertion": {
         "file": "d03a-lab-assessment.json",
-        "location": "d03a-lab-assessment.json, /footprints/0/value",
+        "location": "d03a-lab-assessment.json, /footprints/0/system_boundary",
         "role": "lab",
-        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+        "sha256": "6c1901da276636def9b91b3869c31306e66a1783a71cdff4bacbd2e969fb3a0f"
       },
+      "detail": "system_boundary",
       "outputRef": "customer-pdf/MAP-PDF-023",
       "property": "ALU-D119",
       "qualifier": "PCF-1",
@@ -448,10 +450,11 @@
     {
       "assertion": {
         "file": "d03a-lab-assessment.json",
-        "location": "d03a-lab-assessment.json, /footprints/0/value",
+        "location": "d03a-lab-assessment.json, /footprints/0/reference_year",
         "role": "lab",
-        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+        "sha256": "6c1901da276636def9b91b3869c31306e66a1783a71cdff4bacbd2e969fb3a0f"
       },
+      "detail": "reference_year",
       "outputRef": "customer-pdf/MAP-PDF-024",
       "property": "ALU-D119",
       "qualifier": "PCF-1",
@@ -460,10 +463,11 @@
     {
       "assertion": {
         "file": "d03a-lab-assessment.json",
-        "location": "d03a-lab-assessment.json, /footprints/0/value",
+        "location": "d03a-lab-assessment.json, /footprints/0/calculated_by",
         "role": "lab",
-        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+        "sha256": "6c1901da276636def9b91b3869c31306e66a1783a71cdff4bacbd2e969fb3a0f"
       },
+      "detail": "calculated_by",
       "outputRef": "customer-pdf/MAP-PDF-025",
       "property": "ALU-D119",
       "qualifier": "PCF-1",
@@ -474,7 +478,7 @@
         "file": "d03a-lab-assessment.json",
         "location": "d03a-lab-assessment.json, /texts/1/text",
         "role": "lab",
-        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+        "sha256": "6c1901da276636def9b91b3869c31306e66a1783a71cdff4bacbd2e969fb3a0f"
       },
       "outputRef": "customer-pdf/MAP-PDF-026",
       "property": "ALU-D121",
@@ -486,7 +490,7 @@
         "file": "d03a-lab-assessment.json",
         "location": "d03a-lab-assessment.json, /texts/0/text",
         "role": "lab",
-        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+        "sha256": "6c1901da276636def9b91b3869c31306e66a1783a71cdff4bacbd2e969fb3a0f"
       },
       "outputRef": "customer-pdf/MAP-PDF-026",
       "property": "ALU-D121",
@@ -522,7 +526,7 @@
         "file": "d03a-lab-assessment.json",
         "location": "d03a-lab-assessment.json, /product/model_id",
         "role": "lab",
-        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+        "sha256": "6c1901da276636def9b91b3869c31306e66a1783a71cdff4bacbd2e969fb3a0f"
       },
       "member": "FLD-Identifier-value",
       "outputRef": "erp-staging-csv/MAP-ERP-001",
@@ -593,7 +597,7 @@
         "file": "d03a-lab-assessment.json",
         "location": "d03a-lab-assessment.json, /product/batch_id",
         "role": "lab",
-        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+        "sha256": "6c1901da276636def9b91b3869c31306e66a1783a71cdff4bacbd2e969fb3a0f"
       },
       "member": "FLD-Identifier-value",
       "outputRef": "erp-staging-csv/MAP-ERP-004",
@@ -639,7 +643,7 @@
         "file": "d03a-lab-assessment.json",
         "location": "d03a-lab-assessment.json, /product/alloy",
         "role": "lab",
-        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+        "sha256": "6c1901da276636def9b91b3869c31306e66a1783a71cdff4bacbd2e969fb3a0f"
       },
       "outputRef": "erp-staging-csv/MAP-ERP-006",
       "property": "ALU-D106",
@@ -672,7 +676,7 @@
         "file": "d03a-lab-assessment.json",
         "location": "d03a-lab-assessment.json, /observations/0/value",
         "role": "lab",
-        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+        "sha256": "6c1901da276636def9b91b3869c31306e66a1783a71cdff4bacbd2e969fb3a0f"
       },
       "outputRef": "erp-staging-csv/MAP-ERP-009",
       "property": "ALU-D109",
@@ -738,7 +742,7 @@
         "file": "d03a-lab-assessment.json",
         "location": "d03a-lab-assessment.json, /observations/1/value",
         "role": "lab",
-        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+        "sha256": "6c1901da276636def9b91b3869c31306e66a1783a71cdff4bacbd2e969fb3a0f"
       },
       "outputRef": "erp-staging-csv/MAP-ERP-015",
       "property": "ALU-D115",
@@ -771,7 +775,7 @@
         "file": "d03a-lab-assessment.json",
         "location": "d03a-lab-assessment.json, /evidence/1",
         "role": "lab",
-        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+        "sha256": "6c1901da276636def9b91b3869c31306e66a1783a71cdff4bacbd2e969fb3a0f"
       },
       "outputRef": "erp-staging-csv/MAP-ERP-018",
       "property": "ALU-D118",
@@ -783,7 +787,7 @@
         "file": "d03a-lab-assessment.json",
         "location": "d03a-lab-assessment.json, /evidence/0",
         "role": "lab",
-        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+        "sha256": "6c1901da276636def9b91b3869c31306e66a1783a71cdff4bacbd2e969fb3a0f"
       },
       "outputRef": "erp-staging-csv/MAP-ERP-018",
       "property": "ALU-D118",
@@ -795,7 +799,7 @@
         "file": "d03a-lab-assessment.json",
         "location": "d03a-lab-assessment.json, /footprints/0/value",
         "role": "lab",
-        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+        "sha256": "6c1901da276636def9b91b3869c31306e66a1783a71cdff4bacbd2e969fb3a0f"
       },
       "outputRef": "erp-staging-csv/MAP-ERP-019",
       "property": "ALU-D119",
@@ -805,10 +809,11 @@
     {
       "assertion": {
         "file": "d03a-lab-assessment.json",
-        "location": "d03a-lab-assessment.json, /footprints/0/value",
+        "location": "d03a-lab-assessment.json, /footprints/0/method",
         "role": "lab",
-        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+        "sha256": "6c1901da276636def9b91b3869c31306e66a1783a71cdff4bacbd2e969fb3a0f"
       },
+      "detail": "method",
       "outputRef": "erp-staging-csv/MAP-ERP-020",
       "property": "ALU-D119",
       "qualifier": "PCF-1",
@@ -817,10 +822,11 @@
     {
       "assertion": {
         "file": "d03a-lab-assessment.json",
-        "location": "d03a-lab-assessment.json, /footprints/0/value",
+        "location": "d03a-lab-assessment.json, /footprints/0/system_boundary",
         "role": "lab",
-        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+        "sha256": "6c1901da276636def9b91b3869c31306e66a1783a71cdff4bacbd2e969fb3a0f"
       },
+      "detail": "system_boundary",
       "outputRef": "erp-staging-csv/MAP-ERP-021",
       "property": "ALU-D119",
       "qualifier": "PCF-1",
@@ -829,10 +835,11 @@
     {
       "assertion": {
         "file": "d03a-lab-assessment.json",
-        "location": "d03a-lab-assessment.json, /footprints/0/value",
+        "location": "d03a-lab-assessment.json, /footprints/0/reference_year",
         "role": "lab",
-        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+        "sha256": "6c1901da276636def9b91b3869c31306e66a1783a71cdff4bacbd2e969fb3a0f"
       },
+      "detail": "reference_year",
       "outputRef": "erp-staging-csv/MAP-ERP-022",
       "property": "ALU-D119",
       "qualifier": "PCF-1",
@@ -841,10 +848,11 @@
     {
       "assertion": {
         "file": "d03a-lab-assessment.json",
-        "location": "d03a-lab-assessment.json, /footprints/0/value",
+        "location": "d03a-lab-assessment.json, /footprints/0/calculated_by",
         "role": "lab",
-        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+        "sha256": "6c1901da276636def9b91b3869c31306e66a1783a71cdff4bacbd2e969fb3a0f"
       },
+      "detail": "calculated_by",
       "outputRef": "erp-staging-csv/MAP-ERP-023",
       "property": "ALU-D119",
       "qualifier": "PCF-1",
@@ -890,7 +898,7 @@
         "file": "d03a-lab-assessment.json",
         "location": "d03a-lab-assessment.json, /observations/2/value",
         "role": "lab",
-        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+        "sha256": "6c1901da276636def9b91b3869c31306e66a1783a71cdff4bacbd2e969fb3a0f"
       },
       "outputRef": "erp-staging-csv/MAP-ERP-026",
       "property": "ALU-D123",
@@ -902,7 +910,7 @@
         "file": "d03a-lab-assessment.json",
         "location": "d03a-lab-assessment.json, /observations/3/value",
         "role": "lab",
-        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+        "sha256": "6c1901da276636def9b91b3869c31306e66a1783a71cdff4bacbd2e969fb3a0f"
       },
       "outputRef": "erp-staging-csv/MAP-ERP-026",
       "property": "ALU-D123",
@@ -949,7 +957,7 @@
         "file": "d03a-lab-assessment.json",
         "location": "d03a-lab-assessment.json, /product/model_id",
         "role": "lab",
-        "sha256": "142f6f7deb4e7329040818f43bcae90239f9ef27553734136cee09e2fc34af84"
+        "sha256": "6c1901da276636def9b91b3869c31306e66a1783a71cdff4bacbd2e969fb3a0f"
       },
       "member": "FLD-Identifier-value",
       "outputRef": "registry-prep-json/MAP-REG-001",
@@ -997,7 +1005,7 @@
       "holds": [],
       "mediaType": "application/pdf",
       "route": "customer-pdf",
-      "sha256": "92d1cdfedfdd99b9b509b5d94d2e5af9b3b83d9da25962f787d68ff755e8448a",
+      "sha256": "191f661e514365cf49a5d744d9336ea23a4479c4e19c2169a63955b9d8d5619e",
       "status": "ready"
     },
     {
@@ -1005,7 +1013,7 @@
       "holds": [],
       "mediaType": "text/csv",
       "route": "erp-staging-csv",
-      "sha256": "711b23f922dec8280c4abd1e63ba05ab865c6525bd861ba3d551ea99071eb7f5",
+      "sha256": "10be663e07d5fa5d88a84a0bb5355f0c6d3b8a1ec0925d859f90ea48610d59b0",
       "status": "ready"
     },
     {
@@ -1023,7 +1031,7 @@
     }
   ],
   "pack": {
-    "manifestDigest": "24470e965bbc2f783f36487a9180e38423b8bb2dc73ccee54fc7dd9ff822fc29",
+    "manifestDigest": "394e1cd765a4d79bdac670d500ab204544de9e0472eec6740a17fb59195bcbf7",
     "pins": {
       "codeLists": [
         {
@@ -1098,7 +1106,7 @@
       ],
       "policy": [
         {
-          "digest": "5f6f3f102601efcbeb15052b46785a76010b35264fc57286ea5c8d81856dfb10",
+          "digest": "0aa7f138bf2f2031dcceb4a402e341e01e66063a0c68c722fe53b6522c94a4dd",
           "path": "policy/READINESS-RULES@1.0.0.yaml",
           "ref": "READINESS-RULES@1.0.0"
         },
@@ -1150,9 +1158,9 @@
   },
   "record": {
     "batch": "B-2026-0417",
-    "digest": "8a7ddd8e8ded680d0340e8ac4ac046ce3c78891bc9b36dfc83511f2c09e0be93",
+    "digest": "321191e612f317a76fbcd5cf2b06a6c5734c04067eedbb2fe9cac3484d5be463",
     "model": "PM-5754-H111-2000",
-    "snapshotDigest": "6c3a96be41b088941abbda0b699bab81984624b6710b7a3b00cb585834bc68b2",
+    "snapshotDigest": "3284b4fd442ea1453b20b14a9ee271950d5bcf02467647557744bbae4759525b",
     "version": 1
   },
   "software": {

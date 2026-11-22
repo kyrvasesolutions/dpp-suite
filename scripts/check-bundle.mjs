@@ -9,7 +9,9 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
-const DIST = "dist";
+// DPP_DIST lets the bundle check itself be tested against a made-up build (tests/unit/checkBundle.test.ts).
+const DIST = process.env.DPP_DIST ?? "dist";
+const isScript = (f) => /\.[mc]?js$/.test(f);
 const FORBIDDEN = ["dangerouslyAllowBrowser", "api.anthropic.com"];
 const errors = [];
 
@@ -33,14 +35,14 @@ else if (!csp.split(";").map((d) => d.trim()).includes(expectedConnect)) {
 
 if (process.env.VITE_ENABLE_LLM !== "true") {
   const assets = join(DIST, "assets");
-  for (const file of readdirSync(assets).filter((f) => f.endsWith(".js"))) {
+  for (const file of readdirSync(assets).filter(isScript)) {
     const text = readFileSync(join(assets, file), "utf8");
     for (const s of FORBIDDEN) if (text.includes(s)) errors.push(`${file} contains "${s}" although VITE_ENABLE_LLM is not true`);
   }
 }
 
 const packs = new Set();
-for (const file of readdirSync(join(DIST, "assets")).filter((f) => f.endsWith(".js"))) {
+for (const file of readdirSync(join(DIST, "assets")).filter(isScript)) {
   for (const m of readFileSync(join(DIST, "assets", file), "utf8").matchAll(/\bpackDir"?\s*:\s*["'`]([^"'`]*)["'`]/g)) packs.add(m[1]);
 }
 if (packs.size === 0) errors.push("no contract pack is embedded in the bundle");
@@ -48,7 +50,7 @@ for (const p of packs) if (p !== "contracts/n") errors.push(`the bundle embeds t
 
 // PDF output (Cycle 4, decision D4-01): pdf-lib is in the bundle; pdfjs-dist is a test-only dependency and must not be.
 const bundleText = readdirSync(join(DIST, "assets"))
-  .filter((f) => f.endsWith(".js"))
+  .filter(isScript)
   .map((f) => readFileSync(join(DIST, "assets", f), "utf8"))
   .join("\n");
 for (const marker of ["GlobalWorkerOptions", "PDFWorker", "pdfjsLib", "getTextContent"]) {
