@@ -27,7 +27,8 @@
     "check-licences": "node scripts/check-licences.mjs",
     "audit-deps": "npm audit --omit=dev --audit-level=high",
     "rehearse-install": "bash scripts/rehearse-install.sh",
-    "acceptance": "node scripts/acceptance.mjs"
+    "acceptance": "node scripts/acceptance.mjs",
+    "perf": "node scripts/perf.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "1.4.0",
