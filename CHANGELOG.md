@@ -2,6 +2,12 @@
 
 Functional changes to the DPP suite, one entry per merged pull request, newest first.
 
+## Unreleased
+
+- **One record per file pair, and declared limits.** A new pinned pack file, `policy/LIMITS@1.0.0.yaml`, declares the input limits: 10 MiB per source file, JSON nesting depth 12, a 30-second job deadline and exactly one data row in the ERP extract. They are design targets, not measured limits, and change only by pinning a new version of the file. The contract pack has a new digest and is signed again.
+  - An ERP extract with more than one data row is rejected at the structure stage (`multiple-records`) with nothing imported; this replaces the earlier acceptance of several rows.
+  - A file over the size limit is rejected at the bytes stage before it is decoded (`too-large`). JSON nested deeper than the limit is rejected at the parse stage (`too-deep`), checked inside the strict parser so a hostile text cannot overflow the stack. An import that runs past the deadline stops with `deadline` and no output.
+
 ## [#13](https://github.com/kyrvasesolutions/dpp-suite/pull/13) Outputs screen supported (22 November 2026)
 
 - The Outputs screen is labelled Supported. The three outputs, the central record with its versions, lineage and the release manifest passed an independent review in three rounds. In about 100 attempts, no denied field, raw derived value, live spreadsheet formula or undetected change reached an output.

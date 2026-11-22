@@ -1,0 +1,11 @@
+# Declared input limits (configurable design targets). PUBLIC STAND-IN for the private N pack (decision D1-01, option b): synthetic, renumbered
+# identifiers, stand-in definitions and codes. Generated from the private specification; do not edit by hand.
+id: LIMITS
+version: 1.0.0
+status: FROZEN
+limits:
+  max_file_bytes: 10485760
+  max_json_depth: 12
+  job_deadline_ms: 30000
+  max_erp_data_rows: 1
+  note: Declared design targets, configurable by pinning a new version of this file; they are not measured limits. The ERP extract is one product record, so exactly one data row is accepted and more rows are rejected with no partial success.

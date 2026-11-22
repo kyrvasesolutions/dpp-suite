@@ -255,6 +255,11 @@ if (profileFrozen) {
   const derived = pinnedYaml("policy", policyRefs.find((r) => r.startsWith("DERIVED-RULES@")));
   if (!readiness) fail(`${profilePath}: pins.policy must pin READINESS-RULES`);
   if (!derived) fail(`${profilePath}: pins.policy must pin DERIVED-RULES`);
+  const limits = pinnedYaml("policy", policyRefs.find((r) => r.startsWith("LIMITS@")));
+  if (!limits) fail(`${profilePath}: pins.policy must pin LIMITS`);
+  for (const key of ["max_file_bytes", "max_json_depth", "job_deadline_ms", "max_erp_data_rows"]) {
+    if (!Number.isInteger(limits?.limits?.[key]) || limits.limits[key] < 1) fail(`LIMITS: ${key} must be a positive whole number`);
+  }
   const unique = (what, list, pattern) => {
     const ids = list.map((r) => r.id);
     if (new Set(ids).size !== ids.length) fail(`${what}: duplicate rule IDs`);

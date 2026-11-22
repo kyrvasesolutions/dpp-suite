@@ -29,8 +29,12 @@ export type IngressCode =
   | "missing-column"
   | "unexpected-column"
   | "no-rows"
+  | "multiple-records"
+  | "too-large"
+  | "deadline"
   | "json-syntax"
   | "duplicate-key"
+  | "too-deep"
   | "non-finite-number"
   | "schema"
   | "missing-value"
@@ -60,6 +64,10 @@ export const ERROR_TEXT: Record<IngressCode, string> = {
   "missing-column": "A column the contract requires is missing from the header.",
   "unexpected-column": "The header has a column the contract does not know. Remove it or ask for the contract to change.",
   "no-rows": "The extract has a header but no data rows.",
+  "multiple-records": "The extract has more than one data row. One import is one product record, so nothing is imported. Split the extract into one file per record.",
+  "too-large": "The file is larger than the declared limit for a source file, so it was not read.",
+  "deadline": "The import ran past its time limit and was stopped. Nothing is imported.",
+  "too-deep": "The JSON is nested deeper than the declared limit.",
   "json-syntax": "The JSON text is malformed.",
   "duplicate-key": "An object in the JSON has the same key twice, so it is unclear which value is meant.",
   "non-finite-number": "A number is too large to represent, or not a number at all.",
@@ -169,7 +177,32 @@ const failIf = (stage: Stage, errors: IngressIssue[]) => {
   if (errors.length) throw new StageFailure(stage, errors);
 };
 
-async function bytesStage(bytes: Uint8Array, name: string, declaredType: string, role: SourceFile["role"]) {
+/** The job deadline: checked at each stage boundary and inside the parsers, so a slow input stops with a bounded error. */
+class Deadline {
+  private readonly start: number;
+  constructor(
+    private readonly limitMs: number,
+    private readonly clock: () => number,
+    private readonly name: string,
+  ) {
+    this.start = clock();
+  }
+  check(stage: Stage) {
+    if (this.clock() - this.start > this.limitMs) {
+      throw new StageFailure(stage, [issue(stage, "deadline", this.name, `The limit is ${this.limitMs / 1000} s.`)]);
+    }
+  }
+}
+
+/** Optional clock, so tests can run a job past its deadline without waiting for it. */
+export interface ImportInput {
+  bytes: Uint8Array;
+  name: string;
+  type: string;
+  now?: () => number;
+}
+
+async function bytesStage(bytes: Uint8Array, name: string, declaredType: string, role: SourceFile["role"], maxBytes: number) {
   const expected = role === "erp" ? { type: "text/csv", ext: ".csv" } : { type: "application/json", ext: ".json" };
   // Browsers often send no type, or an Excel type for .csv, so the extension decides when the type is absent.
   // Windows browsers send application/vnd.ms-excel for .csv when Excel is installed.
@@ -177,6 +210,7 @@ async function bytesStage(bytes: Uint8Array, name: string, declaredType: string,
   const typeOk = declaredType === expected.type || (tolerated.includes(declaredType) && name.toLowerCase().endsWith(expected.ext));
   const extOk = name.toLowerCase().endsWith(expected.ext);
   failIf("bytes", typeOk && extOk ? [] : [issue("bytes", "media-type", name, `Expected ${expected.type} (${expected.ext}), got "${declaredType || "no type"}".`)]);
+  failIf("bytes", bytes.length > maxBytes ? [issue("bytes", "too-large", name, `${bytes.length} bytes, the limit is ${maxBytes}.`)] : []);
   failIf("bytes", bytes.length === 0 ? [issue("bytes", "empty-file", name)] : []);
   failIf("bytes", bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf ? [issue("bytes", "byte-order-mark", `${name}, byte 0`)] : []);
   let text: string;
@@ -205,7 +239,7 @@ function authorise(actor: string, name: string) {
 // ---------- ERP CSV ----------
 
 /** RFC 4180 rows with a one-character delimiter; quotes may enclose delimiters, quotes ("") and line breaks. */
-function csvRows(text: string, delimiter: string, name: string): string[][] {
+function csvRows(text: string, delimiter: string, name: string, tick: () => void): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
   let field = "";
@@ -213,6 +247,7 @@ function csvRows(text: string, delimiter: string, name: string): string[][] {
   let wasQuoted = false;
   let line = 1;
   for (let i = 0; i < text.length; i++) {
+    if (i % 4096 === 0) tick();
     const c = text[i];
     if (quoted) {
       if (c === '"' && text[i + 1] === '"') {
@@ -294,18 +329,22 @@ const codeListOf = (pack: ProfilePack, ref?: string): CodeList | undefined => (r
 
 export async function importErpCsv(
   pack: ProfilePack,
-  input: { bytes: Uint8Array; name: string; type: string },
+  input: ImportInput,
   actor = "ACT-01",
 ): Promise<ImportResult> {
   const contract = pack.inputs.erp;
+  const limits = pack.policy.limits;
+  const deadline = new Deadline(limits.job_deadline_ms, input.now ?? (() => performance.now()), input.name);
   let file: SourceFile = { name: input.name, role: "erp", mediaType: input.type, sha256: "", size: input.bytes.length };
   try {
-    const decoded = await bytesStage(input.bytes, input.name, input.type, "erp");
+    deadline.check("bytes");
+    const decoded = await bytesStage(input.bytes, input.name, input.type, "erp", limits.max_file_bytes);
     file = decoded.file;
     const name = input.name;
 
     // parse
-    const rows = csvRows(decoded.text, contract.delimiter, name);
+    deadline.check("parse");
+    const rows = csvRows(decoded.text, contract.delimiter, name, () => deadline.check("parse"));
     const [header = [], ...body] = rows;
     failIf(
       "parse",
@@ -325,9 +364,13 @@ export async function importErpCsv(
     });
     for (const c of contract.columns) if (!seen.has(c.name)) structure.push(issue("structure", "missing-column", name, `"${c.name}".`));
     if (!body.length) structure.push(issue("structure", "no-rows", name));
+    if (body.length > limits.max_erp_data_rows) {
+      structure.push(issue("structure", "multiple-records", `${name}, row ${limits.max_erp_data_rows + 2}`, `${body.length} data rows, the limit is ${limits.max_erp_data_rows}.`));
+    }
     failIf("structure", structure);
 
     // semantics
+    deadline.check("semantics");
     const at = (row: number, col: string) => `${name}, row ${row}, column ${col}`;
     const assertions: Assertion[] = [];
     const errors: IngressIssue[] = [];
@@ -459,25 +502,30 @@ const list = (v: JsonValue) => (v.kind === "array" ? v.items : []);
 
 export async function importLabJson(
   pack: ProfilePack,
-  input: { bytes: Uint8Array; name: string; type: string },
+  input: ImportInput,
   actor = "ACT-01",
 ): Promise<ImportResult> {
   const contract = pack.inputs.lab;
+  const limits = pack.policy.limits;
+  const deadline = new Deadline(limits.job_deadline_ms, input.now ?? (() => performance.now()), input.name);
   let file: SourceFile = { name: input.name, role: "lab", mediaType: input.type, sha256: "", size: input.bytes.length };
   try {
-    const decoded = await bytesStage(input.bytes, input.name, input.type, "lab");
+    deadline.check("bytes");
+    const decoded = await bytesStage(input.bytes, input.name, input.type, "lab", limits.max_file_bytes);
     file = decoded.file;
     const name = input.name;
 
     let doc: JsonValue;
     try {
-      doc = parseStrictJson(decoded.text);
+      deadline.check("parse");
+      doc = parseStrictJson(decoded.text, { maxDepth: limits.max_json_depth, tick: () => deadline.check("parse") });
     } catch (e) {
       if (!(e instanceof JsonSyntaxError)) throw e;
-      const code: IngressCode = e.code === "duplicate-key" ? "duplicate-key" : e.code === "non-finite-number" ? "non-finite-number" : "json-syntax";
+      const code: IngressCode = e.code === "duplicate-key" ? "duplicate-key" : e.code === "non-finite-number" ? "non-finite-number" : e.code === "too-deep" ? "too-deep" : "json-syntax";
       throw new StageFailure("parse", [issue("parse", code, `${name}, ${e.path || "/"}`, e.message)]);
     }
 
+    deadline.check("structure");
     const structure: IngressIssue[] = [];
     validate(contract.structure as Schema, doc, "", name, structure);
     failIf("structure", structure);

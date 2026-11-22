@@ -42,6 +42,7 @@ pins:
   policy:
     - READINESS-RULES@1.0.0
     - DERIVED-RULES@1.0.0
+    - LIMITS@1.0.0
 properties:
   - id: ALU-D101
     definition_ref: urn:dpp-demo:standin:term:product-model-id

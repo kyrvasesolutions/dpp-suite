@@ -1005,7 +1005,7 @@
       "holds": [],
       "mediaType": "application/pdf",
       "route": "customer-pdf",
-      "sha256": "191f661e514365cf49a5d744d9336ea23a4479c4e19c2169a63955b9d8d5619e",
+      "sha256": "c53800b0bd5f07b1bae214594042a0a1bbc42c7762e98b5625a7e6f9f275c8de",
       "status": "ready"
     },
     {
@@ -1031,7 +1031,7 @@
     }
   ],
   "pack": {
-    "manifestDigest": "394e1cd765a4d79bdac670d500ab204544de9e0472eec6740a17fb59195bcbf7",
+    "manifestDigest": "53d1c31c2cbf5442227af2e093dfbe149fb6af1d2aec2380536f89b355c87b35",
     "pins": {
       "codeLists": [
         {
@@ -1114,11 +1114,16 @@
           "digest": "d6b9ad13e440e185960998ea631869a5478a7262f44b1a1a38d7acd733990c5e",
           "path": "policy/DERIVED-RULES@1.0.0.yaml",
           "ref": "DERIVED-RULES@1.0.0"
+        },
+        {
+          "digest": "54c60cb5ccde21991a70c7045cdb59244c0e969f18b653ae6cf9558f28140a76",
+          "path": "policy/LIMITS@1.0.0.yaml",
+          "ref": "LIMITS@1.0.0"
         }
       ],
       "profile": [
         {
-          "digest": "aa2a8f5c7087b98b050928ef526324c05ce9c6b590806ce68219adcd15505f24",
+          "digest": "8890d076e57371ed844a32459a4a16efeef332853ab409c02e9f90fd9bfd5341",
           "path": "profile/PROFILE-ALU-24-01@1.0.0.yaml",
           "ref": "PROFILE-ALU-24-01@1.0.0"
         }
