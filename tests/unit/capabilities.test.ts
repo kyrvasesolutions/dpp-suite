@@ -7,7 +7,7 @@ describe("capability registry", () => {
   it("has one entry per screen", () => {
     const ids = CAPABILITIES.map((c) => c.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect([...ids].sort()).toEqual(["graph", "import", "mapping", "outputs", "prepare", "profile", "readiness", "requirements", "validation"]);
+    expect([...ids].sort()).toEqual(["graph", "import", "mapping", "outputs", "prepare", "profile", "readiness", "record", "requirements", "validation"]);
   });
 
   it("uses only the four labels", () => {

@@ -15,7 +15,7 @@ const readFile = async (file: File): Promise<Input> => ({ bytes: new Uint8Array(
  * typed error; accepted files show each value verbatim with its source location, status and flags.
  */
 export function ImportView() {
-  const { profile, error, state, setState, saveImport, record } = useRecordStore();
+  const { profile, error, state, setState, setImports, saveImport, record } = useRecordStore();
   const [inputs, setInputs] = useState<{ erp?: Input; lab?: Input }>({});
   const [results, setResults] = useState<{ erp?: ImportResult; lab?: ImportResult }>({});
   const [previousDigests, setPreviousDigests] = useState<string[] | null>(null);
@@ -40,6 +40,7 @@ export function ImportView() {
     setPreviousDigests(again && state ? state.records.map((r) => r.digest) : null);
     setInputs(next);
     setResults(imported);
+    setImports(imported);
     setState(built);
     await keep(built);
   };
@@ -113,6 +114,7 @@ export function ImportView() {
               setPreviousDigests(null);
               setInputs(loaded.inputs);
               setResults(loaded.results);
+              setImports(loaded.results);
               setState(loaded.state);
               await keep(loaded.state);
             }}

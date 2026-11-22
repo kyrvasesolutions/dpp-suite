@@ -5,7 +5,7 @@
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import pack from "virtual:contract-pack";
-import type { RecordState } from "./ingress";
+import type { ImportResult, RecordState } from "./ingress";
 import { ExecutionLog, IdbLogStore, MemoryLogStore, type LogInput } from "./log";
 import { loadProfilePack, type ProfilePack } from "./profile";
 import { IdbRepository, MemoryRepository, storeRecord, type RecordRepository } from "./recordRepository";
@@ -25,6 +25,9 @@ interface RecordStore {
   error: string | null;
   state: RecordState | null;
   setState: (next: RecordState | null) => void;
+  /** The files of the latest import attempt with the result of each, so the Record screen can show accepted and rejected sources. */
+  imports: { erp?: ImportResult; lab?: ImportResult };
+  setImports: (next: { erp?: ImportResult; lab?: ImportResult }) => void;
   /** The central record: append-only snapshots kept in this browser. */
   repository: RecordRepository;
   /** Stores each record of an accepted import as a snapshot (the Import screen calls this; nothing else does). */
@@ -42,6 +45,7 @@ export function RecordStoreProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<ProfilePack | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [state, setState] = useState<RecordState | null>(null);
+  const [imports, setImports] = useState<{ erp?: ImportResult; lab?: ImportResult }>({});
 
   useEffect(() => {
     loadProfilePack(pack).then(setProfile, (e: unknown) => setError(e instanceof Error ? e.message : String(e)));
@@ -75,8 +79,8 @@ export function RecordStoreProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo(
-    () => ({ profile, error, state, setState, repository, saveImport, log, logVersion, record }),
-    [profile, error, state, repository, saveImport, log, logVersion, record],
+    () => ({ profile, error, state, setState, imports, setImports, repository, saveImport, log, logVersion, record }),
+    [profile, error, state, imports, repository, saveImport, log, logVersion, record],
   );
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }

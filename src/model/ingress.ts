@@ -109,7 +109,8 @@ export type Flag =
   | "unknown-code"
   | "several-results"
   | "draft-text"
-  | "challenged";
+  | "challenged"
+  | "operator-corrected";
 
 export const FLAG_TEXT: Record<Flag, string> = {
   declared: "Declared in the ERP extract",
@@ -125,11 +126,15 @@ export const FLAG_TEXT: Record<Flag, string> = {
   "several-results": "Several results and no rule to select one",
   "draft-text": "Text not yet approved",
   challenged: "The sources disagree: both values are kept",
+  "operator-corrected": "Corrected by the operator: the earlier value stays visible",
 };
+
+/** Where a source assertion comes from: an imported file, or an operator correction (Cycle 5). */
+export type SourceRole = "erp" | "lab" | "correction";
 
 export interface SourceFile {
   name: string;
-  role: "erp" | "lab";
+  role: SourceRole;
   mediaType: string;
   sha256: string;
   size: number;
@@ -148,6 +153,8 @@ export interface Assertion {
   /** Where the text is; `row` is the ERP data row (1 for the first after the header), never parsed from text. */
   source: { file: string; role: SourceFile["role"]; sha256: string; location: string; row?: number };
   flags: Flag[];
+  /** Only for an operator correction: the record version it made, who made it, and why. */
+  correction?: { version: number; actor: string; reason: string };
 }
 
 export type ImportResult =
@@ -722,7 +729,7 @@ export function byRole(pack: ProfilePack, role: Role): string {
 
 // ---------- Record state ----------
 
-export type ValueStatus = "single" | "agreeing" | "challenged";
+export type ValueStatus = "single" | "agreeing" | "challenged" | "corrected";
 
 export interface RecordValue {
   property: string;
@@ -789,7 +796,7 @@ export async function buildRecords(results: ImportResult[]): Promise<RecordState
 
 /** How many assertions say the same: one value, several that agree, or several that differ (C2-05). */
 export const valueStatus = (assertions: Assertion[]): ValueStatus =>
-  assertions.length === 1 ? "single" : assertions.every((a) => same(a, assertions[0])) ? "agreeing" : "challenged";
+  assertions.some((a) => a.flags.includes("operator-corrected")) ? "corrected" : assertions.length === 1 ? "single" : assertions.every((a) => same(a, assertions[0])) ? "agreeing" : "challenged";
 
 /**
  * Re-checks a stored record against the pinned pack the way ingress checked the files (Cycle 4, central-record import):
@@ -805,7 +812,7 @@ export function recheckRecord(pack: ProfilePack, record: ProductRecord): string[
   const narrativeProperty = byRole(pack, "narrative");
   const footprintProperty = byRole(pack, "footprint");
   const evidenceIds = new Set(record.values.filter((v) => v.property === evidenceProperty).map((v) => v.qualifier));
-  const footprintResults = record.values.filter((v) => v.property === footprintProperty && !v.member).flatMap((v) => v.assertions).length;
+  const footprintResults = record.values.filter((v) => v.property === footprintProperty && !v.member).flatMap((v) => v.assertions).filter((a) => a.source.role !== "correction").length;
   const erpColumns = new Map(pack.inputs.erp.columns.map((c) => [c.name, c]));
 
   for (const v of record.values) {
@@ -822,9 +829,13 @@ export function recheckRecord(pack: ProfilePack, record: ProductRecord): string[
     for (const a of v.assertions) {
       const at = `${where} at ${a.source.location}`;
       if (a.property !== v.property || a.member !== v.member || a.qualifier !== v.qualifier) problems.push(`${at}: the assertion is filed under another key`);
-      if (a.flags.includes("challenged") !== (status === "challenged")) problems.push(`${at}: the challenged flag does not match the status`);
+      if (status !== "corrected" && a.flags.includes("challenged") !== (status === "challenged")) problems.push(`${at}: the challenged flag does not match the status`);
       if (!record.sources.some((s) => s.name === a.source.file && s.role === a.source.role && s.sha256 === a.source.sha256)) problems.push(`${at}: its source file is not listed in the record`);
       if (!a.source.location.startsWith(`${a.source.file}, `)) problems.push(`${at}: the location is not in its source file`);
+      if (a.source.role === "correction") {
+        problems.push(...recheckCorrection(pack, v, a, at));
+        continue;
+      }
       const expected = new Set<Flag>();
       const rest = a.source.location.slice(a.source.file.length + 2);
 
@@ -961,5 +972,61 @@ export function recheckRecord(pack: ProfilePack, record: ProductRecord): string[
       if (!sameFlags) problems.push(`${at}: the flags are [${have.join(", ")}], the contract gives [${[...expected].join(", ")}]`);
     }
   }
+  return problems;
+}
+
+// ---------- Operator correction (Cycle 5) ----------
+
+/** The assertion a correction is measured against: the first one that came from a file, never an earlier correction. */
+export const baseAssertion = (v: RecordValue): Assertion | undefined => v.assertions.find((a) => a.source.role !== "correction");
+
+/**
+ * Checks a corrected value the way ingress checked the original: the same kind of text, a plain number in its range and unit,
+ * a date that exists, and for a coded column a code the pinned list already has (a correction never adds a code).
+ * Returns the value to store, or the reason it is refused.
+ */
+export function checkCorrectedValue(pack: ProfilePack, base: Assertion, raw: string): { ok: true; value: string | number | null } | { ok: false; reason: string } {
+  const no = (reason: string) => ({ ok: false as const, reason });
+  if (raw.replace(INVISIBLE, "").trim() === "") return no("The corrected value is empty.");
+  if (raw !== raw.trim() || HAS_INVISIBLE.test(raw)) return no("The corrected value has spaces at its ends or invisible characters.");
+  if (/[\u0000-\u001f\u007f]/.test(raw)) return no("The corrected value has a control character or a line break.");
+  let value: string | number | null = raw;
+  const unit = base.unit;
+  const rest = base.source.location.slice(base.source.file.length + 2);
+  const column = base.source.role === "erp" ? pack.inputs.erp.columns.find((c) => c.name === /^row \d+, column (.+)$/.exec(rest)?.[1]) : undefined;
+  if (unit !== null) {
+    if (DECIMAL_COMMA.test(raw)) return no("The corrected value uses a decimal comma; the contract requires a point.");
+    if (!DECIMAL.test(raw)) return no("The corrected value is not a plain number with a point as decimal separator.");
+    if (!exact(raw)) return no("The corrected number has more significant digits than can be kept exactly.");
+    value = Number(raw);
+    if (!inRange(value, unit)) return no(`The corrected value is outside its possible range for ${unit}.`);
+  }
+  if (column) {
+    if (column.format === "ISO 8601 date" && !isCalendarDate(raw)) return no("The corrected value is not a real calendar date in the form YYYY-MM-DD.");
+    const list = codeListOf(pack, column.code_list);
+    if (list) {
+      const known = list.codes.find((x) => x.code === raw);
+      if (!known) return no("The corrected value is not in the pinned code list; a correction cannot add a code.");
+      if (known.mapsTo !== undefined) value = known.mapsTo;
+    }
+  }
+  return { ok: true, value };
+}
+
+/** What a stored operator-correction assertion must satisfy: its fixed shape, and a value that passes the same checks. */
+function recheckCorrection(pack: ProfilePack, v: RecordValue, a: Assertion, at: string): string[] {
+  const problems: string[] = [];
+  const c = a.correction;
+  if (!c || !Number.isInteger(c.version) || c.version < 2 || c.actor !== "ACT-01" || c.reason.trim() === "") return [`${at}: a correction needs its version, its actor and a reason`];
+  if (a.source.file !== `Operator correction v${c.version}`) problems.push(`${at}: the correction is named for another version`);
+  if (a.flags.length !== 1 || a.flags[0] !== "operator-corrected") problems.push(`${at}: a correction carries exactly the operator-corrected flag`);
+  if (v.assertions[0] !== a && v.assertions.findIndex((x) => x.source.role !== "correction") < v.assertions.indexOf(a)) problems.push(`${at}: a correction comes before the values it replaces`);
+  const base = baseAssertion(v);
+  if (!base) return [...problems, `${at}: a correction with nothing to correct`];
+  const checked = checkCorrectedValue(pack, base, a.raw);
+  if (!checked.ok) problems.push(`${at}: ${checked.reason}`);
+  else if (a.value !== checked.value) problems.push(`${at}: the value is ${JSON.stringify(a.value)}, the corrected text gives ${JSON.stringify(checked.value)}`);
+  if (a.unit !== base.unit) problems.push(`${at}: the unit differs from the value it corrects`);
+  if (JSON.stringify(a.details ?? null) !== JSON.stringify(base.details ?? null)) problems.push(`${at}: the details differ from the value it corrects`);
   return problems;
 }

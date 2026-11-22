@@ -42,7 +42,7 @@ export const ManifestSchema = z.object({
       policy: z.array(Pin),
     }),
   }),
-  inputs: z.array(z.object({ role: z.enum(["erp", "lab"]), name: z.string(), sha256: Sha })),
+  inputs: z.array(z.object({ role: z.enum(["erp", "lab", "correction"]), name: z.string(), sha256: Sha })),
   record: z.object({ model: z.string(), batch: z.string(), version: z.number().int().min(1), digest: Sha, snapshotDigest: Sha }),
   outputs: z.array(
     z.object({
@@ -63,7 +63,9 @@ export const ManifestSchema = z.object({
       member: z.string().optional(),
       qualifier: z.string().optional(),
       detail: z.string().optional(),
-      assertion: z.object({ role: z.enum(["erp", "lab"]), file: z.string(), sha256: Sha, location: z.string() }),
+      assertion: z.object({ role: z.enum(["erp", "lab", "correction"]), file: z.string(), sha256: Sha, location: z.string() }),
+      /** For a value an operator corrected: the record version of the correction, who made it and why. */
+      correction: z.object({ version: z.number().int().min(2), actor: z.string(), reason: z.string() }).optional(),
     }),
   ),
   formulaPrefixedCells: z.number().int().min(0),

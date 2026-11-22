@@ -101,7 +101,8 @@ export function project(pack: ProfilePack, record: ProductRecord, route: Route):
           ...(v.member ? { member: v.member } : {}),
           ...(v.qualifier ? { qualifier: v.qualifier } : {}),
           status: v.status,
-          assertions: v.assertions.map((a) => copy(a, evidenceVisible)),
+          // after an operator correction the recipient's view rests on the correction alone; the earlier values stay in the record
+          assertions: (v.status === "corrected" ? v.assertions.slice(0, 1) : v.assertions).map((a) => copy(a, evidenceVisible)),
         });
       }
     }
