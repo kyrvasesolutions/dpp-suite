@@ -66,6 +66,9 @@ jobs:
       - name: Built bundle has the content security policy and no browser LLM client
         run: npm run check-bundle
 
+      - name: Durable server bundles (Node 24, node:sqlite) and its tests run in the unit suite
+        run: npm run build:server
+
       - name: Keep the acceptance report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7

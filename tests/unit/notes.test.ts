@@ -35,7 +35,7 @@ describe.runIf(existsSync("docs/operator/install-notes.md"))("install notes", ()
 
   it("lists every configuration variable of config/env.example, and the declared limits", () => {
     const vars = read("config/env.example").split("\n").filter((l) => /^[A-Z_]+=/.test(l)).map((l) => l.split("=")[0]);
-    expect(vars).toHaveLength(7);
+    expect(vars).toHaveLength(10);
     for (const v of vars) expect(notes, v).toContain(`\`${v}\``);
     for (const limit of ["10 MiB", "**12**", "30 seconds", "one data row"]) expect(notes, limit).toContain(limit);
     const limits = read("contracts/n/policy/LIMITS@1.0.0.yaml");
@@ -153,5 +153,30 @@ describe("public ADRs and documentation boundaries", () => {
     for (const ignored of ["/docs/", "/docs/assessment/", "/scripts/assessment/", "/spec/", "/CLAUDE.md", "/.claude/"]) {
       expect(gitignore, ignored).toContain(ignored);
     }
+  });
+});
+
+describe.runIf(existsSync("docs/operator/server-notes.md"))("server notes", () => {
+  // The describe body runs even when the block is skipped, so the local, git-ignored notes are read only if present.
+  const notes = existsSync("docs/operator/server-notes.md") ? read("docs/operator/server-notes.md") : "";
+  const example = read("config/env.example");
+
+  it("mentions only files and folders that exist", () => {
+    for (const p of paths(notes)) expect(existsSync(p), p).toBe(true);
+    for (const f of ["server/index.ts", "server/http/api.ts", "adr/0004-durable-relational-storage-and-staged-jobs.md"]) expect(notes).toContain(f);
+  });
+
+  it("runs only npm scripts that exist and documents every server variable of the configuration example", () => {
+    for (const s of npmRuns(notes)) expect(pkg.scripts[s!], s).toBeDefined();
+    const variables = [...example.matchAll(/^(DPP_(?:DB_PATH|SERVER_HOST|SERVER_PORT|ALLOWED_ORIGIN|STATIC_DIR|CONTRACT_PACK))=/gm)].map((m) => m[1]!);
+    expect(variables).toHaveLength(6);
+    for (const v of variables) expect(notes, v).toContain(v);
+  });
+
+  it("states the limits that matter: no authentication, localhost only, legal hold release, backup and recovery", () => {
+    for (const text of ["no authentication", "127.0.0.1", "cannot be released over the API", "VACUUM INTO", "POST /api/jobs/recover", "DPP_ALLOWED_ORIGIN", "Untested"]) {
+      expect(notes, text).toContain(text);
+    }
+    expect(notes).not.toMatch(/0\.0\.0\.0/);
   });
 });
