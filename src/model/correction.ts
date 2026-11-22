@@ -175,9 +175,11 @@ export interface CarryResult {
  * A re-import must never silently undo a correction. For every corrected value of the latest version:
  * - the new source still says what the correction replaced: the correction is carried onto the new version, still flagged, and the
  *   new source values become the earlier values it replaces;
- * - the new source says something else: the correction and the new source values are both kept, the new ones flagged `source-changed`,
- *   and the value is challenged, so the routes hold until the operator decides;
- * - the new source no longer has the value: the correction stands with the earlier values and the files they came from.
+ * - the new source has come to say what the correction says: the source confirms the correction, which stays flagged `corrected`
+ *   with lineage to both;
+ * - the new source says something else, or no longer has the value: the correction and the source values (for a dropped value,
+ *   what it replaced attributed to its earlier file version) are kept with `source-changed`, and the value is challenged so the
+ *   routes hold until the operator decides.
  */
 export async function carryCorrections(latest: Snapshot | undefined, incoming: ProductRecord): Promise<CarryResult> {
   if (!latest) return { record: incoming, carried: 0, disputed: 0 };
@@ -195,14 +197,24 @@ export async function carryCorrections(latest: Snapshot | undefined, incoming: P
     const noLongerDisputed = replaced.length > 0 && now && now.assertions.length === replaced.length && now.assertions.every((a, i) => sameAssertion(a, replaced[i]));
     for (const c of corrections) addSource(latest.record.sources.find((s) => s.role === "correction" && s.name === c.source.file)!);
     if (!now) {
-      // the new source dropped the value: keep the correction and what it replaced, with the files those came from
+      // The new source dropped the value. That is a change of the source: the correction stays, what it replaced stays attributed to the
+      // file version it came from, and the value is challenged so the routes hold until the operator decides.
       for (const a of replaced) addSource(latest.record.sources.find((s) => s.role === a.source.role && s.name === a.source.file && s.sha256 === a.source.sha256)!);
-      record.values.push({ property: old.property, ...(old.member ? { member: old.member } : {}), ...(old.qualifier ? { qualifier: old.qualifier } : {}), status: "corrected", assertions: structuredClone(old.assertions) });
-      carried++;
+      const assertions = [...structuredClone(corrections), ...replaced.map((a) => ({ ...structuredClone(a), flags: [...a.flags.filter((f) => f !== "challenged"), "source-changed" as const] }))];
+      record.values.push({ property: old.property, ...(old.member ? { member: old.member } : {}), ...(old.qualifier ? { qualifier: old.qualifier } : {}), status: valueStatus(assertions), assertions });
+      disputed++;
       continue;
     }
     const details = baseAssertion(now)?.details;
     const kept = corrections.map((c) => ({ ...structuredClone(c), ...(details ? { details: { ...details } } : {}) }));
+    // a source that has come to say what the correction says confirms it: the value is corrected and agreed, with lineage to both
+    const confirmed = corrections.length > 0 && now.assertions.every((a) => sameAssertion(a, corrections[0]));
+    if (confirmed) {
+      now.assertions = [...kept, ...now.assertions];
+      now.status = valueStatus(now.assertions);
+      carried++;
+      continue;
+    }
     // an earlier dispute stays until the operator settles it, even if the source goes back to what it said then
     const wasDisputed = old.assertions.some((a) => a.flags.includes("source-changed"));
     if (noLongerDisputed && !wasDisputed) {

@@ -22,10 +22,12 @@ export function ImportView() {
   const [saveError, setSaveError] = useState<string | null>(null);
   // The pair is stored as one version only once both files are in and accepted; a lone file waits for the other, and a rejected
   // file stores nothing. The operator can still store an accepted ERP-only record on purpose.
-  const complete = (r: { erp?: ImportResult; lab?: ImportResult }) => !!r.erp?.ok && !!r.lab?.ok;
+  // "attached": the laboratory file is about the record the ERP extract made (a file for another model or batch is kept apart, not attached)
+  const attached = (built: typeof state) => !!built && built.unattached.length === 0 && built.records.length > 0 && built.records.every((r) => r.sources.some((x) => x.role === "lab"));
+  const complete = (r: { erp?: ImportResult; lab?: ImportResult }, built: typeof state = state) => !!r.erp?.ok && !!r.lab?.ok && attached(built);
   const keep = async (built: typeof state, r: { erp?: ImportResult; lab?: ImportResult }, label?: string) => {
     setSaveError(null);
-    if (!built || (!label && !complete(r))) return setNotes([]);
+    if (!built || (!label && !complete(r, built))) return setNotes([]);
     try {
       setNotes(await saveImport(built, label));
     } catch (e) {
@@ -131,14 +133,16 @@ export function ImportView() {
         {results.lab && <FileResult result={results.lab} />}
       </div>
 
-      {(results.erp || results.lab) && !complete(results) && (
+      {(results.erp || results.lab) && !complete(results) && notes.length === 0 && (
         <div className="banner info" data-testid="pair-pending">
           <span>
             {results.erp && !results.lab
               ? "Waiting for the laboratory file: nothing is stored until both files are in and accepted."
               : results.lab && !results.erp
                 ? "Waiting for the ERP extract: nothing is stored until both files are in and accepted."
-                : "A file was rejected, so nothing is stored. Fix the file and pick it again."}
+                : results.erp?.ok && results.lab?.ok
+                  ? "The laboratory file is about another product model or batch than the ERP extract, so it is not attached and nothing is stored."
+                  : "A file was rejected, so nothing is stored. Fix the file and pick it again."}
           </span>
           {state && state.records.length > 0 && (
             <button type="button" className="ghost" data-testid="store-erp-only" onClick={() => keep(state, results, "ERP-only record, stored by the operator")}>

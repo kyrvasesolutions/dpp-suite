@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CorrectionError, correctRecord, diffSnapshots, REASON_MAX } from "../model/correction";
-import { byRole, flagTextFor, type Flag, type RecordValue } from "../model/ingress";
+import { byRole, flagTextFor, sameAssertion, type Flag, type RecordValue } from "../model/ingress";
 import { correctionEvent } from "../model/log";
 import { generateRelease, type Release } from "../model/outputs/release";
 import { decide } from "../model/policy";
@@ -211,14 +211,19 @@ export function RecordView() {
                 </tr>
               </thead>
               <tbody>
-                {snapshot.record.sources.map((s) => (
-                  <tr key={`${s.role}|${s.name}`} data-testid="record-source" data-role={s.role} data-status="accepted">
+                {snapshot.record.sources.map((s, idx) => (
+                  <tr key={`${s.role}|${s.name}|${s.sha256}`} data-testid="record-source" data-role={s.role} data-status="accepted">
                     <td>{s.role === "erp" ? "ERP extract" : s.role === "lab" ? "Laboratory file" : "Operator correction"}</td>
                     <td>{s.name}</td>
                     <td>
                       <code title={s.sha256}>{short(s.sha256)}</code>
                     </td>
-                    <td>Accepted</td>
+                    <td>
+                      Accepted
+                      {s.role !== "correction" && snapshot.record.sources.some((o, i) => i < idx && o.role === s.role && o.sha256 !== s.sha256) && (
+                        <span className="small hint" data-testid="superseded-source"> An earlier version of this file: its values are shown with this sha256.</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
                 {importFiles
@@ -256,9 +261,13 @@ export function RecordView() {
                   const k = keyOf(v);
                   const [now, ...earlier] = v.assertions;
                   const shown = v.status === "challenged" ? v.assertions : [now];
-                  // only a value a correction replaced is "earlier" and struck through; sources that agree are simply also stated
-                  const past = v.status === "corrected" ? earlier : [];
-                  const alsoStated = v.status === "agreeing" ? earlier : [];
+                  // only a value a correction replaced is "earlier" and struck through; sources that agree are simply also stated.
+                  // when every non-correction source confirms the standing correction (none challenged), show them as "also stated" rather than replaced.
+                  const nonCorrections = earlier.filter((a) => a.source.role !== "correction");
+                  const confirmedBySources =
+                    v.status === "corrected" && nonCorrections.length > 0 && nonCorrections.every((a) => sameAssertion(a, now) && !a.flags.includes("challenged"));
+                  const past = v.status === "corrected" ? (confirmedBySources ? earlier.filter((a) => a.source.role === "correction") : earlier) : [];
+                  const alsoStated = v.status === "agreeing" ? earlier : confirmedBySources ? nonCorrections : [];
                   // only the latest version, and only a value a correction may change (not an identifier or an evidence reference)
                   const editable = snapshot.version === latest?.version && ![byRole(profile, "model"), byRole(profile, "batch"), byRole(profile, "evidence")].includes(v.property);
                   return (

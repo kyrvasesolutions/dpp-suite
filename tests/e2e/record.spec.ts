@@ -267,3 +267,53 @@ test("the Record screen names things once and shows only what is true", async ({
   expect(lanes.indexOf("Record") + 1).toBe(lanes.indexOf("Readiness"));
   expect(lanes.indexOf("Readiness") + 1).toBe(lanes.indexOf("Outputs"));
 });
+
+test("an unattached laboratory file for another batch does not complete the pair and stores nothing", async ({ page }) => {
+  await page.goto("/#import");
+  const otherLab = {
+    name: "other-batch-lab.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(readFileSync("fixtures/n/d03a-lab-assessment.json", "utf8").replace("B-2026-0417", "B-2026-9999")),
+  };
+  await page.getByTestId("pick-erp").setInputFiles(erpWith("62.0"));
+  await page.getByTestId("pick-lab").setInputFiles(otherLab);
+  await expect(page.getByTestId("pair-pending")).toContainText("another product model or batch");
+  await expect(page.getByTestId("snapshot-status")).toHaveCount(0);
+  await expect(page.getByTestId("unattached")).toBeVisible();
+});
+
+test("a re-import confirming a correction shows it as also stated; dropping it challenges the value and marks the superseded source", async ({ page }) => {
+  await page.goto("/#import");
+  await page.getByTestId("pick-lab").setInputFiles(lab());
+  await page.getByTestId("pick-erp").setInputFiles(erpWith("62.0"));
+  await expect(page.getByTestId("snapshot-status")).toHaveAttribute("data-version", "1");
+  await page.goto("/#record");
+  await correct(page, "Recycled content", "63.5", "Certificate says 63.5");
+  await expect(page.getByTestId("record-head")).toContainText("version 2 of 2");
+
+  // re-import where the ERP source now agrees with the operator correction (63.5): confirmed, not struck through
+  await page.goto("/#import");
+  await page.getByTestId("pick-erp").setInputFiles(erpWith("63.5"));
+  await expect(page.getByTestId("snapshot-status")).toHaveAttribute("data-version", "3");
+  await page.goto("/#record");
+  const confirmed = row(page, "Recycled content");
+  await expect(confirmed).toHaveAttribute("data-status", "corrected");
+  await expect(confirmed.getByTestId("also-stated")).toContainText("63.5");
+  await expect(confirmed.getByTestId("earlier-value")).toHaveCount(0);
+
+  // re-import dropping the value: challenged with source-changed, and the earlier ERP file (not the incoming one) is marked superseded
+  await page.goto("/#import");
+  await page.getByTestId("pick-erp").setInputFiles({
+    name: "erp-missing-recycled-content.csv",
+    mimeType: "text/csv",
+    buffer: readFileSync("fixtures/n/erp-missing-recycled-content.csv"),
+  });
+  await expect(page.getByTestId("snapshot-status")).toHaveAttribute("data-version", "4");
+  await page.goto("/#record");
+  await expect(row(page, "Recycled content")).toHaveAttribute("data-status", "challenged");
+  await expect(page.locator('[data-testid="record-route"][data-route="customer-pdf"] [data-rule="RR-CHALLENGED"]')).toHaveCount(1);
+  const erpSources = page.locator('[data-testid="record-source"][data-role="erp"][data-status="accepted"]');
+  await expect(erpSources).toHaveCount(2);
+  await expect(erpSources.first().getByTestId("superseded-source")).toHaveCount(0);
+  await expect(erpSources.nth(1).getByTestId("superseded-source")).toHaveCount(1);
+});

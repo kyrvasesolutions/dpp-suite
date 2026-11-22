@@ -281,7 +281,7 @@ describe("the central-record file carries the corrections and their differences"
 describe("a re-import never silently undoes a correction", () => {
   const recycled = () => propertyBySlug(pack, "recycled-content");
   const withRecycled = (value: string) => recordFor(pack, { ...CLEAN, editErp: (csv) => csv.replace(";62.0;", `;${value};`) });
-  const standing = (snapshot: { record: { values: Array<{ property: string; status: string; assertions: Array<{ raw: string; flags: string[] }> }> } }) => snapshot.record.values.find((v) => v.property === recycled())!;
+  const standing = (snapshot: { record: { values: Array<{ property: string; status: string; assertions: Array<{ raw: string; flags: string[]; source: { role: string; sha256: string } }> }> } }) => snapshot.record.values.find((v) => v.property === recycled())!;
   const setup = async () => {
     const repo = new MemoryRepository();
     const first = await storeImport(repo, await recordFor(pack, CLEAN));
@@ -363,13 +363,46 @@ describe("a re-import never silently undoes a correction", () => {
     expect(standing(back.snapshot).status).toBe("challenged");
   });
 
-  it("keeps the correction, with what it replaced, when the new source no longer has the value", async () => {
-    const { repo } = await setup();
+  it("challenges the value when the new source drops it, keeping the correction and the replaced value attributed to its earlier file version", async () => {
+    const { repo, key } = await setup();
     const res = await storeImport(repo, await recordFor(pack, { ...CLEAN, erp: "erp-missing-recycled-content.csv" }));
+    expect(res.disputed).toBe(1);
+    expect(res.carried).toBe(0);
     const value = standing(res.snapshot);
-    expect(value.status).toBe("corrected");
+    expect(value.status).toBe("challenged");
     expect(value.assertions.map((a) => a.raw)).toEqual(["63.5", "62.0"]);
+    expect(value.assertions[1].flags).toContain("source-changed");
+    // the earlier ERP file version is retained in sources so the replaced assertion keeps its sha256 attribution
+    const erpSources = res.snapshot.record.sources.filter((s) => s.role === "erp");
+    expect(erpSources).toHaveLength(2);
+    expect(erpSources[1].sha256).toBe(value.assertions[1].source.sha256);
     expect(recheckRecord(pack, res.snapshot.record)).toEqual([]);
+    expect(assess(pack, res.snapshot.record).filter((r) => r.holds.some((h) => h.ruleId === "RR-CHALLENGED")).map((r) => r.route)).toEqual(["customer-pdf", "erp-staging-csv"]);
+    // re-importing the same dropped file is idempotent and keeps the challenge
+    const again = await storeImport(repo, await recordFor(pack, { ...CLEAN, erp: "erp-missing-recycled-content.csv" }));
+    expect(again.stored).toBe(false);
+    expect(standing(again.snapshot).status).toBe("challenged");
+    // the operator can settle the challenge by confirming the corrected value
+    const settled = await correctRecord(pack, repo, { ...key, property: recycled(), raw: "63.5", reason: "Confirmed despite ERP omission" });
+    expect(standing(settled).status).toBe("corrected");
+    expect(assess(pack, settled.record).flatMap((r) => r.holds.map((h) => h.ruleId))).not.toContain("RR-CHALLENGED");
+    expect(recheckRecord(pack, settled.record)).toEqual([]);
+  });
+
+  it("confirms the correction when a later source comes to say the same value, even after an earlier dispute", async () => {
+    const { repo } = await setup();
+    // first dispute it with a different value (60.0), then re-import with the corrected value (63.5)
+    const disputed = await storeImport(repo, await withRecycled("60.0"));
+    expect(standing(disputed.snapshot).status).toBe("challenged");
+    const confirmed = await storeImport(repo, await withRecycled("63.5"));
+    expect(confirmed.carried).toBe(1);
+    expect(confirmed.disputed).toBe(0);
+    const value = standing(confirmed.snapshot);
+    expect(value.status).toBe("corrected");
+    expect(value.assertions.map((a) => [a.source.role, a.raw])).toEqual([["correction", "63.5"], ["erp", "63.5"]]);
+    expect(value.assertions[1].flags).not.toContain("source-changed");
+    expect(recheckRecord(pack, confirmed.snapshot.record)).toEqual([]);
+    expect(assess(pack, confirmed.snapshot.record).flatMap((r) => r.holds.map((h) => h.ruleId))).not.toContain("RR-CHALLENGED");
   });
 
   it("exports and imports a disputed record, with its differences", async () => {
