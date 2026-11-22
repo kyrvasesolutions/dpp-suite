@@ -2,7 +2,7 @@
 
 Functional changes to the DPP suite, one entry per merged pull request, newest first.
 
-## Cycle 6 exit: Durable server (P) supported (22 November 2026)
+## [#17](https://github.com/kyrvasesolutions/dpp-suite/pull/17) Durable server (P) supported (22 November 2026)
 
 - **Durable server (P)** is labelled **Supported** (`src/model/capabilities.ts`) following Cycle 6 exit verification: three independent review rounds, live concurrency and crash-recovery (`kill -9` and staged crash injection) verification, retention and legal-hold enforcement, Pack-verified start-up, cross-model operator walkthrough (`HT-W`) and domain exception review (`HT-R`). The five narrow demonstrator screens retain their Supported labels unchanged; real customer contracts, real exception samples, real metallurgical limits, real operators, authentication/authorisation (Cycle 7) and cryptographic signing remain dated holds.
 
