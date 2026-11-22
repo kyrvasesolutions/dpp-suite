@@ -2,7 +2,7 @@
 
 Functional changes to the DPP suite, one entry per merged pull request, newest first.
 
-## Unreleased: Outputs, central record and release manifest
+## [#12](https://github.com/kyrvasesolutions/dpp-suite/pull/12) Outputs, central record and release manifest (22 November 2026)
 
 - The three routes now have a **pinned output mapping**: every field a route may carry has exactly one output step with a stable step ID, in a fixed order. The contract checker refuses a route with a field that has no step, a step for a field the recipient may not see, a duplicate step ID, or a derived statement without its derived rule. The contract pack has a new digest and is signed again.
 - **ERP staging CSV**: one header row and one data row from the ERP route's projection, UTF-8 without byte-order mark, ";" between cells, RFC 4180 quoting, numbers exactly as the source wrote them.
