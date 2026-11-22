@@ -118,7 +118,7 @@ Source: Laboratory file, /observations/0/value
 Record version 1
  
 Record digest 321191e612f317a76fbcd5cf2b06a6c5734c04067eedbb2fe9cac3484d5be463
-Contract pack manifest digest 53d1c31c2cbf5442227af2e093dfbe149fb6af1d2aec2380536f89b355c87b35
+Contract pack manifest digest d17a99fa554308505caf63784ade1916f001c6f5d0960ac23ef138c732551cbb
 Page 1 of 2. Illustrative values are marked as such; this sheet is not a conformity statement.
 Nominal width
  
@@ -202,5 +202,5 @@ Source: Laboratory file, /texts/0/text
 Record version 1
  
 Record digest 321191e612f317a76fbcd5cf2b06a6c5734c04067eedbb2fe9cac3484d5be463
-Contract pack manifest digest 53d1c31c2cbf5442227af2e093dfbe149fb6af1d2aec2380536f89b355c87b35
+Contract pack manifest digest d17a99fa554308505caf63784ade1916f001c6f5d0960ac23ef138c732551cbb
 Page 2 of 2. Illustrative values are marked as such; this sheet is not a conformity statement.

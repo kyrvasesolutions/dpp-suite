@@ -71,6 +71,8 @@ describe("C2-02 strict ingress: a typed error at a named stage", () => {
     "lab-missing-unit.json": { stage: "semantics", code: "missing-unit" },
     "lab-wrong-unit.json": { stage: "semantics", code: "wrong-unit" },
     "lab-unit-alias.json": { stage: "semantics", code: "wrong-unit" },
+    "erp-two-rows.csv": { stage: "structure", code: "multiple-records" },
+    "lab-too-deep.json": { stage: "parse", code: "too-deep" },
     "erp-unknown-company-code.csv": "accepted",
     "erp-missing-recycled-content.csv": "accepted",
     "lab-two-footprints.json": "accepted",

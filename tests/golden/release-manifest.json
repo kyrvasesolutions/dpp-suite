@@ -1005,7 +1005,7 @@
       "holds": [],
       "mediaType": "application/pdf",
       "route": "customer-pdf",
-      "sha256": "c53800b0bd5f07b1bae214594042a0a1bbc42c7762e98b5625a7e6f9f275c8de",
+      "sha256": "2375cefc2f3c6cfe76405c97a552fc097ebdbf0c817885acd724e50db0f4c3be",
       "status": "ready"
     },
     {
@@ -1031,7 +1031,7 @@
     }
   ],
   "pack": {
-    "manifestDigest": "53d1c31c2cbf5442227af2e093dfbe149fb6af1d2aec2380536f89b355c87b35",
+    "manifestDigest": "d17a99fa554308505caf63784ade1916f001c6f5d0960ac23ef138c732551cbb",
     "pins": {
       "codeLists": [
         {
@@ -1173,6 +1173,6 @@
     "name": "dpp-traceability",
     "version": "0.0.0-golden"
   },
-  "substantiveDigest": "bfa2a41d64f3c12ff5d8931ef43e3ef5a56b472a8f92a1f7aa9b5b4ece985be3",
+  "substantiveDigest": "bc1a97892501bd8a51ce85a2081a23a89fa48ce5443f262a59a0b3a909c2956e",
   "version": 1
 }
