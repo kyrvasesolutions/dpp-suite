@@ -65,6 +65,10 @@ describe("acceptance coverage matrix", () => {
     for (const id of ["AC-REPRODUCIBLE-ALL", "AC-LOG-SCAN", "AC-MESSAGE-SCAN", "AC-G14-NO-PARTIAL"]) expect(CASES.some((c) => c.id === id), id).toBe(true);
   });
 
+  it("has a case for every function of the Cycle 5 scope", () => {
+    for (const f of ["FUNC-005", "FUNC-006", "FUNC-076", "FUNC-131", "FUNC-132", "FUNC-133", "FUNC-134"]) expect(CASES.some((c) => c.funcs.includes(f)), f).toBe(true);
+  });
+
   it("has no test in the specs that is not one of these cases", () => {
     for (const file of readdirSync("tests/acceptance").filter((f) => f.endsWith(".spec.ts"))) {
       const text = readFileSync(`tests/acceptance/${file}`, "utf8");

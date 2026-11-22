@@ -3,7 +3,8 @@
  * success after a good record, conflicting sources and a correction, and the two scans of what the system says (the log, and
  * the error and hold messages). The cases come from cases.ts.
  */
-import { readdirSync, readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { parse } from "yaml";
 import { expect, test } from "../e2e/egress";
 import { CASES, CLASSES, CLEAN, ROUTES, type Case, type EffectClass, type RouteId } from "./cases";
@@ -194,4 +195,104 @@ test(`[${byId("AC-MESSAGE-SCAN").id}] ${byId("AC-MESSAGE-SCAN").title}`, async (
   // and the hold rule IDs are the ones the pack knows
   const rules = new Set((parse(readFileSync("contracts/n/policy/READINESS-RULES@1.0.0.yaml", "utf8")) as { rules: Array<{ id: string }> }).rules.map((r) => r.id));
   for (const [, k] of accepted) for (const r of Object.values(k.routes)) for (const id of r.rules) expect(rules.has(id), id).toBe(true);
+});
+
+// ---------- the chain, the re-import, the pair, the install smoke and the gate ----------
+
+const erpWith = (value: string) => ({ name: "d03a-erp-extract.csv", mimeType: "text/csv", buffer: Buffer.from(readFileSync("fixtures/n/d03a-erp-extract.csv", "utf8").replace(";62.0;", `;${value};`)) });
+
+test(`[${byId("AC-RECORD-CHAIN").id}] ${byId("AC-RECORD-CHAIN").title}`, async ({ page }) => {
+  await importPair(page, CLEAN);
+  await page.goto("/#record");
+  await expect(page.locator('[data-testid="record-source"][data-status="accepted"]')).toHaveCount(2);
+  await expect(page.getByTestId("record-source").first()).toContainText(/[0-9a-f]{12}…/);
+  const values = page.getByTestId("record-value");
+  expect(await values.count()).toBeGreaterThan(20);
+  await expect(page.locator('[data-testid="record-value"][data-status="agreeing"]')).toHaveCount(3);
+  for (const kind of ["declared", "measured", "calculated externally"]) await expect(page.locator(`[data-testid="value-kind"]`, { hasText: new RegExp(`^${kind}$`) }).first()).toBeVisible();
+  for (const name of ROUTES) {
+    const card = page.locator(`[data-testid="record-route"][data-route="${name}"]`);
+    await expect(card).toHaveAttribute("data-status", name === "registry-prep-json" ? "on-hold" : "ready");
+    await card.locator("summary").click();
+    expect(await card.locator('[data-testid="record-access"]').count()).toBeGreaterThan(0);
+    await expect(card.getByTestId("record-output")).toHaveAttribute("data-state", name === "registry-prep-json" ? "hold-draft" : "made");
+  }
+  const customer = page.locator('[data-testid="record-route"][data-route="customer-pdf"]');
+  await expect(customer.locator('[data-access="derived"]')).toHaveCount(2);
+  await expect(customer.locator('[data-access="deny"]').first()).toBeVisible();
+  await page.getByRole("button", { name: "Open Outputs" }).click();
+  await expect(page.getByTestId("output-route")).toHaveCount(3);
+  await page.goto("/#record");
+  await page.getByRole("button", { name: "Open Readiness" }).click();
+  await expect(page.getByTestId("readiness-version")).toContainText("version 1");
+});
+
+test(`[${byId("AC-REIMPORT-CORRECTION").id}] ${byId("AC-REIMPORT-CORRECTION").title}`, async ({ page }) => {
+  await importPair(page, CLEAN);
+  await page.goto("/#record");
+  const recycled = () => page.locator('[data-testid="record-value"]').filter({ hasText: "Recycled content" }).first();
+  await recycled().getByTestId("correct-button").click();
+  await page.getByTestId("correct-value").fill("63.5");
+  await page.getByTestId("correct-reason").fill("Certificate says 63.5");
+  await page.getByTestId("correct-save").click();
+  await expect(page.getByTestId("record-head")).toContainText("version 2 of 2");
+
+  await page.goto("/#import");
+  await page.getByRole("button", { name: "Import the same files again" }).click();
+  await expect(page.getByTestId("snapshot-status")).toHaveAttribute("data-stored", "false");
+  await openOutputs(page);
+  const csv = (await download(page, "erp-staging-csv")).bytes.toString("utf8");
+  expect(csv).toContain(";63.5;");
+  expect(csv).not.toContain(";62.0;");
+
+  await page.goto("/#import");
+  await pick(page, "erp", erpWith("60.0"));
+  await expect(page.getByTestId("snapshot-status")).toHaveAttribute("data-version", "3");
+  for (const screen of ["record", "readiness", "outputs"]) {
+    await page.goto(`/#${screen}`);
+    if (screen === "record") await expect(recycled()).toHaveAttribute("data-status", "challenged");
+    if (screen === "readiness") await expect(page.locator('[data-testid="route-status"][data-route="erp-staging-csv"] [data-rule="RR-CHALLENGED"]')).toHaveCount(1);
+    if (screen === "outputs") await expect(route(page, "erp-staging-csv")).toHaveAttribute("data-state", "refused");
+  }
+});
+
+test(`[${byId("AC-PAIR-ONE-VERSION").id}] ${byId("AC-PAIR-ONE-VERSION").title}`, async ({ page }) => {
+  await openImport(page);
+  await pick(page, "erp", erpWith("62.0"));
+  await expect(page.getByTestId("pair-pending")).toBeVisible();
+  await expect(page.getByTestId("snapshot-status")).toHaveCount(0);
+  await openOutputs(page);
+  await expect(page.getByTestId("outputs-empty")).toBeVisible();
+  await openImport(page);
+  await expect(page.getByTestId("import-erp")).toHaveAttribute("data-ok", "true");
+  await pick(page, "lab", fixtureFile(CLEAN.lab));
+  await expect(page.getByTestId("snapshot-status")).toHaveAttribute("data-version", "1");
+  await page.goto("/#record");
+  await expect(page.getByTestId("record-version")).toHaveCount(1);
+  await expect(page.getByTestId("record-version").first()).toContainText("First import");
+});
+
+test(`[${byId("AC-INSTALL-SMOKE").id}] ${byId("AC-INSTALL-SMOKE").title}`, async ({ page }) => {
+  const res = await page.request.get("/");
+  expect(res.ok()).toBe(true);
+  const html = await res.text();
+  expect(html).toContain('<div id="root"');
+  expect(html).toContain("Content-Security-Policy");
+  expect(spawnSync("node", ["scripts/check-bundle.mjs"], { encoding: "utf8" }).status).toBe(0);
+  const pkg = JSON.parse(readFileSync("package.json", "utf8")) as { engines: { node: string }; scripts: Record<string, string> };
+  expect(readFileSync(".nvmrc", "utf8").trim()).toBe("24");
+  expect(pkg.engines.node).toBe(">=24");
+  expect(pkg.scripts.serve).toContain("--port 4173");
+  expect(readFileSync("config/env.example", "utf8")).toMatch(/^VITE_ENABLE_LLM=false$/m);
+  expect(statSync("scripts/rehearse-install.sh").mode & 0o111).not.toBe(0);
+  expect(existsSync("package-lock.json")).toBe(true);
+});
+
+test(`[${byId("AC-ACCEPTANCE-GATE").id}] ${byId("AC-ACCEPTANCE-GATE").title}`, async () => {
+  const matrix = JSON.parse(readFileSync("tests/acceptance/coverage.json", "utf8")) as { cases: Case[] };
+  expect(matrix.cases).toEqual(JSON.parse(JSON.stringify(CASES)));
+  for (const f of ["FUNC-005", "FUNC-006", "FUNC-076", "FUNC-131", "FUNC-132", "FUNC-133", "FUNC-134"]) expect(CASES.some((c) => c.funcs.includes(f)), f).toBe(true);
+  const packClasses = readdirSync("contracts/n/failure-cases").map((f) => f.replace(/\.yaml$/, ""));
+  for (const name of packClasses) expect(CASES.filter((c) => c.class === name && c.route !== "all").map((c) => c.route).sort(), name).toEqual([...ROUTES].sort());
+  expect(CASES.length).toBeGreaterThanOrEqual(60);
 });
