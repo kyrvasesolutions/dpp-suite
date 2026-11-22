@@ -2,7 +2,7 @@
 
 Functional changes to the DPP suite, one entry per merged pull request, newest first.
 
-## Unreleased: Record screen supported; narrow demonstrator complete (22 November 2026)
+## [#15](https://github.com/kyrvasesolutions/dpp-suite/pull/15) Record screen supported; narrow demonstrator complete (22 November 2026)
 
 - The **Record** screen is labelled **Supported** (all five screens of the narrow demonstrator — Profile, Import, Record, Readiness and Outputs — are now Supported). The Record chain, non-silent operator correction, field-level diffs, local execution log, declared input limits, exact dependency pins, clean-clone installation rehearsal, 73-case three-route acceptance suite, contract-tightness and adversarial mutation suites, and five-viewer comprehension walkthrough passed independent review and clean-clone testing.
 
