@@ -6,7 +6,7 @@ export default defineConfig({
   // A fixed commit, so nothing in a test depends on where it runs.
   define: buildDefines("test"),
   test: {
-    include: ["tests/unit/**/*.test.ts"],
+    include: ["tests/unit/**/*.test.ts", "tests/simulation/**/*.test.ts"],
     environment: "jsdom",
   },
 });
