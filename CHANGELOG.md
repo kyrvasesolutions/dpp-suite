@@ -2,7 +2,7 @@
 
 Functional changes to the DPP suite, one entry per merged pull request, newest first.
 
-## Unreleased
+## [#16](https://github.com/kyrvasesolutions/dpp-suite/pull/16) Durable server, staged idempotent imports and evidence retention (22 November 2026)
 
 - **A durable local server** (`npm run server`, Node 24). Records, evidence, execution log and job state are kept in a SQLite database in WAL mode (the `node:sqlite` module of Node 24, so no new dependency), behind a small adapter so a PostgreSQL store can replace it later. It serves the built application on its own origin and binds to `127.0.0.1` by default. There is no authentication yet: run it only on the machine you work on. Environment variables are documented in `config/env.example` (`DPP_DB_PATH`, `DPP_SERVER_HOST`, `DPP_SERVER_PORT`, `DPP_ALLOWED_ORIGIN`, `DPP_STATIC_DIR`). Node 24 prints an "experimental" warning for `node:sqlite`; that is expected.
   - **The application uses it when it is there.** The Import screen finds the server on its own origin and submits each import to it as a job; the Record screen reads versions from it and sends corrections to it. The static build (GitHub Pages) finds no server and keeps working from browser storage, with no change.
