@@ -3,8 +3,9 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// relative to this file, so it works under both vitest and Playwright
-const ROOT = fileURLToPath(new URL("../../fixtures", import.meta.url));
+// relative to this file: vitest (also under jsdom) has __dirname, Playwright's ES modules have only import.meta.url
+const here = typeof __dirname !== "undefined" ? __dirname : fileURLToPath(new URL(".", import.meta.url));
+const ROOT = join(here, "../../fixtures");
 
 /** Reads a fixture after checking it against its pack's MANIFEST.json; a drifted file fails the test. */
 export function fixtureBytes(pack: string, name: string): Uint8Array {
