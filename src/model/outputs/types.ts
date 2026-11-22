@@ -14,6 +14,8 @@ export interface OutputFile {
   holds: HoldReason[];
   items: OutputValue[];
   lineage: LineageEntry[];
+  /** The ERP CSV only: how many text cells got the leading apostrophe. */
+  formulaPrefixedCells?: number;
 }
 
 /** A file name from the record's own identifiers, reduced to characters every system accepts. */

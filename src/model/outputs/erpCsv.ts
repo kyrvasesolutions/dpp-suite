@@ -29,7 +29,6 @@ export function csvCell(text: string, numeric: boolean): { cell: string; prefixe
 
 export interface ErpCsv extends OutputFile {
   text: string;
-  /** How many text cells got the leading apostrophe. */
   formulaPrefixedCells: number;
 }
 
