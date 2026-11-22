@@ -8,6 +8,8 @@
  */
 import { parse } from "yaml";
 import { z } from "zod";
+import { canonical } from "./canonical";
+import { ExceptionCatalogueSchema, RetentionPolicySchema, type ExceptionCatalogue, type RetentionPolicy } from "./pContracts";
 
 export const ROUTES = ["customer-pdf", "erp-staging-csv", "registry-prep-json"] as const;
 export type Route = (typeof ROUTES)[number];
@@ -273,8 +275,14 @@ export interface ProfilePack {
   routes: Record<Route, RouteInfo>;
   /** Property → route → access, as the pack states it. Read only through `decide` in policy.ts. */
   matrix: Record<string, Record<Route, Access>>;
-  /** The pinned readiness rules and derived-disclosure rules (Cycle 3). */
-  policy: { readiness: ReadinessRules; derived: DerivedRules; limits: InputLimits };
+  /** The pinned readiness rules, derived-disclosure rules, limits, retention policy and exception catalogue. */
+  policy: {
+    readiness: ReadinessRules;
+    derived: DerivedRules;
+    limits: InputLimits;
+    retention: RetentionPolicy;
+    exceptions: ExceptionCatalogue;
+  };
 }
 
 /** Reads the actor/field matrix CSV: comment lines start with "#", then `property,<routes…>`, then one row per property. */
@@ -298,6 +306,16 @@ function parseMatrix(text: string, propertyIds: string[]): ProfilePack["matrix"]
   for (const id of Object.keys(matrix)) if (!propertyIds.includes(id)) throw new ProfileError(`actor/field matrix row ${id} is not a profile property`);
   return matrix;
 }
+
+/**
+ * Retention policies that came out of a verified pack load, with the digest of their canonical content at load time.
+ * The durable store activates a policy only if it is one of these objects and still has that content, so a weaker
+ * policy cannot be activated under a signed pin (C6-02).
+ */
+const LOADED_RETENTION = new WeakMap<object, string>();
+
+/** The canonical-content digest recorded when `policy` was loaded from a verified pack, or undefined if it was not. */
+export const loadedRetentionDigest = (policy: object): string | undefined => LOADED_RETENTION.get(policy);
 
 export async function sha256Hex(text: string): Promise<string> {
   const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
@@ -390,7 +408,10 @@ export async function loadProfilePack(source: PackSource): Promise<ProfilePack> 
   const readiness = pinnedDoc("policy", "READINESS-RULES@1.0.0", ReadinessDoc);
   const derived = pinnedDoc("policy", "DERIVED-RULES@1.0.0", DerivedDoc);
   const limits = pinnedDoc("policy", "LIMITS@1.0.0", LimitsDoc);
-  const policyRefs = ["READINESS-RULES@1.0.0", "DERIVED-RULES@1.0.0", "LIMITS@1.0.0"];
+  const retention = pinnedDoc("policy", "RETENTION@1.0.0", RetentionPolicySchema);
+  const exceptions = pinnedDoc("policy", "EXCEPTIONS@1.0.0", ExceptionCatalogueSchema);
+  LOADED_RETENTION.set(retention.doc, await sha256Hex(canonical(retention.doc)));
+  const policyRefs = ["READINESS-RULES@1.0.0", "DERIVED-RULES@1.0.0", "LIMITS@1.0.0", "RETENTION@1.0.0", "EXCEPTIONS@1.0.0"];
   for (const ref of profile.pins.policy) {
     if (!policyRefs.includes(ref)) throw new ProfileError(`${ref} is not a policy file this build reads`);
   }
@@ -463,6 +484,8 @@ export async function loadProfilePack(source: PackSource): Promise<ProfilePack> 
       readiness.file,
       derived.file,
       limits.file,
+      retention.file,
+      exceptions.file,
       ...codeLists.map(({ ref, path, digest }) => ({ ref, path, digest })),
     ],
     termCount: terms.doc.terms.length,
@@ -476,7 +499,13 @@ export async function loadProfilePack(source: PackSource): Promise<ProfilePack> 
     },
     routes,
     matrix,
-    policy: { readiness: readiness.doc, derived: derived.doc, limits: limits.doc.limits },
+    policy: {
+      readiness: readiness.doc,
+      derived: derived.doc,
+      limits: limits.doc.limits,
+      retention: retention.doc,
+      exceptions: exceptions.doc,
+    },
   };
 }
 

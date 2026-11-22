@@ -49,12 +49,29 @@ describe("configuration example", () => {
       .map((l) => [l.split("=")[0], l.slice(l.indexOf("=") + 1)]),
   );
 
-  it("names the four configuration points and holds no secret value", () => {
-    expect(Object.keys(assignments).sort()).toEqual(["BASE_PATH", "DPP_CONTRACT_PACK", "DPP_FIXTURE_PACK", "VITE_ENABLE_LLM"]);
+  it("names the configuration points and holds no secret value", () => {
+    expect(Object.keys(assignments).sort()).toEqual([
+      "BASE_PATH",
+      "DPP_ALLOWED_ORIGIN",
+      "DPP_CONTRACT_PACK",
+      "DPP_DB_PATH",
+      "DPP_FIXTURE_PACK",
+      "DPP_SERVER_HOST",
+      "DPP_SERVER_PORT",
+      "DPP_STATIC_DIR",
+      "VITE_API_BASE",
+      "VITE_ENABLE_LLM",
+    ]);
     expect(assignments.VITE_ENABLE_LLM).toBe("false");
     expect(assignments.DPP_CONTRACT_PACK).toBe("");
     expect(assignments.DPP_FIXTURE_PACK).toBe("");
     expect(assignments.BASE_PATH).toBe("/");
+    expect(assignments.VITE_API_BASE).toBe("");
+    expect(assignments.DPP_DB_PATH).toBe("data/dpp.sqlite");
+    expect(assignments.DPP_SERVER_PORT).toBe("4174");
+    expect(assignments.DPP_SERVER_HOST).toBe("127.0.0.1");
+    expect(assignments.DPP_ALLOWED_ORIGIN).toBe("");
+    expect(assignments.DPP_STATIC_DIR).toBe("");
   });
 
   it("is a template the secret scan allows", () => {

@@ -1,0 +1,109 @@
+# Representative customer data-quality exception catalogue. PUBLIC STAND-IN for the private N pack (decision D1-01, option b): synthetic, renumbered
+# identifiers, stand-in definitions and codes. Generated from the private specification; do not edit by hand.
+id: EXCEPTIONS
+version: 1.0.0
+status: FROZEN
+exceptions:
+  - id: EX-UTF8-BOM
+    category: encoding
+    source: erp
+    expected_stage: bytes
+    expected_outcome: rejected
+    expected_code: byte-order-mark
+    handling: Reject UTF-8 byte order mark at bytes stage; operator re-exports UTF-8 without BOM.
+    fixture: fixtures/p/erp-utf8-bom.csv
+  - id: EX-CRLF-LINE-ENDINGS
+    category: encoding
+    source: erp
+    expected_stage: semantics
+    expected_outcome: accepted
+    expected_code: accepted
+    handling: Accept Windows CRLF line endings cleanly and produce an identical record digest to LF.
+    fixture: fixtures/p/erp-crlf.csv
+  - id: EX-WHITESPACE-IN-ID
+    category: structure
+    source: erp
+    expected_stage: semantics
+    expected_outcome: rejected
+    expected_code: padded-identifier
+    handling: Reject identifiers or codes containing leading/trailing spaces or zero-width invisible characters.
+    fixture: fixtures/p/erp-padded-id.csv
+  - id: EX-DECIMAL-COMMA
+    category: numeric
+    source: erp
+    expected_stage: semantics
+    expected_outcome: rejected
+    expected_code: decimal-comma
+    handling: Reject European locale decimal comma; require dot decimal separator with no silent coercion.
+    fixture: fixtures/p/erp-decimal-comma.csv
+  - id: EX-NON-POSITIVE-MASS
+    category: numeric
+    source: erp
+    expected_stage: semantics
+    expected_outcome: rejected
+    expected_code: out-of-range
+    handling: Reject zero or negative physical mass or dimensions at semantics stage.
+    fixture: fixtures/p/erp-zero-mass.csv
+  - id: EX-PERCENT-OVER-100
+    category: numeric
+    source: erp
+    expected_stage: semantics
+    expected_outcome: rejected
+    expected_code: out-of-range
+    handling: Reject mass-share percentages outside 0..100 at semantics stage.
+    fixture: fixtures/p/erp-recycled-over-100.csv
+  - id: EX-UNKNOWN-SUPPLIER-CODE
+    category: code-list
+    source: erp
+    expected_stage: readiness
+    expected_outcome: held
+    expected_code: RR-UNKNOWN-CODE
+    handling: Keep verbatim unknown supplier code with unknown-code flag and hold ERP route until code list or value is updated.
+    fixture: fixtures/p/erp-unknown-supplier.csv
+  - id: EX-DUPLICATE-LAB-ID
+    category: structure
+    source: lab
+    expected_stage: semantics
+    expected_outcome: rejected
+    expected_code: duplicate-id
+    handling: Reject laboratory files that reuse an observation, footprint, evidence or text identifier.
+    fixture: fixtures/p/lab-duplicate-obs-id.json
+  - id: EX-UNATTACHED-LAB-BATCH
+    category: attachment
+    source: pair
+    expected_stage: semantics
+    expected_outcome: held
+    expected_code: unattached-lab
+    handling: Keep laboratory file unattached when its product model/batch does not match the ERP extract; never merge across batches.
+    fixture: fixtures/p/lab-unattached-batch.json
+  - id: EX-CONFLICTING-ALLOY
+    category: conflict
+    source: pair
+    expected_stage: readiness
+    expected_outcome: held
+    expected_code: RR-CHALLENGED
+    handling: Keep both conflicting ERP and laboratory alloy assertions, mark challenged, and hold affected routes until settled.
+    fixture: fixtures/p/lab-conflicting-alloy.json
+  - id: EX-MISSING-EVIDENCE-DIGEST
+    category: evidence
+    source: lab
+    expected_stage: readiness
+    expected_outcome: held
+    expected_code: RR-EVIDENCE-DIGEST
+    handling: Flag evidence lacking a SHA-256 digest and hold routes that rely on the evidence.
+    fixture: fixtures/p/lab-evidence-digest-missing.json
+  - id: EX-NON-WINANSI-TEXT
+    category: output
+    source: output
+    expected_stage: output
+    expected_outcome: held
+    expected_code: RR-PDF-CHARACTER
+    handling: Refuse Customer PDF when text contains characters outside WinAnsi, naming exact field and code point; keep ERP CSV unaffected.
+    fixture: fixtures/p/lab-non-winansi.json
+  - id: EX-UNCLASSIFIED-PAYLOAD
+    category: classification
+    source: evidence
+    expected_stage: retention
+    expected_outcome: default-restricted
+    expected_code: default-restricted
+    handling: Treat any unclassified dataset or payload as restricted under RETENTION@1.0.0 with default 10-year retention.

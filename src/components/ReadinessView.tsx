@@ -72,7 +72,7 @@ export function ReadinessView() {
             try {
               const loaded = await importSample(profile, READINESS_SAMPLES.find((x) => x.id === sample)!);
               await record([loaded.results.erp, loaded.results.lab].flatMap((r) => (r ? importEvents(r) : [])));
-              await saveImport(loaded.state);
+              await saveImport(loaded.state, undefined, loaded.inputs);
             } catch (e) {
               setLoadError(e instanceof Error ? e.message : String(e));
             }

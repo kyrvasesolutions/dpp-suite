@@ -1,0 +1,40 @@
+# Classification and retention profile. PUBLIC STAND-IN for the private N pack (decision D1-01, option b): synthetic, renumbered
+# identifiers, stand-in definitions and codes. Generated from the private specification; do not edit by hand.
+id: RETENTION
+version: 1.0.0
+status: FROZEN
+default_classification: restricted
+default_retention_days: 3650
+require_policy_before_ingest: true
+legal_hold_blocks_deletion: true
+datasets:
+  - dataset: erp-extract
+    classification: internal
+    retention_days: 3650
+    legal_hold_permitted: true
+    description: ERP product master and batch extract CSV inputs
+  - dataset: lab-assessment
+    classification: restricted
+    retention_days: 3650
+    legal_hold_permitted: true
+    description: Laboratory mechanical, chemical, and footprint JSON inputs
+  - dataset: central-record-snapshot
+    classification: restricted
+    retention_days: 3650
+    legal_hold_permitted: true
+    description: Append-only versioned central record snapshots with EV-5 time fields
+  - dataset: evidence-object
+    classification: restricted
+    retention_days: 3650
+    legal_hold_permitted: true
+    description: Content-addressed supporting evidence artefacts and integrity metadata
+  - dataset: release-manifest
+    classification: internal
+    retention_days: 3650
+    legal_hold_permitted: true
+    description: Release manifests and lineage records for generated outputs
+  - dataset: execution-log
+    classification: public
+    retention_days: 3650
+    legal_hold_permitted: true
+    description: Public-field execution and error log entries (no restricted values)

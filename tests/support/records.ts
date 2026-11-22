@@ -60,3 +60,19 @@ export const ACCEPTED_LAB = ["d03a-lab-assessment.json", "lab-conflicting-alloy.
 export const COMBINATIONS: Combination[] = [
   ...ACCEPTED_ERP.flatMap((erp) => [{ erp }, ...ACCEPTED_LAB.map((lab) => ({ erp, lab }))]),
 ];
+
+/**
+ * Loads a pack whose RETENTION policy was edited by `edit`, with the manifest digest of that one file updated so the
+ * pack still verifies. It stands for a pack signed with different retention content (a test of the store, not a bypass).
+ */
+export async function loadPackWithRetention(edit: (policy: any) => void): Promise<ProfilePack> {
+  const { parse, stringify } = await import("yaml");
+  const { createHash } = await import("node:crypto");
+  const source = readPack("contracts/n");
+  const path = "policy/RETENTION@1.0.0.yaml";
+  const doc = parse(source.files[path]!);
+  edit(doc);
+  source.files[path] = stringify(doc);
+  source.manifest.files[path] = createHash("sha256").update(source.files[path]!).digest("hex");
+  return loadProfilePack(source);
+}

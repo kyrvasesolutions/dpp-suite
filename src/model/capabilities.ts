@@ -11,7 +11,14 @@ export type CapabilityLabel = (typeof CAPABILITY_LABELS)[number];
 
 export interface Capability {
   /** The screen, as in the URL hash. */
-  id: "profile" | "import" | "record" | "readiness" | "outputs" | "requirements" | "prepare" | "validation" | "mapping" | "graph";
+  id: "profile" | "import" | "record" | "readiness" | "outputs" | "requirements" | "prepare" | "validation" | "mapping" | "graph" | "server";
+  /**
+   * The increment of the plan this entry labels: "N" (the narrow demonstrator, the default) or "P" (the durable server).
+   * A function carries one label per increment, so the P slice of a function the N screens already deliver is labelled
+   * on its own entry and never changes the N label. An entry with `screen: false` has no screen of its own.
+   */
+  increment?: "N" | "P";
+  screen?: false;
   name: string;
   label: CapabilityLabel;
   /**
@@ -114,6 +121,15 @@ export const CAPABILITIES: Capability[] = [
     extends: ["FUNC-076"],
     basis: "Shows how legislation reaches data requirements; no product record or outputs.",
   },
+  {
+    id: "server",
+    name: "Durable server (P)",
+    label: "untested",
+    increment: "P",
+    screen: false,
+    functions: ["FUNC-022", "FUNC-023", "FUNC-039", "FUNC-063", "FUNC-064", "FUNC-087", "FUNC-125"],
+    basis: "The P increment, present only when the DPP server serves the app: durable storage, classification and retention, staged idempotent imports with update receipts, and recoverable job state. Untested until the Cycle 6 exit; the N labels of the same functions on the screens above are unchanged.",
+  },
 ];
 
 export const capabilityOf = (id: Capability["id"]): Capability => {
@@ -122,8 +138,8 @@ export const capabilityOf = (id: Capability["id"]): Capability => {
   return found;
 };
 
-/** The label a plan function carries in this build: its own label if it has one, otherwise its screen's. */
-export const labelOfFunction = (func: string): CapabilityLabel | undefined => {
-  const screen = CAPABILITIES.find((c) => c.functions.includes(func));
+/** The label a plan function carries in one increment (default N): its own label if it has one, otherwise its entry's. */
+export const labelOfFunction = (func: string, increment: "N" | "P" = "N"): CapabilityLabel | undefined => {
+  const screen = CAPABILITIES.find((c) => (c.increment ?? "N") === increment && c.functions.includes(func));
   return screen ? (screen.functionLabels?.[func] ?? screen.label) : undefined;
 };

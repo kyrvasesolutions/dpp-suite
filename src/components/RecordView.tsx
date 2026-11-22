@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CorrectionError, correctRecord, diffSnapshots, REASON_MAX } from "../model/correction";
+import { CorrectionError, diffSnapshots, REASON_MAX } from "../model/correction";
 import { byRole, flagTextFor, sameAssertion, type Flag, type RecordValue } from "../model/ingress";
 import { correctionEvent } from "../model/log";
 import { generateRelease, type Release } from "../model/outputs/release";
@@ -30,7 +30,7 @@ const keyOf = (v: { property: string; member?: string; qualifier?: string }) => 
  * version with a reason, and shows the field-level difference between any two versions.
  */
 export function RecordView() {
-  const { profile, error, repository, state, imports, record: log, logVersion, selected, setSelected, repoVersion, touch } = useRecordStore();
+  const { profile, error, repository, state, imports, record: log, logVersion, selected, setSelected, repoVersion, touch, correct } = useRecordStore();
   const [records, setRecords] = useState<Array<{ model: string; batch: string }>>([]);
   const [history, setHistory] = useState<Snapshot[]>([]);
   const [version, setVersion] = useState<number | null>(null);
@@ -127,7 +127,7 @@ export function RecordView() {
   const save = async (v: RecordValue) => {
     if (!selected) return;
     try {
-      const made = await correctRecord(profile, repository, { model: selected.model, batch: selected.batch, property: v.property, member: v.member, qualifier: v.qualifier, raw: text, reason });
+      const made = await correct({ model: selected.model, batch: selected.batch, property: v.property, member: v.member, qualifier: v.qualifier, raw: text, reason });
       await log([await correctionEvent(made.model, made.batch, made.version)]);
       setEditing(null);
       setVersion(null);

@@ -260,6 +260,36 @@ if (profileFrozen) {
   for (const key of ["max_file_bytes", "max_json_depth", "job_deadline_ms", "max_erp_data_rows"]) {
     if (!Number.isInteger(limits?.limits?.[key]) || limits.limits[key] < 1) fail(`LIMITS: ${key} must be a positive whole number`);
   }
+  const retention = pinnedYaml("policy", policyRefs.find((r) => r.startsWith("RETENTION@")));
+  if (!retention) fail(`${profilePath}: pins.policy must pin RETENTION`);
+  if (retention) {
+    if (retention.default_classification !== "restricted") fail("RETENTION: default_classification must be restricted");
+    if (!Number.isInteger(retention.default_retention_days) || retention.default_retention_days < 1) fail("RETENTION: default_retention_days must be a positive whole number");
+    if (retention.require_policy_before_ingest !== true) fail("RETENTION: require_policy_before_ingest must be true");
+    if (retention.legal_hold_blocks_deletion !== true) fail("RETENTION: legal_hold_blocks_deletion must be true");
+    const datasets = retention.datasets ?? [];
+    if (!Array.isArray(datasets) || datasets.length < 1) fail("RETENTION: datasets must be a non-empty list");
+    const seenDatasets = new Set();
+    for (const d of datasets) {
+      if (!d.dataset || seenDatasets.has(d.dataset)) fail(`RETENTION: duplicate or missing dataset "${d.dataset}"`);
+      seenDatasets.add(d.dataset);
+      if (!["public", "internal", "restricted"].includes(d.classification)) fail(`RETENTION: ${d.dataset} has invalid classification "${d.classification}"`);
+      if (!Number.isInteger(d.retention_days) || d.retention_days < 1) fail(`RETENTION: ${d.dataset} retention_days must be a positive whole number`);
+      if (typeof d.legal_hold_permitted !== "boolean") fail(`RETENTION: ${d.dataset} legal_hold_permitted must be boolean`);
+    }
+  }
+  const exceptions = pinnedYaml("policy", policyRefs.find((r) => r.startsWith("EXCEPTIONS@")));
+  if (!exceptions) fail(`${profilePath}: pins.policy must pin EXCEPTIONS`);
+  if (exceptions) {
+    const exList = exceptions.exceptions ?? [];
+    if (!Array.isArray(exList) || exList.length < 1) fail("EXCEPTIONS: exceptions must be a non-empty list");
+    const seenEx = new Set();
+    for (const ex of exList) {
+      if (!/^EX-[A-Z0-9-]+$/.test(ex.id ?? "") || seenEx.has(ex.id)) fail(`EXCEPTIONS: invalid or duplicate id "${ex.id}"`);
+      seenEx.add(ex.id);
+      if (!ex.expected_code || !ex.handling) fail(`EXCEPTIONS: ${ex.id} needs expected_code and handling`);
+    }
+  }
   const unique = (what, list, pattern) => {
     const ids = list.map((r) => r.id);
     if (new Set(ids).size !== ids.length) fail(`${what}: duplicate rule IDs`);
