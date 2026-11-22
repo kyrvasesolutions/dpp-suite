@@ -4,7 +4,9 @@
  * Refuses ingest and evidence storage until a valid pinned `RETENTION@x.y.z` policy has been loaded
  * and activated in the store (`require_policy_before_ingest: true`).
  */
+import { CLASSIFICATIONS } from "../../src/model/classification";
 import {
+  EVIDENCE_FLOOR,
   RetentionPolicySchema,
   RetentionViolationError,
   type RetentionPolicy,
@@ -41,6 +43,17 @@ export class PolicyStore {
         `Invalid retention policy: ${parsed.error.issues[0]?.message ?? "schema mismatch"}`,
       );
     }
+    const evidenceRule = parsed.data.datasets.find((d) => d.dataset === EVIDENCE_FLOOR.dataset);
+    if (
+      !evidenceRule ||
+      CLASSIFICATIONS.indexOf(evidenceRule.classification) < CLASSIFICATIONS.indexOf(EVIDENCE_FLOOR.classification) ||
+      evidenceRule.retention_days < EVIDENCE_FLOOR.retentionDays
+    ) {
+      throw new RetentionViolationError(
+        "policy-invalid",
+        `A retention policy must keep ${EVIDENCE_FLOOR.dataset} at least ${EVIDENCE_FLOOR.classification} for at least ${EVIDENCE_FLOOR.retentionDays} days`,
+      );
+    }
     const pinnedDigest = loadedRetentionDigest(policy);
     if (!pinnedDigest) {
       throw new RetentionViolationError(
@@ -65,14 +78,16 @@ export class PolicyStore {
         );
       }
       this.db.run("UPDATE retention_policies SET active = 0 WHERE active = 1");
-      this.db.run(
-        `INSERT INTO retention_policies (policy_pin, policy_json, loaded_at, active)
-         VALUES (?, ?, ?, 1)
-         ON CONFLICT(policy_pin) DO UPDATE SET active = 1`,
-        pin,
-        serialized,
-        loadedAt,
-      );
+      if (held) {
+        this.db.run("UPDATE retention_policies SET active = 1 WHERE policy_pin = ?", pin);
+      } else {
+        this.db.run(
+          "INSERT INTO retention_policies (policy_pin, policy_json, loaded_at, active) VALUES (?, ?, ?, 1)",
+          pin,
+          serialized,
+          loadedAt,
+        );
+      }
     });
     return this.requireActive();
   }

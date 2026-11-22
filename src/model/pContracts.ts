@@ -51,6 +51,9 @@ export const RetentionPolicySchema = z
 
 export type RetentionPolicy = z.infer<typeof RetentionPolicySchema>;
 
+/** Defence in depth beneath the signed pack: whatever a policy says, evidence is at least restricted and kept at least this long. */
+export const EVIDENCE_FLOOR = { dataset: "evidence-object", classification: "restricted", retentionDays: 3650 } as const;
+
 export const ExceptionRuleSchema = z
   .object({
     id: z.string().min(1),

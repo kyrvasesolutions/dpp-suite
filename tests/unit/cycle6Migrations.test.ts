@@ -51,15 +51,15 @@ describe("Cycle 6 relational migrations, EV-5 schema, and append-only triggers",
       expect(currentMigrationVersion(db)).toBe(MIGRATIONS.length);
 
       new PolicyStore(db).activate(pack.policy.retention);
-      const runner = new ImportJobRunner(db, pack, undefined, { now: () => "2026-11-22T10:00:00.000Z" });
+      // stored when the server clock read 2000-01-01: every horizon has ended, so a rollback may drop the tables
+      const runner = new ImportJobRunner(db, pack, undefined, { now: () => "2000-01-01T00:00:00.000Z" });
       const outcome = await runner.runImportJob({
         idempotencyKey: "mig-seed-1",
         erp: { bytes: fixtureBytes("n", CLEAN.erp), name: CLEAN.erp, type: "text/csv" },
         lab: { bytes: fixtureBytes("n", CLEAN.lab), name: CLEAN.lab, type: "application/json" },
         timeEnvelope: {
-          observedAt: "2026-11-18T08:30:00Z",
-          declaredAt: "2026-11-19T14:00:00Z",
-          validFrom: "2026-11-22T10:00:00Z",
+          observedAt: "2000-01-01T00:00:00Z",
+          declaredAt: "2000-01-01T00:00:00Z",
         },
         evidence: [
           {
@@ -95,11 +95,9 @@ describe("Cycle 6 relational migrations, EV-5 schema, and append-only triggers",
         restored.close();
       }
 
-      // A full rollback would drop tables that still hold retained snapshots and evidence: it is refused, and
-      // everything stays exactly as it was
-      expect(() => migrateDown(db, 0)).toThrow(/Rollback of migration v1 refused/);
-      expect(computeStoreChecksum(db)).toBe(beforeChecksum);
-      expect(runner.evidenceStore.list()).toHaveLength(1);
+      // Nothing is retained any more (every horizon ended), so a full rollback is allowed and the schema comes back
+      migrateDown(db, 0);
+      expect(currentMigrationVersion(db)).toBe(0);
       migrateUp(db);
       expect(currentMigrationVersion(db)).toBe(MIGRATIONS.length);
     } finally {
@@ -263,6 +261,73 @@ describe("Cycle 6 relational migrations, EV-5 schema, and append-only triggers",
       new SqlEvidenceStore(db).setLegalHold(sha(bytes), false);
       migrateDown(db, 0);
       expect(currentMigrationVersion(db)).toBe(0);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("refuses every rollback that drops tables or their guard triggers while snapshots or evidence are still retained", async () => {
+    const db = new SqliteAdapter({ path: ":memory:" });
+    try {
+      migrateUp(db);
+      new PolicyStore(db).activate(pack.policy.retention);
+      const out = await new ImportJobRunner(db, pack).runImportJob({
+        idempotencyKey: "retained-rollback",
+        erp: { bytes: fixtureBytes("n", CLEAN.erp), name: CLEAN.erp, type: "text/csv" },
+        lab: { bytes: fixtureBytes("n", CLEAN.lab), name: CLEAN.lab, type: "application/json" },
+        evidence: [{ evidenceId: "EV-R", issuer: "Lab", revision: "1", recordKind: "report", contentBytes: new TextEncoder().encode("retained") }],
+      });
+      expect(out.ok).toBe(true);
+      const before = computeStoreChecksum(db);
+      // v5 would drop the no-replace guards, v3 the evidence guards, v1 the tables: each is refused, nothing changes
+      for (const target of [4, 2, 0]) {
+        expect(() => migrateDown(db, target), `down to ${target}`).toThrow(/refused: .* still holds/);
+        expect(computeStoreChecksum(db)).toBe(before);
+      }
+      expect(currentMigrationVersion(db)).toBe(MIGRATIONS.length);
+      expect(() => db.run("INSERT OR REPLACE INTO evidence_store SELECT * FROM evidence_store")).toThrow(/append-only/);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("refuses INSERT OR REPLACE, INSERT OR IGNORE and upserts over existing rows of every append-only table and of the retention policy", async () => {
+    const db = new SqliteAdapter({ path: ":memory:" });
+    try {
+      migrateUp(db);
+      new PolicyStore(db).activate(pack.policy.retention);
+      const out = await new ImportJobRunner(db, pack).runImportJob({
+        idempotencyKey: "replace-guard",
+        erp: { bytes: fixtureBytes("n", CLEAN.erp), name: CLEAN.erp, type: "text/csv" },
+        lab: { bytes: fixtureBytes("n", CLEAN.lab), name: CLEAN.lab, type: "application/json" },
+        evidence: [{ evidenceId: "EV-G", issuer: "Lab", revision: "1", recordKind: "report", contentBytes: new TextEncoder().encode("guarded") }],
+      });
+      expect(out.ok).toBe(true);
+      const before = computeStoreChecksum(db);
+      const keyCols: Record<string, string> = {
+        snapshots: "security_domain, model, batch, version",
+        evidence_store: "security_domain, sha256",
+        update_receipts: "receipt_id",
+        execution_log: "seq",
+        retention_policies: "policy_pin",
+      };
+      for (const table of Object.keys(keyCols)) {
+        // each statement re-inserts the table's own first row, which collides on its key
+        for (const verb of ["INSERT OR REPLACE", "INSERT OR IGNORE", "REPLACE", "INSERT OR ABORT"]) {
+          expect(() => db.run(`${verb} INTO ${table} SELECT * FROM ${table} LIMIT 1`), `${verb} ${table}`).toThrow(/append-only|immutable|cannot be replaced/);
+        }
+        const cols = db.query<{ name: string }>(`PRAGMA table_info(${table})`).map((c) => c.name);
+        const upsert = `INSERT INTO ${table} SELECT * FROM ${table} LIMIT 1 ON CONFLICT (${keyCols[table]}) DO UPDATE SET ${cols.find((c) => !keyCols[table]!.includes(c))} = excluded.${cols.find((c) => !keyCols[table]!.includes(c))}`;
+        expect(() => db.run(upsert), `upsert ${table}`).toThrow(/append-only|immutable|cannot be replaced/);
+      }
+      // job events: the same, by sequence
+      expect(() => db.run("INSERT OR REPLACE INTO job_events SELECT * FROM job_events LIMIT 1")).toThrow(/append-only/);
+      // a retention policy cannot be rewritten or deleted with raw SQL, but its active flag can change
+      expect(() => db.run("UPDATE retention_policies SET policy_json = '{}'")).toThrow(/immutable/);
+      expect(() => db.run("DELETE FROM retention_policies")).toThrow(/cannot be deleted/);
+      expect(() => db.run("UPDATE retention_policies SET active = 0")).not.toThrow();
+      db.run("UPDATE retention_policies SET active = 1");
+      expect(computeStoreChecksum(db)).toBe(before);
     } finally {
       db.close();
     }

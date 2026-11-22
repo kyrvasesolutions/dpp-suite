@@ -65,6 +65,8 @@ export class SqliteAdapter implements DbAdapter {
     const timeout = Math.max(100, Math.trunc(options.busyTimeoutMs ?? 5000));
     this.db.exec(`PRAGMA busy_timeout = ${timeout};`);
     this.db.exec("PRAGMA foreign_keys = ON;");
+    // Without this, the implicit DELETE of INSERT OR REPLACE fires no delete trigger and walks past every append-only guard.
+    this.db.exec("PRAGMA recursive_triggers = ON;");
     if (options.path !== ":memory:") {
       this.db.exec("PRAGMA journal_mode = WAL;");
       this.db.exec("PRAGMA synchronous = NORMAL;");

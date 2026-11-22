@@ -321,6 +321,73 @@ export const MIGRATIONS: readonly Migration[] = [
       ALTER TABLE import_jobs DROP COLUMN input_key;
     `,
   },
+  {
+    // INSERT OR REPLACE (and an upsert) would otherwise rewrite a row the append-only triggers protect: the insert of a
+    // key that already exists is refused on every append-only table, and retention policies cannot be changed or deleted.
+    version: 5,
+    name: "0005_no_replace_guards",
+    up: `
+      CREATE TRIGGER IF NOT EXISTS trg_snapshots_no_replace
+      BEFORE INSERT ON snapshots
+      WHEN EXISTS (SELECT 1 FROM snapshots WHERE security_domain = NEW.security_domain AND model = NEW.model AND batch = NEW.batch AND version = NEW.version)
+      BEGIN
+        SELECT RAISE(ABORT, 'snapshots are append-only; a version that exists cannot be replaced');
+      END;
+      CREATE TRIGGER IF NOT EXISTS trg_evidence_no_replace
+      BEFORE INSERT ON evidence_store
+      WHEN EXISTS (SELECT 1 FROM evidence_store WHERE security_domain = NEW.security_domain AND sha256 = NEW.sha256)
+      BEGIN
+        SELECT RAISE(ABORT, 'evidence is append-only; an object that exists cannot be replaced');
+      END;
+      CREATE TRIGGER IF NOT EXISTS trg_receipts_no_replace
+      BEFORE INSERT ON update_receipts
+      WHEN EXISTS (SELECT 1 FROM update_receipts WHERE receipt_id = NEW.receipt_id OR job_id = NEW.job_id)
+      BEGIN
+        SELECT RAISE(ABORT, 'update_receipts is append-only; a receipt that exists cannot be replaced');
+      END;
+      CREATE TRIGGER IF NOT EXISTS trg_execution_log_no_replace
+      BEFORE INSERT ON execution_log
+      WHEN EXISTS (SELECT 1 FROM execution_log WHERE seq = NEW.seq OR event_id = NEW.event_id)
+      BEGIN
+        SELECT RAISE(ABORT, 'execution_log is append-only; an entry that exists cannot be replaced');
+      END;
+      CREATE TRIGGER IF NOT EXISTS trg_job_events_no_replace
+      BEFORE INSERT ON job_events
+      WHEN EXISTS (SELECT 1 FROM job_events WHERE seq = NEW.seq)
+      BEGIN
+        SELECT RAISE(ABORT, 'job_events is append-only; an event that exists cannot be replaced');
+      END;
+      CREATE TRIGGER IF NOT EXISTS trg_retention_policies_no_replace
+      BEFORE INSERT ON retention_policies
+      WHEN EXISTS (SELECT 1 FROM retention_policies WHERE policy_pin = NEW.policy_pin)
+      BEGIN
+        SELECT RAISE(ABORT, 'a retention policy pin is immutable and cannot be replaced');
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_retention_policies_no_delete
+      BEFORE DELETE ON retention_policies
+      BEGIN
+        SELECT RAISE(ABORT, 'retention policies cannot be deleted');
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_retention_policies_immutable
+      BEFORE UPDATE ON retention_policies
+      WHEN NEW.policy_pin != OLD.policy_pin OR NEW.policy_json != OLD.policy_json OR NEW.loaded_at != OLD.loaded_at
+      BEGIN
+        SELECT RAISE(ABORT, 'retention policies are immutable; only the active flag may change');
+      END;
+    `,
+    down: `
+      DROP TRIGGER IF EXISTS trg_snapshots_no_replace;
+      DROP TRIGGER IF EXISTS trg_evidence_no_replace;
+      DROP TRIGGER IF EXISTS trg_receipts_no_replace;
+      DROP TRIGGER IF EXISTS trg_execution_log_no_replace;
+      DROP TRIGGER IF EXISTS trg_job_events_no_replace;
+      DROP TRIGGER IF EXISTS trg_retention_policies_no_replace;
+      DROP TRIGGER IF EXISTS trg_retention_policies_immutable;
+      DROP TRIGGER IF EXISTS trg_retention_policies_no_delete;
+    `,
+  },
 ];
 
 export function migrationChecksum(m: Migration): string {
@@ -395,10 +462,17 @@ const RETAINED_TABLES: Record<string, string> = {
   update_receipts: "retention_until > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
 };
 
-/** Refuses a rollback that would drop a table still holding retained or legal-hold evidence, snapshots or receipts. */
+/** Refuses a rollback that would drop a table, or the triggers that protect it, while it still holds retained or legal-hold evidence, snapshots or receipts. */
 function assertNothingRetainedIsDropped(db: DbAdapter, def: Migration): void {
+  const tables = new Set<string>();
+  for (const match of def.down.matchAll(/DROP\s+TRIGGER\s+(?:IF\s+EXISTS\s+)?([A-Za-z_]+)/gi)) {
+    const owner = db.get<{ tbl_name: string }>("SELECT tbl_name FROM sqlite_master WHERE type = 'trigger' AND name = ?", match[1]!);
+    if (owner) tables.add(owner.tbl_name);
+  }
   for (const match of def.down.matchAll(/DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?([A-Za-z_]+)/gi)) {
-    const table = match[1]!;
+    tables.add(match[1]!);
+  }
+  for (const table of tables) {
     const retained = RETAINED_TABLES[table];
     if (!retained) continue;
     const exists = db.get("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", table);

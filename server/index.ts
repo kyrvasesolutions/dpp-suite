@@ -17,6 +17,7 @@ import { migrateUp } from "./db/migrations";
 import { createDppServer } from "./http/api";
 import { ImportJobRunner } from "./jobs/importJobRunner";
 import { PolicyStore } from "./store/policyStore";
+import { verifyPackForServer } from "./verifyPack";
 
 async function main(): Promise<void> {
   const packDir = process.env.DPP_CONTRACT_PACK?.trim() || "contracts/n";
@@ -30,6 +31,8 @@ async function main(): Promise<void> {
   const staticDirRaw = process.env.DPP_STATIC_DIR?.trim() || "dist";
   const staticDir = existsSync(staticDirRaw) ? staticDirRaw : undefined;
 
+  // Frozen and signed, exactly as CI checks it, before anything is read from it or activated from it.
+  verifyPackForServer(packDir);
   const pack = await loadProfilePack(readPack(packDir));
   const db = new SqliteAdapter({ path: dbPath });
   const migrations = migrateUp(db);

@@ -161,11 +161,14 @@ function mapError(err: unknown): { status: number; code: string; message: string
 
 const LOOPBACK_HOSTS = ["127.0.0.1", "localhost", "[::1]"];
 
-/** The host name of a Host header value without its port (`[::1]:4174` becomes `[::1]`). */
+/**
+ * The host name of a Host header value, or "" when the value is not exactly `name` or `name:port` (a name of letters,
+ * digits, dots and hyphens, or a bracketed IPv6 literal): `127.0.0.1:4174@evil`, a path, a space or a second colon
+ * never reduce to a name that happens to be allowed.
+ */
 function hostName(header: string | undefined): string {
-  const h = (header ?? "").trim().toLowerCase();
-  if (h.startsWith("[")) return h.slice(0, h.indexOf("]") + 1);
-  return h.split(":")[0] ?? "";
+  const m = /^(\[[0-9a-f:]+\]|[a-z0-9.-]+)(?::(\d{1,5}))?$/i.exec((header ?? "").trim());
+  return m ? m[1]!.toLowerCase() : "";
 }
 
 const STATIC_TYPES: Record<string, string> = {
@@ -231,13 +234,14 @@ export function createDppServer(options: DppServerOptions): Server {
   const extraOrigins = (Array.isArray(options.allowedOrigin) ? options.allowedOrigin : options.allowedOrigin ? [options.allowedOrigin] : []).map((o) =>
     o.replace(/\/+$/, "").toLowerCase(),
   );
-  const allowedHosts = new Set([...LOOPBACK_HOSTS, ...(options.host ? [hostName(options.host)] : [])]);
+  const allowedHosts = new Set([...LOOPBACK_HOSTS, ...(options.host && hostName(options.host) ? [hostName(options.host)] : [])]);
 
   return createServer(async (req, res) => {
     const method = req.method ?? "GET";
 
     // DNS-rebinding guard: only the loopback names and the bound host are accepted as Host.
-    if (!allowedHosts.has(hostName(req.headers.host))) {
+    const hostHeaders = req.rawHeaders.filter((_, i) => i % 2 === 0 && _.toLowerCase() === "host").length;
+    if (hostHeaders !== 1 || !allowedHosts.has(hostName(req.headers.host))) {
       sendJson(res, 403, { code: "host-not-allowed", message: "The Host header is not one this server answers to" });
       return;
     }

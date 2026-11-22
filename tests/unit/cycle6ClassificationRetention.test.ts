@@ -384,10 +384,12 @@ describe("Cycle 6 retention policy activation accepts only the signed policy (C6
       const store = new PolicyStore(db);
       const weak = structuredClone(pack.policy.retention);
       weak.default_retention_days = 1;
-      weak.datasets.forEach((d) => {
-        d.classification = "public";
-        d.retention_days = 1;
-      });
+      weak.datasets
+        .filter((d) => d.dataset !== "evidence-object")
+        .forEach((d) => {
+          d.classification = "public";
+          d.retention_days = 1;
+        });
       expect(() => store.activate(weak)).toThrow(expect.objectContaining({ code: "policy-untrusted" }) as RetentionViolationError);
       const mutated = pack.policy.retention;
       const original = mutated.default_retention_days;
@@ -417,6 +419,25 @@ describe("Cycle 6 retention policy activation accepts only the signed policy (C6
       expect(store.requireActive().policy.default_retention_days).toBe(3650);
     } finally {
       db.close();
+    }
+  });
+
+  it("keeps a code-level floor under the signed policy: evidence at least restricted and at least 3650 days", async () => {
+    for (const edit of [
+      (p: any) => (p.datasets.find((d: any) => d.dataset === "evidence-object").classification = "public"),
+      (p: any) => (p.datasets.find((d: any) => d.dataset === "evidence-object").retention_days = 1),
+      (p: any) => (p.datasets = p.datasets.filter((d: any) => d.dataset !== "evidence-object")),
+    ]) {
+      const db = new SqliteAdapter({ path: ":memory:" });
+      try {
+        migrateUp(db);
+        // a pack that verifies (its manifest agrees with its files) still cannot activate a policy below the floor
+        const weak = await loadPackWithRetention(edit);
+        expect(() => new PolicyStore(db).activate(weak.policy.retention)).toThrow(expect.objectContaining({ code: "policy-invalid" }) as RetentionViolationError);
+        expect(new PolicyStore(db).getActive()).toBeNull();
+      } finally {
+        db.close();
+      }
     }
   });
 });

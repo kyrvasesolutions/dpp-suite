@@ -169,10 +169,27 @@ describe("Cycle 6 staged job crash injection and recovery (C6-04)", () => {
           idempotencyKey: `key-${crashPoint}`,
           erp: { bytes: fixtureBytes("n", CLEAN.erp), name: CLEAN.erp, type: "text/csv" },
           lab: { bytes: fixtureBytes("n", CLEAN.lab), name: CLEAN.lab, type: "application/json" },
+          evidence: [
+            {
+              evidenceId: "EV-STAGE-1",
+              issuer: "Demo Lab",
+              revision: "1",
+              recordKind: "test-report",
+              contentBytes: new TextEncoder().encode("staged-evidence-payload"),
+            },
+          ],
         });
         expect(replay.ok).toBe(true);
         expect(replay.receipt?.stored).toBe(false);
         expect(replay.receipt?.version).toBe(1);
+        // the same files with the evidence left out are a different payload for this key
+        await expect(
+          runner2.runImportJob({
+            idempotencyKey: `key-${crashPoint}`,
+            erp: { bytes: fixtureBytes("n", CLEAN.erp), name: CLEAN.erp, type: "text/csv" },
+            lab: { bytes: fixtureBytes("n", CLEAN.lab), name: CLEAN.lab, type: "application/json" },
+          }),
+        ).rejects.toMatchObject({ code: "idempotency-conflict" });
       } finally {
         db2.close();
       }

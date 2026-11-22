@@ -7,7 +7,7 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import http from "node:http";
-import type { AddressInfo } from "node:net";
+import net, { type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -148,6 +148,21 @@ describe("no raw write endpoints, and writes only from the right place", () => {
     for (const host of [`127.0.0.1:${port}`, `localhost:${port}`, "[::1]:4174"]) {
       expect((await raw("GET", "/api/health", { Host: host })).status, host).toBe(200);
     }
+  });
+
+  it("reads the Host header strictly: no userinfo, no junk, no second Host header", async () => {
+    for (const host of [`127.0.0.1:${port}@evil.example`, "127.0.0.1@evil.example", "evil.example@127.0.0.1", `127.0.0.1:${port}:1`, "127.0.0.1:99999999", "127.0.0.1 evil.example", "127.0.0.1/evil", "localhost,evil.example", "[::1]x"]) {
+      expect((await raw("GET", "/api/health", { Host: host })).status, JSON.stringify(host)).toBe(403);
+    }
+    // two Host headers, even two allowed ones, are refused (a raw socket: fetch cannot send them)
+    const status = await new Promise<number>((resolve, reject) => {
+      const sock = net.connect(port, "127.0.0.1", () => sock.write(`GET /api/health HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nHost: evil.example\r\nConnection: close\r\n\r\n`));
+      let data = "";
+      sock.on("data", (c) => (data += c));
+      sock.on("end", () => resolve(Number(/^HTTP\/1\.1 (\d+)/.exec(data)?.[1] ?? 0)));
+      sock.on("error", reject);
+    });
+    expect([400, 403]).toContain(status);
   });
 
   it("refuses cross-origin requests unless the origin is allowed, and sends CORS headers only to that one", async () => {

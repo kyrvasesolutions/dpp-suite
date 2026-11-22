@@ -135,7 +135,8 @@ class Cycle6ContractSimulator {
     const retention = resolveDatasetRetention(input.policy, dataset, input.statedClassification);
 
     // The key is claimed for the digests of what was sent, not for its size (C6-03)
-    const inputKey = `${sha(input.erpBytes)}:${input.labBytes ? sha(input.labBytes) : "-"}:${dataset}`;
+    // (evidence is part of the payload: the same files with other evidence are a different payload)
+    const inputKey = `${sha(input.erpBytes)}:${input.labBytes ? sha(input.labBytes) : "-"}:${dataset}${input.evidence ? `:${sha(input.evidence.contentBytes)}/${input.evidence.evidenceId}` : ""}`;
     const idemKey = `${domain}::${input.idempotencyKey}`;
     const existing = this.jobs.get(idemKey);
     if (existing) {
@@ -351,7 +352,61 @@ describe("Layer 2 Cycle 6 deterministic contract simulator (P01 + P02)", () => {
     expect(conflictReadiness.find((r) => r.route === "registry-prep-json")?.holds.some((h) => h.ruleId === "RR-STANDING-HOLD")).toBe(true);
   });
 
-  // The bridge manifest is generated locally from the private assessment records and is git-ignored, so CI has none.
+  /** Runs each failure fixture through the simulator and checks the outcome on the customer route. */
+  type Outcome = "rejected-at-ingress" | "route-hold-output-refused";
+  async function calibrate(classes: Array<{ id: string; fixture: string; outcome: Outcome }>) {
+    let rejected = 0;
+    let held = 0;
+    for (const fc of classes) {
+      const file = fc.fixture.replace(/^fixtures\/n\//, "");
+      if (!existsSync(fc.fixture) || file.includes("/") || !/\.(csv|json)$/.test(file)) continue; // route-contract and leakage classes are not import inputs
+      const bytes = fixtureBytes("n", file);
+      const isErp = file.endsWith(".csv");
+      const out = await new Cycle6ContractSimulator(pack).runImportJob({
+        ...base(),
+        idempotencyKey: `calibrate-${fc.id}`,
+        erpBytes: isErp ? bytes : CLEAN_ERP,
+        labBytes: isErp ? CLEAN_LAB : bytes,
+      });
+      if (fc.outcome === "rejected-at-ingress") {
+        expect(out.ok, fc.id).toBe(false);
+        expect(out.stage, fc.id).toBe("failed");
+        expect(["importErpCsv", "importLabJson"], fc.id).toContain(out.breakingFunction);
+        // the real pipeline ends the same way
+        expect((await realOutcome({ ...base(), erpBytes: isErp ? bytes : CLEAN_ERP, labBytes: isErp ? CLEAN_LAB : bytes })).ok, `${fc.id} (server)`).toBe(false);
+        rejected++;
+      } else {
+        expect(out.ok, fc.id).toBe(true);
+        expect(out.readiness?.find((r) => r.route === "customer-pdf")?.status, fc.id).toBe("on-hold");
+        held++;
+      }
+    }
+    return { rejected, held };
+  }
+
+  // Committed calibration: the public stand-in pack lists each failure class with its fixture and expected result, so a
+  // clean clone (which has no bridge manifest) still checks the simulator against the N failure classes.
+  it("is calibrated against the committed N failure-case catalogue: typed errors reject at ingress, holds end on-hold", async () => {
+    const { parse } = await import("yaml");
+    const { readdirSync } = await import("node:fs");
+    const classes = readdirSync("contracts/n/failure-cases")
+      .filter((f) => f.endsWith(".yaml"))
+      .map((f) => parse(readFileSync(`contracts/n/failure-cases/${f}`, "utf8")) as { id: string; fixture: string; expected: string });
+    expect(classes.length).toBe(18);
+    const sorted = classes.flatMap((c): Array<{ id: string; fixture: string; outcome: Outcome }> =>
+      /^(Typed error|Rejected at stage)/i.test(c.expected)
+        ? [{ id: c.id, fixture: c.fixture, outcome: "rejected-at-ingress" }]
+        : /^The routes?\b.*\bhold/i.test(c.expected)
+          ? [{ id: c.id, fixture: c.fixture, outcome: "route-hold-output-refused" }]
+          : [],
+    );
+    const { rejected, held } = await calibrate(sorted);
+    expect(rejected).toBeGreaterThanOrEqual(9);
+    expect(held).toBeGreaterThanOrEqual(2);
+  });
+
+  // The bridge manifest is generated locally from the private assessment records and is git-ignored, so a clean clone
+  // skips this test (the committed catalogue above still calibrates it).
   const BRIDGE = "docs/developer/n-contract-bridge.json";
   it.runIf(existsSync(BRIDGE))("is calibrated against the N bridge manifest: every failure class ends as the bridge says on the customer route", async () => {
     const bridge = JSON.parse(readFileSync(BRIDGE, "utf8")) as {
@@ -362,33 +417,11 @@ describe("Layer 2 Cycle 6 deterministic contract simulator (P01 + P02)", () => {
     expect(bridge.profile).toBe(`${pack.id}@${pack.version}`);
     expect(Object.keys(bridge.routes).sort()).toEqual(Object.keys(pack.routes).sort());
     expect(bridge.failureClasses.length).toBeGreaterThanOrEqual(18);
-
-    let rejected = 0;
-    let held = 0;
-    for (const fc of bridge.failureClasses) {
-      const file = fc.fixture.replace(/^fixtures\/n\//, "");
-      if (!existsSync(fc.fixture) || file.includes("/") || !/\.(csv|json)$/.test(file)) continue; // route-contract and leakage classes are not import inputs
-      const bytes = fixtureBytes("n", file);
-      const isErp = file.endsWith(".csv");
-      const sim = new Cycle6ContractSimulator(pack);
-      const out = await sim.runImportJob({
-        ...base(),
-        idempotencyKey: `bridge-${fc.id}`,
-        erpBytes: isErp ? bytes : CLEAN_ERP,
-        labBytes: isErp ? CLEAN_LAB : bytes,
-      });
-      const expected = fc.acceptanceByRoute["customer-pdf"]!.outcome;
-      if (expected === "rejected-at-ingress") {
-        expect(out.ok, fc.id).toBe(false);
-        expect(out.stage, fc.id).toBe("failed");
-        expect(["importErpCsv", "importLabJson"], fc.id).toContain(out.breakingFunction);
-        rejected++;
-      } else if (expected === "route-hold-output-refused") {
-        expect(out.ok, fc.id).toBe(true);
-        expect(out.readiness?.find((r) => r.route === "customer-pdf")?.status, fc.id).toBe("on-hold");
-        held++;
-      }
-    }
+    const classes = bridge.failureClasses.flatMap((fc): Array<{ id: string; fixture: string; outcome: Outcome }> => {
+      const outcome = fc.acceptanceByRoute["customer-pdf"]!.outcome;
+      return outcome === "rejected-at-ingress" || outcome === "route-hold-output-refused" ? [{ id: fc.id, fixture: fc.fixture, outcome }] : [];
+    });
+    const { rejected, held } = await calibrate(classes);
     expect(rejected).toBeGreaterThanOrEqual(8);
     expect(held).toBeGreaterThanOrEqual(4);
   });
@@ -413,17 +446,29 @@ describe("Layer 2 Cycle 6 deterministic contract simulator (P01 + P02)", () => {
     expect(first.provenance.map((p) => p.stage)).toEqual(["validated", "staged", "committed"]);
     expect(first.provenance.every((p) => p.securityDomain === DEFAULT_SECURITY_DOMAIN && p.model && p.batch)).toBe(true);
 
-    const replay = await sim.runImportJob({ ...base(), idempotencyKey: "batch-001-v1", dataset: "erp-extract", expectedVersion: 0 });
+    const replay = await sim.runImportJob({
+      ...base(),
+      idempotencyKey: "batch-001-v1",
+      dataset: "erp-extract",
+      expectedVersion: 0,
+      evidence: { evidenceId: "EV-SIM-01", issuer: "Test Lab", revision: "rev-1", recordKind: "test-certificate", contentBytes: new TextEncoder().encode("certificate") },
+    });
     expect(replay.ok).toBe(true);
     expect(replay.stored).toBe(false);
     expect(replay.version).toBe(1);
     const { model, batch } = first.provenance[0]!;
     expect(sim.snapshotCount(DEFAULT_SECURITY_DOMAIN, model, batch)).toBe(1);
 
+    // same key and files with other evidence is a different payload too, in the simulator and in the server
+    await expect(
+      sim.runImportJob({ ...base(), idempotencyKey: "batch-001-v1", dataset: "erp-extract", evidence: { evidenceId: "EV-OTHER", issuer: "Lab", revision: "1", recordKind: "cert", contentBytes: new TextEncoder().encode("other") } }),
+    ).rejects.toMatchObject({ code: "idempotency-conflict" });
+
     // same key, a different file of the SAME SIZE: the claim compares digests, not lengths
+    const evidenceOf = { evidenceId: "EV-SIM-01", issuer: "Test Lab", revision: "rev-1", recordKind: "test-certificate", contentBytes: new TextEncoder().encode("certificate") };
     const sameSize = new TextEncoder().encode(new TextDecoder().decode(CLEAN_ERP).replace(";62.0;", ";63.0;"));
     expect(sameSize.byteLength).toBe(CLEAN_ERP.byteLength);
-    await expect(sim.runImportJob({ ...base(), idempotencyKey: "batch-001-v1", dataset: "erp-extract", erpBytes: sameSize })).rejects.toMatchObject({ code: "idempotency-conflict" });
+    await expect(sim.runImportJob({ ...base(), idempotencyKey: "batch-001-v1", dataset: "erp-extract", erpBytes: sameSize, evidence: evidenceOf })).rejects.toMatchObject({ code: "idempotency-conflict" });
     expect(await realOutcome({ ...base(), erpBytes: sameSize })).toMatchObject({ ok: true }); // the same file under a NEW key is fine for the server too
   });
 
@@ -451,7 +496,7 @@ describe("Layer 2 Cycle 6 deterministic contract simulator (P01 + P02)", () => {
       const real = await realOutcome(c.input);
       expect(real.ok, `${c.name} (server)`).toBe(false);
       expect(real.code, `${c.name} (server)`).toBe(c.code);
-      if (real.stack) expect(real.stack, `${c.name} (server)`).toContain(c.fn);
+      expect(real.stack, `${c.name} (server): the breaking function is named in the stack`).toContain(c.fn);
     }
 
     // Inputs the contract does NOT require must not break anything: no envelope at all, no declared digest

@@ -134,12 +134,30 @@ describe("Cycle 6 Node 24 HTTP API and client adapter", () => {
       body: JSON.stringify({
         erp: { name: CLEAN.erp, type: "text/csv", base64: erpB64 },
         lab: { name: CLEAN.lab, type: "application/json", base64: labB64 },
+        evidence: [
+          {
+            evidenceId: "EV-API-1",
+            issuer: "Demo Lab",
+            revision: "1",
+            recordKind: "test-report",
+            declaredSha256: evSha,
+            base64: Buffer.from(evBytes).toString("base64"),
+          },
+        ],
       }),
     });
     expect(replayRes.status).toBe(200);
     const replay = (await replayRes.json()) as { receipt: { stored: boolean; version: number } };
     expect(replay.receipt.stored).toBe(false);
     expect(replay.receipt.version).toBe(1);
+
+    // 2b. The same key and files with the evidence dropped is a different payload: 409, nothing silently lost
+    const dropped = await fetch(`${baseUrl}/api/jobs/import`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Idempotency-Key": "api-import-1" },
+      body: JSON.stringify({ erp: { name: CLEAN.erp, type: "text/csv", base64: erpB64 }, lab: { name: CLEAN.lab, type: "application/json", base64: labB64 } }),
+    });
+    expect(dropped.status).toBe(409);
 
     // 3. Stale optimistic expectedVersion=0 with new key -> 409 Conflict
     const conflictRes = await fetch(`${baseUrl}/api/jobs/import`, {

@@ -10,6 +10,7 @@
  * `log.ts`) so there is zero fork between browser and server (S2-05).
  */
 import { randomUUID } from "node:crypto";
+import { canonical } from "../../src/model/canonical";
 import { carryCorrections } from "../../src/model/correction";
 import {
   buildRecords,
@@ -504,7 +505,25 @@ export class ImportJobRunner {
     const dataset = rank(requested) >= rank(derived) ? requested : derived;
     const erpSha = sha256Sync(req.erp.bytes);
     const labSha = req.lab ? sha256Sync(req.lab.bytes) : null;
-    const inputKey = `${erpSha}:${labSha ?? "-"}:${dataset}`;
+    // Evidence is part of what the key is claimed for: the same files with other evidence are a different payload (409).
+    const evidenceKey = (req.evidence ?? []).length
+      ? `:${sha256Sync(
+          canonical(
+            req.evidence!
+              .map((e) => ({
+                sha256: sha256Sync(e.contentBytes),
+                evidenceId: e.evidenceId,
+                issuer: e.issuer,
+                revision: e.revision,
+                recordKind: e.recordKind,
+                dataset: e.dataset ?? null,
+                legalHold: !!e.legalHold,
+              }))
+              .sort((a, b) => (a.sha256 + a.evidenceId).localeCompare(b.sha256 + b.evidenceId)),
+          ),
+        )}`
+      : "";
+    const inputKey = `${erpSha}:${labSha ?? "-"}:${dataset}${evidenceKey}`;
     const retention = resolveDatasetRetention(activePolicy.policy, dataset, req.statedClassification);
 
     const claimed = this.claim(req, {
