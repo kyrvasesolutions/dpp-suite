@@ -53,9 +53,14 @@ describe("configuration example", () => {
     expect(Object.keys(assignments).sort()).toEqual([
       "BASE_PATH",
       "DPP_ALLOWED_ORIGIN",
+      "DPP_AUTH_MODE",
       "DPP_CONTRACT_PACK",
       "DPP_DB_PATH",
+      "DPP_DEPLOYMENT_SURFACE",
       "DPP_FIXTURE_PACK",
+      "DPP_OIDC_AUDIENCE",
+      "DPP_OIDC_ISSUER",
+      "DPP_OIDC_JWKS_PATH",
       "DPP_SERVER_HOST",
       "DPP_SERVER_PORT",
       "DPP_STATIC_DIR",
@@ -72,6 +77,11 @@ describe("configuration example", () => {
     expect(assignments.DPP_SERVER_HOST).toBe("127.0.0.1");
     expect(assignments.DPP_ALLOWED_ORIGIN).toBe("");
     expect(assignments.DPP_STATIC_DIR).toBe("");
+    expect(assignments.DPP_AUTH_MODE).toBe("local-dev");
+    expect(assignments.DPP_DEPLOYMENT_SURFACE).toBe("all");
+    expect(assignments.DPP_OIDC_ISSUER).toBe("");
+    expect(assignments.DPP_OIDC_AUDIENCE).toBe("");
+    expect(assignments.DPP_OIDC_JWKS_PATH).toBe("");
   });
 
   it("is a template the secret scan allows", () => {

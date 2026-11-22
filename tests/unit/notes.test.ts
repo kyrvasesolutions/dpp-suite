@@ -35,7 +35,7 @@ describe.runIf(existsSync("docs/operator/install-notes.md"))("install notes", ()
 
   it("lists every configuration variable of config/env.example, and the declared limits", () => {
     const vars = read("config/env.example").split("\n").filter((l) => /^[A-Z_]+=/.test(l)).map((l) => l.split("=")[0]);
-    expect(vars).toHaveLength(10);
+    expect(vars).toHaveLength(15);
     for (const v of vars) expect(notes, v).toContain(`\`${v}\``);
     for (const limit of ["10 MiB", "**12**", "30 seconds", "one data row"]) expect(notes, limit).toContain(limit);
     const limits = read("contracts/n/policy/LIMITS@1.0.0.yaml");
@@ -146,6 +146,7 @@ describe("public ADRs and documentation boundaries", () => {
       "adr/0002-deterministic-contract-testing-and-three-layer-verification.md",
       "adr/0003-reimport-and-correction-semantics.md",
       "adr/0004-durable-relational-storage-and-staged-jobs.md",
+      "adr/0005-oidc-rbac-enforcement-and-controlled-config-releases.md",
     ]) {
       expect(existsSync(file), file).toBe(true);
     }
@@ -178,5 +179,35 @@ describe.runIf(existsSync("docs/operator/server-notes.md"))("server notes", () =
       expect(notes, text).toContain(text);
     }
     expect(notes).not.toMatch(/0\.0\.0\.0/);
+  });
+});
+
+describe.runIf(existsSync("docs/operator/identity-and-releases-notes.md"))("identity and configuration release notes", () => {
+  const notes = existsSync("docs/operator/identity-and-releases-notes.md") ? read("docs/operator/identity-and-releases-notes.md") : "";
+
+  it("mentions only files and folders that exist and documents all Cycle 7 environment variables", () => {
+    for (const p of paths(notes)) expect(existsSync(p), p).toBe(true);
+    for (const v of ["DPP_AUTH_MODE", "DPP_DEPLOYMENT_SURFACE", "DPP_OIDC_ISSUER", "DPP_OIDC_AUDIENCE", "DPP_OIDC_JWKS_PATH"]) {
+      expect(notes, v).toContain(v);
+    }
+  });
+
+  it("covers roles, immediate revocation, surface separation, four-eyes approval, rollback, and legal hold release", () => {
+    for (const token of [
+      "ACT-01",
+      "ACT-06",
+      "ADMIN",
+      "CURATOR",
+      "AUDITOR",
+      "grant_epoch",
+      "/api/customer/",
+      "/api/admin/users",
+      "/api/config-releases/propose",
+      "/api/config-releases/rollback",
+      "four-eyes",
+      "legal-hold",
+    ]) {
+      expect(notes, token).toContain(token);
+    }
   });
 });
