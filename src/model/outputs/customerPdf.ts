@@ -9,14 +9,18 @@
  *
  * Deterministic: the document is made with `updateMetadata: false` and no dates, so there is no producer or date
  * metadata, and the same inputs give the same bytes. Text is limited to the WinAnsi character set: a few characters
- * outside it get fixed ASCII spellings, and any other character stops the build of the file with a PdfTextError.
- * A route on hold is refused: no PDF is made.
+ * outside it get fixed ASCII spellings, and any other character refuses the file with the rule RR-PDF-CHARACTER, naming the
+ * value. A route on hold is refused too: no PDF is made.
+ *
+ * Nothing is ever cut off: every line of every text is drawn, the page is broken line by line (titles and sources
+ * included), and no line is drawn below the footer's top margin.
  */
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import { buildLineage } from "../lineage";
 import { byRole, type ProductRecord } from "../ingress";
 import type { ProfilePack, Route } from "../profile";
-import { prepare, type OutputValue } from "./items";
+import type { HoldReason } from "../readiness";
+import { prepare, RouteRefusedError, type OutputValue } from "./items";
 import { safeName, type OutputFile } from "./types";
 
 const ROUTE: Route = "customer-pdf";
@@ -88,14 +92,31 @@ export interface CustomerPdf extends OutputFile {
 export async function buildCustomerPdf(pack: ProfilePack, record: ProductRecord, context: { version: number } = { version: 1 }): Promise<CustomerPdf> {
   const prepared = prepare(pack, record, ROUTE);
   const { holds } = prepared;
-  // Every text that will be drawn goes through the guard first, so an unknown character stops the file before any layout
-  const items: OutputValue[] = prepared.items.map((it) => ({
-    ...it,
-    label: { en: winAnsi(it.label.en), de: winAnsi(it.label.de) },
-    text: winAnsi(it.text),
-    lines: it.lines.map((l) => ({ ...(l.key ? { key: winAnsi(l.key) } : {}), text: winAnsi(l.text) })),
-    sources: it.sources.map((x) => ({ role: x.role, position: winAnsi(x.position) })),
-  }));
+  // Every text that will be drawn goes through the guard first, so an unknown character refuses the file before any layout
+  const offenders: HoldReason[] = [];
+  let firstMessage = "";
+  const guard = (it: OutputValue): OutputValue => {
+    try {
+      return {
+        ...it,
+        label: { en: winAnsi(it.label.en), de: winAnsi(it.label.de) },
+        text: winAnsi(it.text),
+        lines: it.lines.map((l) => ({ ...(l.key ? { key: winAnsi(l.key) } : {}), text: winAnsi(l.text) })),
+        sources: it.sources.map((x) => ({ role: x.role, position: winAnsi(x.position) })),
+      };
+    } catch (e) {
+      if (!(e instanceof PdfTextError)) throw e;
+      firstMessage ||= `${it.label.en}: ${e.message}`;
+      const sources = it.refs.flatMap((r) => {
+        const a = record.values.find((v) => v.property === r.property && v.member === r.member && v.qualifier === r.qualifier)?.assertions[r.index];
+        return a ? [a.source] : [];
+      });
+      offenders.push({ ruleId: "RR-PDF-CHARACTER", property: it.property, sources });
+      return it;
+    }
+  };
+  const items = prepared.items.map(guard);
+  if (offenders.length) throw new RouteRefusedError(ROUTE, offenders, firstMessage);
   const mapping = pack.routes[ROUTE].output;
 
   const doc = await PDFDocument.create({ updateMetadata: false });
@@ -113,13 +134,15 @@ export async function buildCustomerPdf(pack: ProfilePack, record: ProductRecord,
     pages.push(page);
     y = A4.h - M.top;
   };
-  const text = (t: string, x: number, size: number, font: PDFFont, color = ink) => {
-    const safe = winAnsi(t);
-    page.drawText(safe, { x, y, size, font, color });
-    drawn.push(safe);
-  };
-  const need = (h: number) => {
+  type Part = { text: string; x: number; size: number; font: PDFFont; color?: ReturnType<typeof rgb> };
+  /** One row of the layout, `h` high. The page is broken here, before the row, so no row crosses the bottom margin. */
+  const row = (h: number, ...parts: Part[]) => {
     if (y - h < M.bottom) newPage();
+    y -= h;
+    for (const p of parts) {
+      page.drawText(p.text, { x: p.x, y, size: p.size, font: p.font, color: p.color ?? ink });
+      drawn.push(p.text);
+    }
   };
 
   newPage();
@@ -128,30 +151,27 @@ export async function buildCustomerPdf(pack: ProfilePack, record: ProductRecord,
     const it = items.find((i) => i.property === property && i.role === "field");
     return it?.present ? (it.lines.find((l) => l.key === "value")?.text ?? it.text) : "";
   };
-  text("Product data sheet", M.left, 9, regular, grey);
+  row(9, { text: "Product data sheet", x: M.left, size: 9, font: regular, color: grey });
   y -= 8;
   const nameLine = items.find((i) => i.property === byRole(pack, "name"))?.lines[0]?.text ?? "";
-  for (const l of wrap(winAnsi(nameLine || valueOf("model")), bold, 16, A4.w - M.left - M.right)) {
-    y -= 18;
-    text(l, M.left, 16, bold);
-  }
+  for (const l of wrap(nameLine || valueOf("model"), bold, 16, A4.w - M.left - M.right)) row(18, { text: l, x: M.left, size: 16, font: bold });
   y -= 16;
-  text(`Model ${winAnsi(valueOf("model"))}   Batch ${winAnsi(valueOf("batch"))}`, M.left, 9, regular, grey);
+  for (const l of wrap(`Model ${valueOf("model")}   Batch ${valueOf("batch")}`, regular, 9, A4.w - M.left - M.right)) row(11, { text: l, x: M.left, size: 9, font: regular, color: grey });
   y -= 8;
   page!.drawLine({ start: { x: M.left, y }, end: { x: A4.w - M.right, y }, thickness: 0.6, color: grey });
   y -= 6;
 
-  // Sections in the mapping's order, each with its heading
-  const titles = pdfSectionTitles(pack);
+  // Sections in the mapping's order, each with its heading, which is never left alone at the foot of a page
+  const titles = new Map(pack.routes[ROUTE].sections.map((s) => [s.id, { en: s.en, de: s.de }]));
   let current = "";
   items.forEach((it, i) => {
     const place = mapping[i].pdf!;
     if (place.section !== current) {
       current = place.section;
-      need(60);
-      y -= 24;
+      if (y - 60 < M.bottom) newPage();
+      y -= 12;
       const t = titles.get(current) ?? { en: current, de: current };
-      text(`${t.en} / ${t.de}`, M.left, 11, bold);
+      for (const l of wrap(`${t.en} / ${t.de}`, bold, 11, A4.w - M.left - M.right)) row(13, { text: l, x: M.left, size: 11, font: bold });
       y -= 4;
     }
     drawItem(it);
@@ -174,30 +194,28 @@ export async function buildCustomerPdf(pack: ProfilePack, record: ProductRecord,
     }
     const src = sourceLines.flatMap((l) => wrap(`Source: ${l}`, regular, 6.5, COL_W.value));
     const rows = Math.max(label.en.length, label.de.length, valueLines.length);
-    need(rows * 11 + src.length * 8 + 10);
-    y -= 13;
-    const top = y;
-    label.en.forEach((l, n) => ((y = top - n * 11), text(l, COL.en, 8.5, regular)));
-    label.de.forEach((l, n) => ((y = top - n * 11), text(l, COL.de, 8.5, regular, grey)));
-    valueLines.forEach((l, n) => ((y = top - n * 11), text(l, COL.value, 8.5, bold)));
-    y = top - (rows - 1) * 11;
-    src.forEach((l) => {
-      y -= 8;
-      text(l, COL.value, 6.5, regular, grey);
-    });
+    y -= 2;
+    for (let n = 0; n < rows; n++) {
+      const parts: Part[] = [];
+      if (label.en[n] !== undefined) parts.push({ text: label.en[n], x: COL.en, size: 8.5, font: regular });
+      if (label.de[n] !== undefined) parts.push({ text: label.de[n], x: COL.de, size: 8.5, font: regular, color: grey });
+      if (valueLines[n] !== undefined) parts.push({ text: valueLines[n], x: COL.value, size: 8.5, font: bold });
+      row(11, ...parts);
+    }
+    for (const l of src) row(8, { text: l, x: COL.value, size: 6.5, font: regular, color: grey });
     y -= 3;
   }
 
   // Footer on every page
   const total = pages.length;
-  pages.forEach((p, n) => {
-    page = p;
-    y = 44;
-    text(`Record version ${context.version}   Record digest ${record.digest}`, M.left, 6.5, regular, grey);
-    y = 35;
-    text(`Contract pack manifest digest ${pack.manifestDigest}`, M.left, 6.5, regular, grey);
-    y = 26;
-    text(`Page ${n + 1} of ${total}. Illustrative values are marked as such; this sheet is not a conformity statement.`, M.left, 6.5, regular, grey);
+  const foot = (n: number, at: number, text: string) => {
+    pages[n].drawText(text, { x: M.left, y: at, size: 6.5, font: regular, color: grey });
+    drawn.push(text);
+  };
+  pages.forEach((_, n) => {
+    foot(n, 44, `Record version ${context.version}   Record digest ${record.digest}`);
+    foot(n, 35, `Contract pack manifest digest ${pack.manifestDigest}`);
+    foot(n, 26, `Page ${n + 1} of ${total}. Illustrative values are marked as such; this sheet is not a conformity statement.`);
   });
 
   const bytes = await doc.save({ useObjectStreams: false, addDefaultPage: false });
@@ -212,9 +230,4 @@ export async function buildCustomerPdf(pack: ProfilePack, record: ProductRecord,
     lineage: buildLineage(pack, record, ROUTE, items),
     drawn,
   };
-}
-
-/** The section titles of the layout, from the pinned mapping's section IDs. */
-function pdfSectionTitles(pack: ProfilePack): Map<string, { en: string; de: string }> {
-  return new Map(pack.routes[ROUTE].sections.map((s) => [s.id, { en: s.en, de: s.de }]));
 }

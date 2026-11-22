@@ -16,7 +16,7 @@ import { RouteRefusedError } from "../../src/model/outputs/items";
 import { buildRegistryJson } from "../../src/model/outputs/registryJson";
 import type { ProfilePack } from "../../src/model/profile";
 import { assertNoLeakText } from "../support/leak";
-import { pdfText } from "../support/pdfText";
+import { pdfItems, pdfText } from "../support/pdfText";
 import { CLEAN, COMBINATIONS, loadPack, propertyBySlug, recordFor, text as fixtureText } from "../support/records";
 import { releaseFor } from "../support/release";
 
@@ -91,9 +91,32 @@ describe("customer PDF", () => {
     expect(() => winAnsi("emoji 🙂")).toThrow(/U\+1F642/);
   });
 
-  it("stops with a typed error when a value holds a character the font lacks", async () => {
+  it("refuses the file with the rule RR-PDF-CHARACTER, naming the value, when a value holds a character the font lacks", async () => {
     const record = await recordFor(pack, { ...CLEAN, editLab: (d) => (d.footprints[0].calculated_by = "Лаборатория") });
-    await expect(buildCustomerPdf(pack, record)).rejects.toThrow(PdfTextError);
+    const error = await buildCustomerPdf(pack, record).catch((e) => e);
+    expect(error).toBeInstanceOf(RouteRefusedError);
+    expect(error.holds).toHaveLength(1);
+    expect(error.holds[0]).toMatchObject({ ruleId: "RR-PDF-CHARACTER", property: propertyBySlug(pack, "carbon-footprint") });
+    expect(error.holds[0].sources[0].location).toContain("/footprints/0/value");
+    expect(error.message).toContain("U+041B");
+    expect(pack.policy.readiness.rules.some((r) => r.id === "RR-PDF-CHARACTER")).toBe(true);
+  });
+
+  it("lists the refusal with its rule in the release manifest, and the other outputs are still made", async () => {
+    const { release } = await releaseFor({ ...CLEAN, editLab: (d) => (d.footprints[0].calculated_by = "Лаборатория") }, pack);
+    const entry = release.manifest.outputs.find((o) => o.route === "customer-pdf")!;
+    expect(entry).toMatchObject({ fileName: null, sha256: null, status: "hold" });
+    expect(entry.holds.map((h) => h.rule)).toEqual(["RR-PDF-CHARACTER"]);
+    expect(release.files.map((f) => f.route).sort()).toEqual(["erp-staging-csv", "registry-prep-json"]);
+  });
+
+  it("prints ≤ as <= and never as HTML text", async () => {
+    const record = await recordFor(pack, { ...CLEAN, editLab: (d) => (d.footprints[0].method = "ISO 14067 (≤ 5 % cut-off, ≥ 95 % covered, CO₂e)") });
+    const t = await pdfText((await buildCustomerPdf(pack, record)).bytes);
+    expect(t).toContain("<= 5 % cut-off");
+    expect(t).toContain(">= 95 % covered");
+    expect(t).toContain("CO2e");
+    expect(t).not.toMatch(/&lt;|&gt;|&amp;/);
   });
 });
 
@@ -223,5 +246,55 @@ describe("no network", () => {
       vi.unstubAllGlobals();
       fetchSpy.mockRestore();
     }
+  });
+});
+
+describe("long texts are never cut off or drawn over the footer", () => {
+  const FOOTER_TOP = 60; // the footer's three lines sit at y = 26, 35 and 44; nothing else may be drawn below this
+  const sentences = (n: number) => Array.from({ length: n }, (_, i) => `Sentence number ${i + 1} describes the rolled sheet.`);
+
+  const check = async (c: Parameters<typeof recordFor>[1], expectAll: string[], mustHaveSources: string[]) => {
+    const record = await recordFor(pack, c);
+    const f = await buildCustomerPdf(pack, record);
+    const items = await pdfItems(f.bytes);
+    const footer = items.filter((i) => i.y < FOOTER_TOP);
+    // only the footer is drawn low on the page: three lines per page at fixed heights, and nothing between them and the text above
+    const pageCount = new Set(items.map((i) => i.page)).size;
+    expect(footer.every((i) => [44, 35, 26].includes(Math.round(i.y)))).toBe(true);
+    expect(new Set(footer.map((i) => `${i.page}|${Math.round(i.y)}`)).size).toBe(3 * pageCount);
+    expect(Math.min(...items.filter((i) => i.y >= FOOTER_TOP).map((i) => i.y))).toBeGreaterThanOrEqual(70);
+    const body = items.filter((i) => i.y >= FOOTER_TOP).map((i) => i.str).join(" ").replace(/\s+/g, " ");
+    for (const s of expectAll) expect(body.includes(s), s).toBe(true);
+    for (const s of mustHaveSources) expect(body).toContain(s);
+    return { f, pages: pageCount };
+  };
+
+  it("draws all 400 sentences of a 10,000-character narrative and both of its source lines, over several pages", async () => {
+    const all = sentences(400);
+    expect(all.join(" ").length).toBeGreaterThan(10_000);
+    const { pages } = await check(
+      { ...CLEAN, editLab: (d) => (d.texts[0].text = all.join(" ")) },
+      all,
+      ["Source: Laboratory file, /texts/0/text", "Source: Laboratory file, /texts/1/text"],
+    );
+    expect(pages).toBeGreaterThan(3);
+  });
+
+  it("draws an 800-word product name in full, in the title and in its item, without touching the footer", async () => {
+    const words = Array.from({ length: 800 }, (_, i) => `Wort${i + 1}`);
+    const name = words.join(" ");
+    const { f } = await check(
+      { ...CLEAN, editErp: (csv) => csv.replace("Aluminiumblech EN AW-5754 H111, 2,0 mm", name) },
+      [name],
+      ["Source: ERP extract, row 2, column product_name_de"],
+    );
+    const t = await pdfText(f.bytes);
+    // the title and the item both carry it
+    expect(t.split("Wort800").length - 1).toBeGreaterThanOrEqual(2);
+  });
+
+  it("keeps every line above the bottom margin when many values fill the pages", async () => {
+    const { pages } = await check({ ...CLEAN, editLab: (d) => (d.texts[1].text = sentences(120).join(" ")) }, sentences(120), []);
+    expect(pages).toBeGreaterThanOrEqual(2);
   });
 });

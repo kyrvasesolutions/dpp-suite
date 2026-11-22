@@ -20,6 +20,8 @@ rules:
     text: Required evidence lacks its digest, so the value it supports is insufficiently assured.
   - id: RR-DERIVED-UNDETERMINABLE
     text: The route may only receive a derived statement for this property, and the limits table cannot decide it for this alloy and temper.
+  - id: RR-PDF-CHARACTER
+    text: A value holds a character that the standard PDF font cannot draw, so no customer PDF is made until the source text is corrected.
   - id: RR-STANDING-HOLD
     text: "The route itself is on hold: no applicable external contract has been established."
 checks:
