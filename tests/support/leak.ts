@@ -12,7 +12,12 @@ const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
  * whole word, and text that a permitted value states too is not counted, so "228" is not found inside "2284" or "H111" inside "PM-5754-H111-2000".
  */
 export function assertNoLeak(projection: Projection, record: ProductRecord, pack: ProfilePack): void {
-  const json = JSON.stringify(projection);
+  assertNoLeakText(JSON.stringify(projection), projection.route, record, pack);
+}
+
+/** The same check over any generated text (a CSV, a JSON file, extracted PDF text) made for `route`. */
+export function assertNoLeakText(json: string, route: Projection["route"], record: ProductRecord, pack: ProfilePack): void {
+  const projection = { route };
   // Text that a permitted value states too (two properties can both say "1.0") cannot show that a denied one leaked.
   // The evidence identifier in a value's details is left out of this pool: it is the evidence property's own value.
   const permitted = new Set(
