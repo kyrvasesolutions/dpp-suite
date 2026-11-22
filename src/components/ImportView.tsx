@@ -136,9 +136,9 @@ export function ImportView() {
       {(results.erp || results.lab) && !complete(results) && notes.length === 0 && (
         <div className="banner info" data-testid="pair-pending">
           <span>
-            {results.erp && !results.lab
+            {results.erp?.ok && !results.lab
               ? "Waiting for the laboratory file: nothing is stored until both files are in and accepted."
-              : results.lab && !results.erp
+              : results.lab?.ok && !results.erp
                 ? "Waiting for the ERP extract: nothing is stored until both files are in and accepted."
                 : results.erp?.ok && results.lab?.ok
                   ? "The laboratory file is about another product model or batch than the ERP extract, so it is not attached and nothing is stored."

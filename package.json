@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:server": "vite build --config vite.server.config.ts",
+    "server": "npm run build:server && node dist-server/server.mjs",
     "typecheck": "tsc",
     "preview": "vite preview",
     "generate-icons": "pwa-assets-generator",

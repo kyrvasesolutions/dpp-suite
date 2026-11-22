@@ -10,6 +10,7 @@ import { ExecutionLog, IdbLogStore, MemoryLogStore, type LogInput } from "./log"
 import { loadProfilePack, type ProfilePack } from "./profile";
 import { storeImport } from "./correction";
 import { IdbRepository, MemoryRepository, type RecordRepository, type Snapshot } from "./recordRepository";
+import { RemoteLogStore, RemoteRecordRepository } from "./remoteStore";
 
 /** What storing one imported record did: a new version, or nothing because the latest version already holds it. */
 export interface StoredNote {
@@ -75,9 +76,16 @@ export function RecordStoreProvider({ children }: { children: ReactNode }) {
     loadProfilePack(pack).then(setProfile, (e: unknown) => setError(e instanceof Error ? e.message : String(e)));
   }, []);
 
-  // IndexedDB where the browser has it; otherwise the central record lives for this page session only
-  const repository = useMemo<RecordRepository>(() => (typeof indexedDB === "undefined" ? new MemoryRepository() : new IdbRepository()), []);
-  const log = useMemo(() => new ExecutionLog(typeof indexedDB === "undefined" ? new MemoryLogStore() : new IdbLogStore()), []);
+  // Optional Node 24 API backend when VITE_API_BASE is configured; otherwise IndexedDB (or memory fallback)
+  const apiBase = (import.meta.env.VITE_API_BASE as string | undefined)?.trim() || "";
+  const repository = useMemo<RecordRepository>(
+    () => (apiBase ? new RemoteRecordRepository(apiBase) : typeof indexedDB === "undefined" ? new MemoryRepository() : new IdbRepository()),
+    [apiBase],
+  );
+  const log = useMemo(
+    () => new ExecutionLog(apiBase ? new RemoteLogStore(apiBase) : typeof indexedDB === "undefined" ? new MemoryLogStore() : new IdbLogStore()),
+    [apiBase],
+  );
   const [logVersion, setLogVersion] = useState(0);
   const record = useCallback(
     async (events: LogInput[] | Promise<LogInput[]>) => {

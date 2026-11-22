@@ -56,6 +56,9 @@ const bundleText = readdirSync(join(DIST, "assets"))
 for (const marker of ["GlobalWorkerOptions", "PDFWorker", "pdfjsLib", "getTextContent"]) {
   if (bundleText.includes(marker)) errors.push(`the bundle contains "${marker}": pdfjs-dist is a test-only dependency and must not be bundled`);
 }
+for (const marker of ["node:sqlite", "DatabaseSync", "ImportJobRunner"]) {
+  if (bundleText.includes(marker)) errors.push(`the bundle contains "${marker}": server-only storage code must not enter the browser bundle`);
+}
 for (const marker of ["PDFDocument", "Helvetica"]) {
   if (!bundleText.includes(marker)) errors.push(`the bundle lacks "${marker}": pdf-lib should be bundled for the customer PDF`);
 }
