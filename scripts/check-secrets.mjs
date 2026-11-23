@@ -7,10 +7,13 @@
  * file (only `.env.example`-style templates and config/env.example are allowed). It prints the file, the line and the
  * kind of hit, never the secret itself.
  *
- *   node scripts/check-secrets.mjs [--root <dir>]
+ * The build output (dist/ and dist-server/) is scanned too when it exists (D8-06, threat T18), since a key can enter
+ * a bundle without being in a tracked file. With --build only the build output is scanned and it must exist.
+ *
+ *   node scripts/check-secrets.mjs [--root <dir>] [--build]
  */
 import { execFileSync } from "node:child_process";
-import { readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 
 const PATTERNS = [
@@ -29,9 +32,33 @@ const MAX_BYTES = 5 * 1024 * 1024;
 const rootAt = process.argv.indexOf("--root");
 const root = rootAt > 0 ? process.argv[rootAt + 1] : process.cwd();
 
-const listed = execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })
-  .split("\0")
-  .filter(Boolean);
+const buildOnly = process.argv.includes("--build");
+const BUILD_DIRS = ["dist", "dist-server"];
+const MAX_BUILD_BYTES = 64 * 1024 * 1024;
+
+function walk(dir, base, out) {
+  for (const entry of readdirSync(join(root, dir, base), { withFileTypes: true })) {
+    const rel = join(base, entry.name);
+    if (entry.isDirectory()) walk(dir, rel, out);
+    else if (entry.isFile()) out.push(join(dir, rel));
+  }
+}
+
+const present = BUILD_DIRS.filter((d) => existsSync(join(root, d)));
+const buildFiles = [];
+for (const d of present) walk(d, "", buildFiles);
+if (buildOnly && present.length === 0) {
+  console.error("check-secrets: --build was given but neither dist/ nor dist-server/ exists; build first");
+  process.exit(1);
+}
+
+const tracked = buildOnly
+  ? []
+  : execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })
+      .split("\0")
+      .filter(Boolean);
+const listed = [...new Set([...tracked, ...buildFiles])];
+const isBuild = new Set(buildFiles);
 
 const hits = [];
 for (const file of listed) {
@@ -43,7 +70,7 @@ for (const file of listed) {
   } catch {
     continue; // listed but deleted from the working tree
   }
-  if (size > MAX_BYTES) continue;
+  if (size > (isBuild.has(file) ? MAX_BUILD_BYTES : MAX_BYTES)) continue;
   const bytes = readFileSync(join(root, file));
   if (bytes.subarray(0, 8000).includes(0)) continue; // binary
   const lines = bytes.toString("utf8").split("\n");
@@ -57,4 +84,4 @@ if (hits.length) {
   for (const h of hits) console.error(`  ${h}`);
   process.exit(1);
 }
-console.log(`check-secrets: ${listed.length} files scanned, no secrets found`);
+console.log(`check-secrets: ${listed.length} files scanned${present.length ? ` (including ${present.join(" and ")})` : ""}, no secrets found`);

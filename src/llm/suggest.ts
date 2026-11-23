@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Project } from "../model/project";
+import { probeServer } from "../model/remoteStore";
 import { buildParentMap, pathNames } from "../model/tree";
 import type { Suggestion, TreeData } from "../model/types";
 
@@ -53,6 +54,14 @@ Suggest new mappings from product_structure ids to data_categories ids.`;
 
 export class LlmError extends Error {}
 
+/** Raised, with no network call to any LLM, when the app is connected to the durable server (D8-05, C8-05). */
+export class LlmDisabledError extends LlmError {
+  override name = "LlmDisabledError";
+  constructor() {
+    super("Claude suggestions are not available while the app is connected to the DPP server: customer data never leaves it.");
+  }
+}
+
 /**
  * Claude suggestions send product structure to an external API. The narrow demonstrator allows no
  * network egress (LEAN-DEF-13, criterion C0-07), so they are off unless a build sets VITE_ENABLE_LLM=true.
@@ -67,6 +76,9 @@ const loadSdk = LLM_ENABLED
 
 /** Asks Claude for new mappings. Runs in the browser with the user's own key. */
 export async function suggestMappings(apiKey: string, project: Project, signal?: AbortSignal): Promise<Suggestion[]> {
+  // Runtime refusal, whatever VITE_ENABLE_LLM says: the same-origin health probe is the app's own server-mode test
+  // (recordStore.tsx). The only request made here is to that same origin, never to an LLM host.
+  if (await probeServer("")) throw new LlmDisabledError();
   if (!loadSdk) throw new LlmError("Claude suggestions are turned off in this build.");
   const [{ default: Anthropic }, { betaZodOutputFormat }] = await loadSdk();
   const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });

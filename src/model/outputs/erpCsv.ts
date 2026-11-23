@@ -6,7 +6,7 @@
  * the source wrote them. The route must not be on hold: otherwise `RouteRefusedError` says why and no file is made.
  *
  * Formula-safe cells: a text cell that starts with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading
- * apostrophe, so a spreadsheet shows it as text. A cell that holds a number as the source wrote it is never changed.
+ * apostrophe, so a spreadsheet shows it as text. A cell flagged numeric that matches a strict number pattern is never changed; any other cell is treated as text, also full-width variants of the four signs.
  * The count of changed cells goes to the release manifest.
  */
 import { utf8 } from "../canonical";
@@ -18,11 +18,13 @@ import { safeName, type OutputFile } from "./types";
 
 const ROUTE: Route = "erp-staging-csv";
 const DELIMITER = ";";
-const DANGEROUS = /^[=+\-@\t\r]/;
+const DANGEROUS = /^[=+\-@\t\r\uFF1D\uFF0B\uFF0D\uFF20]/;
+/** A cell flagged numeric is left alone only when it is strictly a number; anything else is treated as text (T04). */
+const STRICT_NUMBER = /^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$/;
 
 /** The cell as it goes into the file: formula-safe first, then quoted if it holds a delimiter, a quote or a line break. */
 export function csvCell(text: string, numeric: boolean): { cell: string; prefixed: boolean } {
-  const prefixed = !numeric && DANGEROUS.test(text);
+  const prefixed = DANGEROUS.test(text) && !(numeric && STRICT_NUMBER.test(text));
   const safe = prefixed ? `'${text}` : text;
   return { cell: /[;"\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe, prefixed };
 }

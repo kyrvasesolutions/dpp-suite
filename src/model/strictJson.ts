@@ -32,14 +32,20 @@ export interface ParseOptions {
   maxDepth?: number;
   /** Most value nodes allowed in one document (every object, array, string, number, boolean and null counts once). Exceeding it throws `too-many-nodes`. */
   maxNodes?: number;
+  /** Longest string value or key allowed, in UTF-16 code units. Exceeding it throws `syntax`. Default: unbounded (byte caps apply first). */
+  maxStringLength?: number;
   /** Called for every value, so the caller can enforce a deadline. */
   tick?: () => void;
 }
 
+/** Applied when the caller sets no `maxDepth`, so an unbounded hostile nesting cannot overflow the stack (T01). */
+export const DEFAULT_MAX_DEPTH = 1000;
+
 export function parseStrictJson(text: string, options: ParseOptions = {}): JsonValue {
   let i = 0;
   let depth = 0;
-  const maxDepth = options.maxDepth ?? Number.POSITIVE_INFINITY;
+  const maxDepth = options.maxDepth ?? DEFAULT_MAX_DEPTH;
+  const maxString = options.maxStringLength ?? Number.POSITIVE_INFINITY;
   const maxNodes = options.maxNodes ?? Number.POSITIVE_INFINITY;
   let nodes = 0;
   const enter = (path: string) => {
@@ -58,31 +64,64 @@ export function parseStrictJson(text: string, options: ParseOptions = {}): JsonV
     else fail(`expected ${word}`, path);
   };
 
+  const SIMPLE: Record<string, string> = Object.assign(Object.create(null) as Record<string, string>, {
+    '"': '"',
+    "\\": "\\",
+    "/": "/",
+    b: "\b",
+    f: "\f",
+    n: "\n",
+    r: "\r",
+    t: "\t",
+  });
+  const isHigh = (u: number) => u >= 0xd800 && u <= 0xdbff;
+  const isLow = (u: number) => u >= 0xdc00 && u <= 0xdfff;
+  const hex4 = (at: number): number => (/^[0-9a-fA-F]{4}$/.test(text.slice(at, at + 4)) ? parseInt(text.slice(at, at + 4), 16) : -1);
+
   function string(path: string): string {
     i++; // opening quote
     let out = "";
     for (;;) {
       if (i >= text.length) fail("unterminated string", path);
-      const c = text[i];
+      const c = text[i]!;
       if (c === '"') {
         i++;
         return out;
       }
       if (c < " ") fail("control character in string", path);
       if (c === "\\") {
-        const e = text[i + 1];
-        const simple: Record<string, string> = { '"': '"', "\\": "\\", "/": "/", b: "\b", f: "\f", n: "\n", r: "\r", t: "\t" };
-        if (e in simple) {
-          out += simple[e];
+        const e = text[i + 1] ?? "";
+        if (e in SIMPLE) {
+          out += SIMPLE[e];
           i += 2;
-        } else if (e === "u" && /^[0-9a-fA-F]{4}$/.test(text.slice(i + 2, i + 6))) {
-          out += String.fromCharCode(parseInt(text.slice(i + 2, i + 6), 16));
-          i += 6;
+        } else if (e === "u") {
+          const unit = hex4(i + 2);
+          if (unit < 0) fail("invalid escape", path);
+          if (isLow(unit)) fail("unpaired surrogate escape", path);
+          if (isHigh(unit)) {
+            // a high surrogate must be followed by a \uDC00-\uDFFF escape; a lone surrogate cannot be stored as UTF-8
+            const next = text.startsWith("\\u", i + 6) ? hex4(i + 8) : -1;
+            if (!isLow(next)) fail("unpaired surrogate escape", path);
+            out += String.fromCharCode(unit, next);
+            i += 12;
+          } else {
+            out += String.fromCharCode(unit);
+            i += 6;
+          }
         } else fail("invalid escape", path);
       } else {
-        out += c;
-        i++;
+        const u = c.charCodeAt(0);
+        if (isHigh(u)) {
+          if (!isLow(text.charCodeAt(i + 1))) fail("unpaired surrogate", path);
+          out += c + text[i + 1];
+          i += 2;
+        } else if (isLow(u)) fail("unpaired surrogate", path);
+        else {
+          out += c;
+          i++;
+        }
       }
+      if (out.length > maxString) fail(`a string is longer than ${maxString} characters`, path);
     }
   }
 
@@ -167,7 +206,14 @@ export function parseStrictJson(text: string, options: ParseOptions = {}): JsonV
     return { kind: "number", value: num, raw };
   }
 
-  const root = value("");
+  let root: JsonValue;
+  try {
+    root = value("");
+  } catch (err) {
+    // a backstop: the depth limit should always trip first
+    if (err instanceof RangeError) fail("nesting is too deep to parse", "", "too-deep");
+    throw err;
+  }
   ws();
   if (i !== text.length) fail("unexpected text after the JSON value", "");
   return root;
@@ -184,7 +230,11 @@ export function toPlain(v: JsonValue): unknown {
       return v.value;
     case "array":
       return v.items.map(toPlain);
-    case "object":
-      return Object.fromEntries([...v.entries].map(([k, x]) => [k, toPlain(x)]));
+    case "object": {
+      // A null-prototype object: a `__proto__`, `constructor` or `prototype` key is plain data and can never reach a prototype (T02).
+      const out: Record<string, unknown> = Object.create(null);
+      for (const [k, x] of v.entries) Object.defineProperty(out, k, { value: toPlain(x), enumerable: true, writable: true, configurable: true });
+      return out;
+    }
   }
 }

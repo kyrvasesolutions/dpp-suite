@@ -13,12 +13,24 @@ import { randomUUID } from "node:crypto";
 import { canonical } from "../../src/model/canonical";
 import { carryCorrections } from "../../src/model/correction";
 import {
+  classifyLimitOutcome,
+  LimitError,
+  type JobBudget,
+  type LimitName,
+  type LimitOutcome,
+  type OperationalLimits,
+} from "../../src/model/c8Contracts";
+import {
   buildRecords,
   importErpCsv,
   importLabJson,
+  ingressIssue,
+  STAGES,
   type ImportResult,
+  type IngressCode,
   type IngressIssue,
   type ProductRecord,
+  type Stage,
 } from "../../src/model/ingress";
 import { importEvents, readinessEvents, recordRef } from "../../src/model/log";
 import {
@@ -81,6 +93,38 @@ export interface ImportEvidenceUpload {
   legalHold?: boolean;
 }
 
+/** The budget an ingress code names (a limit code never carries the value that crossed it). */
+const LIMIT_OF_CODE: Partial<Record<IngressCode, LimitName>> = {
+  "too-large": "source_file_max_bytes",
+  "too-deep": "max_nesting_depth",
+  "multiple-records": "max_records_per_job",
+  "too-many-nodes": "max_parser_nodes_per_job",
+  deadline: "job_deadline_ms",
+};
+
+/** The stage a stop reached, as an ingress stage (a stage name that is not an ingress stage reads as `route`). */
+function ingressStage(stage: string | undefined): Stage {
+  return (STAGES as readonly string[]).includes(stage ?? "") ? (stage as Stage) : "route";
+}
+
+/**
+ * Cycle 8 control of one job (D8-02): its deadline and cancellation token, the execution budgets, who submitted it,
+ * and test seams. Absent for the in-process callers of Cycles 6 and 7, which keep their behaviour unchanged.
+ */
+export interface ImportJobControl {
+  budget: JobBudget;
+  /** The pinned OPERATIONAL-LIMITS execution budgets. */
+  limits: OperationalLimits["execution"];
+  submitterSub: string;
+  /** Called once the job exists (claimed), so a cancel request can find it. */
+  onClaimed?: (jobId: string) => void;
+  /**
+   * Test-only seam, like crash injection: runs at every stage boundary and may take time. A test uses it to hold a stage open,
+   * so a cancel or a deadline lands mid-stage deterministically. The budget is checked right after it returns.
+   */
+  stageHook?: (stage: string, ctx: { jobId: string; budget: JobBudget }) => void | Promise<void>;
+}
+
 export interface RunImportJobRequest {
   idempotencyKey: string;
   actor?: typeof OPERATOR;
@@ -96,6 +140,8 @@ export interface RunImportJobRequest {
   evidence?: ImportEvidenceUpload[];
   /** Deterministic crash-injection hook for AT-U recovery tests (C6-04). */
   injectCrashAt?: CrashPoint;
+  /** Cycle 8 job budget, execution limits and cancellation (server path only). */
+  control?: ImportJobControl;
 }
 
 export interface ImportJobOutcome {
@@ -110,6 +156,9 @@ export interface ImportJobOutcome {
   disputed?: number;
   unattachedLab?: boolean;
   errors?: IngressIssue[];
+  /** Cycle 8: set when the job stopped on a declared limit. Never carries the value that crossed it. */
+  outcome?: LimitOutcome;
+  limit?: LimitName;
 }
 
 export interface RecoveryReport {
@@ -536,6 +585,16 @@ export class ImportJobRunner {
     });
     if (claimed.kind === "replay") return this.replayOutcome(claimed.row);
     if (claimed.kind === "inflight") return claimed.promise;
+    if (req.control) {
+      this.db.run(
+        "INSERT OR IGNORE INTO job_submitters (job_id, security_domain, submitter_sub, recorded_at) VALUES (?, ?, ?, ?)",
+        claimed.jobId,
+        this.securityDomain,
+        req.control.submitterSub,
+        this.now(),
+      );
+      req.control.onClaimed?.(claimed.jobId);
+    }
 
     // No await between the claim and registering the promise: a duplicate request sees it, never a gap.
     const promise = this.executeClaimed(claimed.jobId, claimed.resumeStaged, req, { actor, dataset, inputKey });
@@ -557,12 +616,102 @@ export class ImportJobRunner {
       if (resumeStaged) return this.commitStagedJob(jobId, true);
       return await this.pipeline(jobId, req, ctx);
     } catch (err) {
+      if (err instanceof LimitError) {
+        if (err.outcome === "CANCELLED") {
+          // Cancelled: nothing was promoted, the job ends rolled back with the `cancelled` code (outcome CANCELLED).
+          this.markJobRolledBack(jobId, "cancelled");
+          throw err;
+        }
+        if (err.outcome === "TIMEOUT") {
+          // Deadline: promotion was revoked before commit, so the job ends failed with the `deadline` code (outcome TIMEOUT).
+          return this.failJobOnTimeout(jobId, err.stage);
+        }
+      }
       if (!(err instanceof SimulatedCrashError)) {
         // Anything else leaves nothing half-done: a job still running is rolled back (a failed one stays failed).
         this.markJobRolledBack(jobId, err instanceof ConcurrencyConflictError ? err.code : "internal-error");
       }
       throw err;
     }
+  }
+
+  /** Ends a running job as failed on its deadline, drops its staged payload, and answers with the TIMEOUT outcome. */
+  private failJobOnTimeout(jobId: string, stage: string | undefined): ImportJobOutcome {
+    this.db.transaction(() => {
+      const res = this.db.run(
+        `UPDATE import_jobs SET state = 'failed', stage = 'failed', staged_payload_json = NULL,
+         error_code = 'deadline', error_stage = ?, updated_at = ? WHERE job_id = ? AND state = 'running'`,
+        stage ?? "route",
+        this.now(),
+        jobId,
+      );
+      if (res.changes === 1) this.recordEvent(jobId, "failed", "error", "deadline");
+    });
+    return {
+      ok: false,
+      job: this.getJob(jobId)!,
+      events: this.getJobEvents(jobId),
+      errors: [ingressIssue(ingressStage(stage), "deadline", "job")],
+      outcome: "TIMEOUT",
+      limit: "job_deadline_ms",
+    };
+  }
+
+  /**
+   * Stage boundary of a controlled job: yields to the event loop so a cancel request can be served, runs the test seam,
+   * then checks the cancellation token and the deadline (within `cancellation_poll_max_ms` of simulated ticks).
+   */
+  private async boundary(jobId: string, stage: string, control: ImportJobControl | undefined): Promise<void> {
+    if (!control) return;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await control.stageHook?.(stage, { jobId, budget: control.budget });
+    control.budget.check(stage);
+  }
+
+  /** A job-level budget refusal: the job fails with the given code and nothing is written to the log or the store. */
+  private refuseOverLimit(jobId: string, inputKey: string, limit: LimitName, stage: Stage, location: string): ImportJobOutcome {
+    this.failJob(jobId, inputKey, "too-large", stage);
+    return {
+      ok: false,
+      job: this.getJob(jobId)!,
+      events: this.getJobEvents(jobId),
+      errors: [ingressIssue(stage, "too-large", location)],
+      outcome: "OVER_LIMIT",
+      limit,
+    };
+  }
+
+  // ---- cancellation record (access-controlled; never in the public log) ----
+
+  getSubmitter(jobId: string): string | null {
+    const row = this.db.get<{ submitter_sub: string }>(
+      "SELECT submitter_sub FROM job_submitters WHERE security_domain = ? AND job_id = ?",
+      this.securityDomain,
+      jobId,
+    );
+    return row?.submitter_sub ?? null;
+  }
+
+  /** Records the first cancel request of a job. A repeat changes nothing and keeps the first reason. */
+  recordCancellation(jobId: string, requestedBy: string, reason: string): void {
+    this.db.run(
+      `INSERT OR IGNORE INTO job_cancellations (job_id, security_domain, requested_by, reason, outcome, requested_at)
+       VALUES (?, ?, ?, ?, 'CANCELLED', ?)`,
+      jobId,
+      this.securityDomain,
+      requestedBy,
+      reason,
+      this.now(),
+    );
+  }
+
+  getCancellation(jobId: string): { requestedBy: string; reason: string; requestedAt: string; outcome: "CANCELLED" } | null {
+    const row = this.db.get<{ requested_by: string; reason: string; requested_at: string; outcome: "CANCELLED" }>(
+      "SELECT requested_by, reason, requested_at, outcome FROM job_cancellations WHERE security_domain = ? AND job_id = ?",
+      this.securityDomain,
+      jobId,
+    );
+    return row ? { requestedBy: row.requested_by, reason: row.reason, requestedAt: row.requested_at, outcome: row.outcome } : null;
   }
 
   private async pipeline(
@@ -572,10 +721,12 @@ export class ImportJobRunner {
   ): Promise<ImportJobOutcome> {
     const { actor, dataset, inputKey } = ctx;
     const activePolicy = this.policies.requireActive();
+    const control = req.control;
 
     if (req.injectCrashAt === "after-receive") {
       throw new SimulatedCrashError("after-receive");
     }
+    await this.boundary(jobId, "received", control);
 
     // Stage 2: classified (C6-02 / LEAN-DEF-12)
     const retention = resolveDatasetRetention(activePolicy.policy, dataset, req.statedClassification);
@@ -587,19 +738,44 @@ export class ImportJobRunner {
     if (req.injectCrashAt === "after-classify") {
       throw new SimulatedCrashError("after-classify");
     }
+    await this.boundary(jobId, "classified", control);
+
+    // Job-level byte budgets (D8-02): the pair of source files, then everything one job would stage. Exactly the limit passes.
+    if (control) {
+      const pairBytes = req.erp.bytes.byteLength + (req.lab?.bytes.byteLength ?? 0);
+      if (pairBytes > control.limits.source_pair_max_bytes) {
+        return this.refuseOverLimit(jobId, inputKey, "source_pair_max_bytes", "bytes", "source pair");
+      }
+      const stagingBytes = pairBytes + (req.evidence ?? []).reduce((n, e) => n + e.contentBytes.byteLength, 0);
+      if (stagingBytes > control.limits.total_staging_max_bytes) {
+        return this.refuseOverLimit(jobId, inputKey, "total_staging_max_bytes", "bytes", "staged payload");
+      }
+    }
 
     // Stage 3: validated (strict N ingress + EV-5 time envelope + shared job deadline). The server assigns recordedAt.
     const envelope = resolveCallerTimeEnvelope(req.timeEnvelope, this.now());
     const startedAt = Date.now();
+    const ingressControl = control
+      ? {
+          budget: control.budget,
+          limits: {
+            maxFileBytes: control.limits.source_file_max_bytes,
+            maxJsonDepth: control.limits.max_nesting_depth,
+            maxRows: control.limits.max_records_per_job,
+            maxParserNodes: control.limits.max_parser_nodes_per_job,
+            deadlineMs: control.limits.job_deadline_ms,
+          },
+        }
+      : {};
     const erpRes: ImportResult = await importErpCsv(
       this.pack,
-      { bytes: req.erp.bytes, name: req.erp.name, type: req.erp.type, startedAt },
+      { bytes: req.erp.bytes, name: req.erp.name, type: req.erp.type, startedAt, ...ingressControl },
       actor,
     );
     const labRes: ImportResult | undefined = req.lab
       ? await importLabJson(
           this.pack,
-          { bytes: req.lab.bytes, name: req.lab.name, type: req.lab.type, startedAt },
+          { bytes: req.lab.bytes, name: req.lab.name, type: req.lab.type, startedAt, ...ingressControl },
           actor,
         )
       : undefined;
@@ -612,11 +788,13 @@ export class ImportJobRunner {
       const first = errors[0];
       const logInputs = [...importEvents(erpRes), ...(labRes ? importEvents(labRes) : [])];
       this.failJob(jobId, inputKey, first?.code ?? "ingress-error", first?.stage ?? "semantics", {}, logInputs as never);
+      const stopped = first ? classifyLimitOutcome(first.code) : null;
       return {
         ok: false,
         job: this.getJob(jobId)!,
         events: this.getJobEvents(jobId),
         errors,
+        ...(stopped && first && LIMIT_OF_CODE[first.code] ? { outcome: stopped, limit: LIMIT_OF_CODE[first.code]! } : {}),
       };
     }
 
@@ -676,6 +854,7 @@ export class ImportJobRunner {
     if (req.injectCrashAt === "after-validate") {
       throw new SimulatedCrashError("after-validate");
     }
+    await this.boundary(jobId, "validated", control);
 
     // Stage 4: stage durable payload (computing carryCorrections against current latest snapshot)
     const maxRetries = req.expectedVersion !== undefined && req.expectedVersion !== null ? 1 : 6;
@@ -748,11 +927,12 @@ export class ImportJobRunner {
       if (req.injectCrashAt === "after-stage") {
         throw new SimulatedCrashError("after-stage");
       }
+      await this.boundary(jobId, "staged", control);
 
       try {
         // before-commit crashes INSIDE the commit transaction, after every row is written and before COMMIT:
         // everything rolls back and only the staged payload remains.
-        const outcome = this.commitStagedJob(jobId, false, req.injectCrashAt === "before-commit");
+        const outcome = this.commitStagedJob(jobId, false, req.injectCrashAt === "before-commit", control?.budget);
         if (req.injectCrashAt === "after-commit") {
           throw new SimulatedCrashError("after-commit");
         }
@@ -795,12 +975,15 @@ export class ImportJobRunner {
    * Atomically commits a job currently in `stage = 'staged'` inside a single `BEGIN IMMEDIATE`
    * transaction. Used both for normal completion and for crash recovery (`recovered = true`).
    */
-  private commitStagedJob(jobId: string, recovered: boolean, crashBeforeCommit = false): ImportJobOutcome {
+  private commitStagedJob(jobId: string, recovered: boolean, crashBeforeCommit = false, budget?: JobBudget): ImportJobOutcome {
     const activePolicy = this.policies.requireActive();
 
     let committed;
     try {
       committed = this.db.transaction((): CommitResult | { replay: JobRow } => {
+        // Promotion is revoked once a cancel or the deadline has tripped: a stopped job never commits (D8-02).
+        // The whole commit runs synchronously inside this transaction, so no cancel can land between this check and the COMMIT.
+        budget?.assertMayCommit();
         const row = this.db.get<JobRow>(
           "SELECT * FROM import_jobs WHERE security_domain = ? AND job_id = ?",
           this.securityDomain,

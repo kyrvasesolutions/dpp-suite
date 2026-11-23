@@ -115,8 +115,10 @@ export function authorizeRequest(
   securityDomain: string,
   config: AuthRuntimeConfig,
   action: ServerAction,
+  /** The principal already resolved for this very request (the rate limiter needs the subject first); never carried across requests. */
+  preAuthenticated?: AuthContext,
 ): AuthContext {
-  const ctx = authenticateRequest(req, db, securityDomain, config);
+  const ctx = preAuthenticated ?? authenticateRequest(req, db, securityDomain, config);
   const decision = evaluateRoleAction(ctx, action);
   if (!decision.permitted) {
     throw new AuthError(decision.deniedBy === "surface" ? "surface-forbidden" : "forbidden", 403, decision.reason);

@@ -7,9 +7,20 @@
  * refuses unauthenticated `local-dev` mode on any non-loopback address, and enforces every role,
  * field, action, and surface rule strictly on the server side.
  */
+import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, join, normalize, resolve, sep } from "node:path";
+import {
+  CancellationToken,
+  JobBudget,
+  LIMIT_OUTCOMES,
+  LimitError,
+  classifyLimitOutcome,
+  mayCancelJob,
+  type OperationalLimits,
+  type PublicLogEntry,
+} from "../../src/model/c8Contracts";
 import {
   AuthError,
   ConfigReleaseError,
@@ -43,7 +54,9 @@ import { GrantStore } from "../auth/grantStore";
 import { OidcVerifier, type OidcConfig } from "../auth/oidc";
 import type { DbAdapter } from "../db/adapter";
 import { currentMigrationVersion } from "../db/migrations";
-import { ImportJobRunner, type ImportEvidenceUpload } from "../jobs/importJobRunner";
+import { ImportJobRunner, type ImportEvidenceUpload, type ImportJobControl } from "../jobs/importJobRunner";
+import { JobCoordinator, LiveJobs, QueueFullError } from "../jobs/jobControl";
+import { RateLimiter, ServerMetrics, routeTemplate } from "./limits";
 import { ConfigReleaseStore } from "../releases/configReleaseStore";
 import { sha256Sync } from "../store/sqlRepository";
 
@@ -81,6 +94,20 @@ export interface DppServerOptions {
   oidc?: OidcConfig | OidcVerifier;
   /** Optional legacy principal hook (used only in `local-dev` mode when provided). */
   extractPrincipal?: PrincipalExtractor;
+  /**
+   * Operational limits (Cycle 8, D8-01). Default: the pinned `OPERATIONAL-LIMITS@1.0.0` of `pack`. A test passes a copy with small values
+   * so a boundary is reached without large inputs or real waiting; nothing in a request can change them.
+   */
+  limits?: OperationalLimits;
+  /** Test seam: a monotonic millisecond clock for rate windows and job deadlines. Default: `performance.now()`. */
+  clock?: () => number;
+  /**
+   * Public request log hook (D8-04): called exactly once per completed request with the six public fields only. `route` is the matched
+   * route template, never the raw path or query. The entry point writes it to stdout; nothing else leaves the process.
+   */
+  log?: (entry: PublicLogEntry) => void;
+  /** Test-only seams (like Cycle 6 crash injection): hold a stage open so a cancel or a deadline lands mid-stage. */
+  testHooks?: { stageHook?: ImportJobControl["stageHook"] };
 }
 
 const DEFAULT_SOFTWARE: SoftwareInfo = {
@@ -107,6 +134,10 @@ function isCustomerSurfaceAllowedApiPath(pathname: string): boolean {
   );
 }
 
+/** Remembers the limit outcome a response carried, so the request metrics can count it without reading the body twice. */
+const LIMIT_TAG = Symbol("dpp.limitTag");
+const REQUEST_ID = Symbol("dpp.requestId");
+
 function sendJson(
   res: ServerResponse,
   status: number,
@@ -115,6 +146,17 @@ function sendJson(
   extraHeaders?: Record<string, string>,
   allowMethods = "GET, POST, DELETE, OPTIONS",
 ): void {
+  // Every response whose code is a limit code carries the additive `outcome` (and `limit` where known); never an input value.
+  if (body && typeof body === "object" && !Array.isArray(body)) {
+    const rec = body as Record<string, unknown>;
+    const klass = typeof rec.code === "string" ? classifyLimitOutcome(rec.code) : null;
+    if (klass && rec.outcome === undefined) body = { ...rec, outcome: klass };
+    const outcome = (body as Record<string, unknown>).outcome;
+    if (typeof outcome === "string" && (LIMIT_OUTCOMES as readonly string[]).includes(outcome)) {
+      const limit = (body as Record<string, unknown>).limit;
+      (res as unknown as Record<symbol, unknown>)[LIMIT_TAG] = { outcome, limit: typeof limit === "string" ? limit : "unspecified" };
+    }
+  }
   const payload = `${JSON.stringify(body)}\n`;
   const headers: Record<string, string> = {
     "Content-Type": "application/json; charset=utf-8",
@@ -135,17 +177,51 @@ function sendJson(
   res.end(payload);
 }
 
+/**
+ * Reads a JSON object body under a byte cap that is enforced while the body streams (T13): a declared length over the cap is refused
+ * before a byte is read, and an undeclared or understated one is refused as soon as the cap is crossed. The rest is discarded, never buffered.
+ */
 async function readJsonObject(req: IncomingMessage, maxBytes: number): Promise<Record<string, unknown>> {
+  const tooLarge = () =>
+    Object.assign(new Error("Request body exceeds the declared maximum size"), {
+      statusCode: 413,
+      code: "too-large",
+      limit: "max_request_body_bytes",
+      closeConnection: true,
+    });
+  const declared = req.headers["content-length"];
+  if (typeof declared === "string" && /^\d+$/.test(declared) && Number(declared) > maxBytes) {
+    req.resume(); // discard what arrives; nothing is kept
+    throw tooLarge();
+  }
   const chunks: Buffer[] = [];
   let total = 0;
-  for await (const chunk of req) {
-    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    total += buf.byteLength;
-    if (total > maxBytes) {
-      throw Object.assign(new Error("Request body exceeds declared maximum size"), { statusCode: 413, code: "too-large" });
-    }
-    chunks.push(buf);
-  }
+  await new Promise<void>((resolveBody, rejectBody) => {
+    const onData = (chunk: Buffer | string) => {
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      total += buf.byteLength;
+      if (total > maxBytes) {
+        req.off("data", onData);
+        req.off("end", onEnd);
+        req.off("error", onError);
+        chunks.length = 0;
+        req.resume(); // discard the rest of the body
+        rejectBody(tooLarge());
+        return;
+      }
+      chunks.push(buf);
+    };
+    const onEnd = () => resolveBody();
+    const onError = (e: Error) => rejectBody(e);
+    const onClose = () => {
+      if (!req.complete) rejectBody(Object.assign(new Error("The request was aborted"), { statusCode: 400, code: "request-aborted" }));
+    };
+    if (req.readableEnded) return resolveBody();
+    req.on("data", onData);
+    req.once("end", onEnd);
+    req.once("error", onError);
+    req.once("close", onClose);
+  });
   if (total === 0) return {};
   const text = Buffer.concat(chunks).toString("utf8");
   let parsed: unknown;
@@ -191,7 +267,14 @@ function parseOptionalVersion(value: unknown): number | undefined {
   return value;
 }
 
-function mapError(err: unknown): { status: number; code: string; message: string; extraHeaders?: Record<string, string> } {
+function mapError(err: unknown): { status: number; code: string; message: string; extraHeaders?: Record<string, string>; limit?: string } {
+  if (err instanceof QueueFullError) {
+    return { status: 429, code: "queue-full", message: err.message, limit: "queue_full", extraHeaders: { "Retry-After": String(err.retryAfterSeconds) } };
+  }
+  if (err instanceof LimitError) {
+    if (err.outcome === "CANCELLED") return { status: 409, code: "cancelled", message: err.message };
+    return { status: 422, code: err.code, message: err.message, ...(err.limit !== "cancellation" ? { limit: err.limit } : {}) };
+  }
   if (err instanceof AuthError) {
     return {
       status: err.statusCode,
@@ -204,8 +287,14 @@ function mapError(err: unknown): { status: number; code: string; message: string
     return { status: err.statusCode, code: err.code, message: err.message };
   }
   if (err && typeof err === "object" && "statusCode" in err && typeof (err as { statusCode: unknown }).statusCode === "number") {
-    const e = err as { statusCode: number; code?: string; message?: string };
-    return { status: e.statusCode, code: e.code ?? "bad-request", message: e.message ?? "Bad request" };
+    const e = err as { statusCode: number; code?: string; message?: string; limit?: unknown; closeConnection?: boolean };
+    return {
+      status: e.statusCode,
+      code: e.code ?? "bad-request",
+      message: e.message ?? "Bad request",
+      ...(typeof e.limit === "string" ? { limit: e.limit } : {}),
+      ...(e.closeConnection ? { extraHeaders: { Connection: "close" } } : {}),
+    };
   }
   if (err instanceof RetentionViolationError) {
     const status =
@@ -302,6 +391,30 @@ export function createDppServer(options: DppServerOptions): Server {
   const authMode: AuthMode = options.authMode ?? "local-dev";
   const surface: DeploymentSurface = options.surface ?? "all";
   const allowMethods = surface === "customer" ? "GET, POST, OPTIONS" : "GET, POST, DELETE, OPTIONS";
+  // Cycle 8: every bound below comes from the pinned OPERATIONAL-LIMITS (D8-01), never from a request.
+  const limits: OperationalLimits = options.limits ?? options.pack.operationalLimits;
+  const clock = options.clock ?? (() => performance.now());
+  const rateLimiter = new RateLimiter({
+    windowMs: limits.http.rate_limit_window_ms,
+    readPerWindow: limits.http.rate_limit_read_per_window,
+    writePerWindow: limits.http.rate_limit_write_per_window,
+    maxKeys: 10_000,
+    clock,
+  });
+  const metrics = new ServerMetrics();
+  const coordinator = new JobCoordinator(limits);
+  const liveJobs = new LiveJobs();
+  const REASON_MAX = 500;
+  /** A generated output over `max_output_bytes_per_route` is refused before anything is logged or returned (no partial success). */
+  const assertOutputWithin = (files: ReadonlyArray<{ bytes: Uint8Array }>): void => {
+    if (files.some((f) => f.bytes.byteLength > limits.execution.max_output_bytes_per_route)) {
+      throw Object.assign(new Error("A generated output is larger than the declared limit, so nothing was released"), {
+        statusCode: 422,
+        code: "too-large",
+        limit: "max_output_bytes_per_route",
+      });
+    }
+  };
 
   if (authMode === "local-dev" && options.host !== undefined && !isLoopbackBindHost(options.host)) {
     throw new Error(
@@ -355,8 +468,47 @@ export function createDppServer(options: DppServerOptions): Server {
   );
   const allowedHosts = new Set([...LOOPBACK_HOSTS, ...(options.host && hostName(options.host) ? [hostName(options.host)] : [])]);
 
-  return createServer(async (req, res) => {
+  /** The body cap of a route: its own cap, never above the transport cap (`max_request_body_bytes`). */
+  const readBody = (req: IncomingMessage, routeMaxBytes: number) =>
+    readJsonObject(req, Math.min(routeMaxBytes, limits.http.max_request_body_bytes));
+
+  const headersTimeout = limits.http.headers_timeout_ms;
+  const requestTimeout = limits.http.request_timeout_ms;
+  const server = createServer(
+    {
+      headersTimeout,
+      requestTimeout,
+      keepAliveTimeout: limits.http.keep_alive_timeout_ms,
+      // How often Node looks for sockets past a timeout: often enough that a slow client is cut off close to its limit.
+      connectionsCheckingInterval: Math.max(25, Math.min(1000, Math.floor(Math.min(headersTimeout, requestTimeout) / 4))),
+    },
+    async (req, res) => {
     const method = req.method ?? "GET";
+
+    // Request id (D8-04): generated here, never taken from the client; one public log entry per request, when it completes.
+    const requestId = randomUUID();
+    (res as unknown as Record<symbol, unknown>)[REQUEST_ID] = requestId;
+    res.setHeader("X-Request-Id", requestId);
+    res.once("close", () => {
+      const status = res.writableFinished ? res.statusCode : 499; // 499: the client left before the answer was sent
+      metrics.recordRequest(status);
+      const tag = (res as unknown as Record<symbol, unknown>)[LIMIT_TAG] as { outcome: (typeof LIMIT_OUTCOMES)[number]; limit: string } | undefined;
+      if (tag) metrics.recordLimit(tag.outcome, tag.limit);
+      if (options.log) {
+        try {
+          options.log({
+            ts: new Date().toISOString(),
+            level: status >= 500 ? "error" : status >= 400 ? "warn" : "info",
+            event: "request",
+            request_id: requestId,
+            route: routeTemplate(method, req.url),
+            status,
+          });
+        } catch {
+          // A failing log hook never changes the answer to the request.
+        }
+      }
+    });
 
     // DNS-rebinding guard: only the loopback names and the bound host are accepted as Host.
     const hostHeaders = req.rawHeaders.filter((_, i) => i % 2 === 0 && _.toLowerCase() === "host").length;
@@ -415,6 +567,35 @@ export function createDppServer(options: DppServerOptions): Server {
         allowMethods,
       );
       return;
+    }
+
+    // Pre-resolved principal of this request, so the rate limiter can key by the authenticated subject (T12). Never carried
+    // across requests: the next request is authenticated again from the token and the live grants.
+    const isHealth = method === "GET" && pathname === "/api/health";
+    let preAuth: AuthContext | undefined;
+    let rateSubject = "anon";
+    if (pathname.startsWith("/api/") && !isHealth) {
+      try {
+        preAuth = authenticateRequest(req, options.db, resolveSecurityDomain(req), authConfig);
+        rateSubject = preAuth.sub;
+      } catch {
+        preAuth = undefined; // refused later by the route's own authorization, with its usual answer
+      }
+    }
+    if (!isHealth) {
+      const kind = method === "GET" || method === "HEAD" || method === "OPTIONS" ? "read" : "write";
+      const verdict = rateLimiter.hit(kind, rateSubject, req.socket.remoteAddress ?? "unknown");
+      if (!verdict.allowed) {
+        sendJson(
+          res,
+          429,
+          { code: "rate-limited", message: "Too many requests. Retry after the indicated time.", limit: "rate_window" },
+          allowedOrigin,
+          { "Retry-After": String(verdict.retryAfterSeconds) },
+          allowMethods,
+        );
+        return;
+      }
     }
 
     if (method === "OPTIONS") {
@@ -476,7 +657,7 @@ export function createDppServer(options: DppServerOptions): Server {
 
       const domain = resolveSecurityDomain(req);
       const requireAuth = (action: ServerAction): AuthContext =>
-        authorizeRequest(req, options.db, domain, authConfig, action);
+        authorizeRequest(req, options.db, domain, authConfig, action, preAuth);
 
       // GET /api/auth/me (authenticated principal introspection on any surface)
       if (method === "GET" && pathname === "/api/auth/me") {
@@ -593,7 +774,7 @@ export function createDppServer(options: DppServerOptions): Server {
         const model = decodeParam(custRelMatch[1]!);
         const batch = decodeParam(custRelMatch[2]!);
         const { activePack, maxBodyBytes, runner } = await loadRuntime();
-        const body = await readJsonObject(req, maxBodyBytes);
+        const body = await readBody(req, maxBodyBytes);
         const version = parseOptionalVersion(body.version);
         const snapshot = version
           ? runner.repository.getSync(model, batch, version)
@@ -604,6 +785,7 @@ export function createDppServer(options: DppServerOptions): Server {
         }
         try {
           const pdf = await buildCustomerPdf(activePack, snapshot.record, { version: snapshot.version });
+          assertOutputWithin([pdf]);
           const events = await releaseEvents(model, batch, snapshot.version, [{ route: "customer-pdf", file: pdf }]);
           for (const ev of events) runner.logStore.addSync(ev);
           sendJson(
@@ -668,7 +850,7 @@ export function createDppServer(options: DppServerOptions): Server {
       // POST /api/admin/users
       if (method === "POST" && pathname === "/api/admin/users") {
         const ctx = requireAuth("role-manage");
-        const body = await readJsonObject(req, defaultMaxBytes);
+        const body = await readBody(req, defaultMaxBytes);
         if (typeof body.sub !== "string" || typeof body.displayName !== "string" || typeof body.reason !== "string") {
           sendJson(res, 400, { code: "invalid-payload", message: "sub, displayName, and reason are required" }, allowedOrigin, undefined, allowMethods);
           return;
@@ -693,7 +875,7 @@ export function createDppServer(options: DppServerOptions): Server {
       if (method === "POST" && assignRoleMatch) {
         const ctx = requireAuth("role-manage");
         const targetSub = decodeParam(assignRoleMatch[1]!);
-        const body = await readJsonObject(req, defaultMaxBytes);
+        const body = await readBody(req, defaultMaxBytes);
         if (typeof body.role !== "string" || typeof body.reason !== "string") {
           sendJson(res, 400, { code: "invalid-payload", message: "role and reason are required" }, allowedOrigin, undefined, allowMethods);
           return;
@@ -708,7 +890,7 @@ export function createDppServer(options: DppServerOptions): Server {
       if (method === "POST" && revokeRolePostMatch) {
         const ctx = requireAuth("role-manage");
         const targetSub = decodeParam(revokeRolePostMatch[1]!);
-        const body = await readJsonObject(req, defaultMaxBytes);
+        const body = await readBody(req, defaultMaxBytes);
         if (typeof body.role !== "string" || typeof body.reason !== "string") {
           sendJson(res, 400, { code: "invalid-payload", message: "role and reason are required" }, allowedOrigin, undefined, allowMethods);
           return;
@@ -727,7 +909,7 @@ export function createDppServer(options: DppServerOptions): Server {
         const queryReason = url.searchParams.get("reason")?.trim() || undefined;
         let reason = queryReason;
         if (!reason) {
-          const body = await readJsonObject(req, defaultMaxBytes);
+          const body = await readBody(req, defaultMaxBytes);
           if (typeof body.reason !== "string") {
             sendJson(res, 400, { code: "reason-required", message: "reason (query parameter or JSON string) is required" }, allowedOrigin, undefined, allowMethods);
             return;
@@ -744,7 +926,7 @@ export function createDppServer(options: DppServerOptions): Server {
       if (method === "POST" && deactivateMatch) {
         const ctx = requireAuth("role-manage");
         const targetSub = decodeParam(deactivateMatch[1]!);
-        const body = await readJsonObject(req, defaultMaxBytes);
+        const body = await readBody(req, defaultMaxBytes);
         if (typeof body.reason !== "string") {
           sendJson(res, 400, { code: "invalid-payload", message: "reason is required" }, allowedOrigin, undefined, allowMethods);
           return;
@@ -758,6 +940,13 @@ export function createDppServer(options: DppServerOptions): Server {
       if (method === "GET" && pathname === "/api/admin/audit") {
         requireAuth("role-read");
         sendJson(res, 200, { events: grants.listAuditEvents() }, allowedOrigin, undefined, allowMethods);
+        return;
+      }
+
+      // GET /api/admin/metrics (Cycle 8, T23): counters only. No subject, id, value or path appears in it.
+      if (method === "GET" && pathname === "/api/admin/metrics") {
+        requireAuth("metrics:read");
+        sendJson(res, 200, metrics.snapshot(coordinator.snapshot()), allowedOrigin, undefined, allowMethods);
         return;
       }
 
@@ -787,7 +976,7 @@ export function createDppServer(options: DppServerOptions): Server {
       if (method === "POST" && pathname === "/api/config-releases/propose") {
         const ctx = requireAuth("config-propose");
         const { maxBodyBytes } = await loadRuntime();
-        const body = await readJsonObject(req, maxBodyBytes);
+        const body = await readBody(req, maxBodyBytes);
         const release = await configReleases.propose(body, ctx.sub);
         sendJson(res, 201, { release }, allowedOrigin, undefined, allowMethods);
         return;
@@ -796,7 +985,7 @@ export function createDppServer(options: DppServerOptions): Server {
       // POST /api/config-releases/rollback
       if (method === "POST" && pathname === "/api/config-releases/rollback") {
         const ctx = requireAuth("config-rollback");
-        const body = await readJsonObject(req, defaultMaxBytes);
+        const body = await readBody(req, defaultMaxBytes);
         if (typeof body.packageId !== "string" || typeof body.reason !== "string") {
           sendJson(res, 400, { code: "invalid-payload", message: "packageId and reason are required" }, allowedOrigin, undefined, allowMethods);
           return;
@@ -829,7 +1018,7 @@ export function createDppServer(options: DppServerOptions): Server {
       if (method === "POST" && cfgApproveMatch) {
         const ctx = requireAuth("config-approve");
         const releaseId = decodeParam(cfgApproveMatch[1]!);
-        const body = await readJsonObject(req, defaultMaxBytes);
+        const body = await readBody(req, defaultMaxBytes);
         const release = configReleases.approve(releaseId, ctx.sub, typeof body.reason === "string" ? body.reason : "");
         sendJson(res, 200, { release }, allowedOrigin, undefined, allowMethods);
         return;
@@ -840,7 +1029,7 @@ export function createDppServer(options: DppServerOptions): Server {
       if (method === "POST" && cfgRejectMatch) {
         const ctx = requireAuth("config-approve");
         const releaseId = decodeParam(cfgRejectMatch[1]!);
-        const body = await readJsonObject(req, defaultMaxBytes);
+        const body = await readBody(req, defaultMaxBytes);
         const release = configReleases.reject(releaseId, ctx.sub, typeof body.reason === "string" ? body.reason : "");
         sendJson(res, 200, { release }, allowedOrigin, undefined, allowMethods);
         return;
@@ -851,7 +1040,7 @@ export function createDppServer(options: DppServerOptions): Server {
       if (method === "POST" && cfgActivateMatch) {
         const ctx = requireAuth("config-activate");
         const releaseId = decodeParam(cfgActivateMatch[1]!);
-        const body = await readJsonObject(req, defaultMaxBytes);
+        const body = await readBody(req, defaultMaxBytes);
         const result = await configReleases.activate(releaseId, ctx.sub, typeof body.reason === "string" ? body.reason : "");
         cachedPacks.set(domain, { releaseId: result.release.releaseId, pack: result.pack });
         sendJson(
@@ -907,9 +1096,9 @@ export function createDppServer(options: DppServerOptions): Server {
 
       // POST /api/jobs/import
       if (method === "POST" && pathname === "/api/jobs/import") {
-        requireAuth("import-submit");
+        const submitter = requireAuth("import-submit");
         const { maxBodyBytes, runner } = await loadRuntime();
-        const body = await readJsonObject(req, maxBodyBytes);
+        const body = await readBody(req, maxBodyBytes);
 
         if (body.idempotencyKey !== undefined && typeof body.idempotencyKey !== "string") {
           sendJson(res, 400, { code: "invalid-payload", message: "idempotencyKey must be a string" }, allowedOrigin, undefined, allowMethods);
@@ -980,7 +1169,39 @@ export function createDppServer(options: DppServerOptions): Server {
           };
         });
 
-        const outcome = await runner.runImportJob({
+        // Cycle 8: a slot of the coordinator (per-domain active slots, a finite FIFO queue, a global cap), then a budget.
+        // A full queue is refused at once with 429 + Retry-After. The slot is freed on every way out (commit, fail, rollback,
+        // cancel, timeout, exception, client disconnect). The server never retries on its own.
+        const slot = coordinator.admit(domain);
+        const token = new CancellationToken();
+        let started = false;
+        let claimedJobId: string | null = null;
+        res.once("close", () => {
+          if (res.writableFinished) return;
+          token.cancel("client-disconnected"); // the client left: the job stops at its next check and nothing is committed
+          if (!started) slot.release(); // still queued: leave the queue now
+        });
+        let outcome: Awaited<ReturnType<typeof runner.runImportJob>>;
+        try {
+          try {
+            await slot.ready;
+          } catch {
+            return; // abandoned while queued: the client is gone
+          }
+          started = true;
+          const budget = new JobBudget({ deadlineMs: limits.execution.job_deadline_ms, now: clock, token });
+          const control: ImportJobControl = {
+            budget,
+            limits: limits.execution,
+            submitterSub: submitter.sub,
+            onClaimed: (jobId) => {
+              claimedJobId = jobId;
+              liveJobs.register(jobId, { budget, token, securityDomain: domain, submitterSub: submitter.sub });
+            },
+            stageHook: options.testHooks?.stageHook,
+          };
+          outcome = await runner.runImportJob({
+            control,
           idempotencyKey,
           actor: OPERATOR,
           dataset: typeof body.dataset === "string" ? body.dataset : undefined,
@@ -1001,7 +1222,12 @@ export function createDppServer(options: DppServerOptions): Server {
           },
           lab: labPayload,
           evidence,
-        });
+          });
+
+        } finally {
+          if (claimedJobId) liveJobs.unregister(claimedJobId);
+          slot.release();
+        }
 
         sendJson(res, outcome.ok ? 200 : 422, outcome, allowedOrigin, undefined, allowMethods);
         return;
@@ -1013,6 +1239,60 @@ export function createDppServer(options: DppServerOptions): Server {
         const { runner } = await loadRuntime();
         const report = runner.recoverPendingJobs();
         sendJson(res, 200, report, allowedOrigin, undefined, allowMethods);
+        return;
+      }
+
+      // POST /api/jobs/:jobId/cancel (Cycle 8, LEAN-DEF-09, D8-02). The submitter (same sub, ACT-01) or an ADMIN, with a mandatory reason.
+      const cancelMatch = pathname.match(/^\/api\/jobs\/([^/]+)\/cancel$/);
+      if (method === "POST" && cancelMatch) {
+        const ctx = requireAuth("job:cancel");
+        const jobId = decodeParam(cancelMatch[1]!);
+        const body = await readBody(req, defaultMaxBytes);
+        const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+        if (!reason || reason.length > REASON_MAX || CONTROL_CHARS.test(reason)) {
+          sendJson(
+            res,
+            400,
+            { code: "reason-required", message: `A single-line reason of 1..${REASON_MAX} characters is required` },
+            allowedOrigin,
+            undefined,
+            allowMethods,
+          );
+          return;
+        }
+        const { runner } = await loadRuntime();
+        const job = runner.getJob(jobId);
+        if (!job) {
+          sendJson(res, 404, { code: "not-found", message: "Job not found" }, allowedOrigin, undefined, allowMethods);
+          return;
+        }
+        const owner = runner.getSubmitter(jobId) ?? "";
+        if (!ctx.roles.some((role) => mayCancelJob(role, ctx.sub, owner))) {
+          throw new AuthError("forbidden", 403, "Only the submitter of this job, or an ADMIN, may cancel it");
+        }
+        if (job.state === "running") {
+          const live = liveJobs.get(jobId, domain);
+          if (!live) {
+            sendJson(res, 409, { code: "not-cancellable", message: "The job is not running in this server process" }, allowedOrigin, undefined, allowMethods);
+            return;
+          }
+          const result = live.budget.cancel(reason);
+          if (result === "cancelled") runner.recordCancellation(jobId, ctx.sub, reason);
+          sendJson(
+            res,
+            200,
+            { jobId, status: result === "not-cancellable" ? "already-cancelled" : result, outcome: "CANCELLED" },
+            allowedOrigin,
+            undefined,
+            allowMethods,
+          );
+          return;
+        }
+        if (job.state === "rolled_back" && job.errorCode === "cancelled") {
+          sendJson(res, 200, { jobId, status: "already-cancelled", outcome: "CANCELLED" }, allowedOrigin, undefined, allowMethods);
+          return;
+        }
+        sendJson(res, 409, { code: "not-cancellable", message: `The job has already ended (${job.state})` }, allowedOrigin, undefined, allowMethods);
         return;
       }
 
@@ -1038,7 +1318,12 @@ export function createDppServer(options: DppServerOptions): Server {
         sendJson(
           res,
           200,
-          { job, events: runner.getJobEvents(jobId), receipt: runner.getReceiptForJob(jobId) ?? null },
+          {
+            job,
+            events: runner.getJobEvents(jobId),
+            receipt: runner.getReceiptForJob(jobId) ?? null,
+            cancellation: runner.getCancellation(jobId),
+          },
           allowedOrigin,
           undefined,
           allowMethods,
@@ -1081,7 +1366,7 @@ export function createDppServer(options: DppServerOptions): Server {
         const model = decodeParam(correctMatch[1]!);
         const batch = decodeParam(correctMatch[2]!);
         const { activePack, maxBodyBytes, runner } = await loadRuntime();
-        const body = await readJsonObject(req, maxBodyBytes);
+        const body = await readBody(req, maxBodyBytes);
         if (typeof body.property !== "string" || !body.property || typeof body.raw !== "string" || typeof body.reason !== "string") {
           sendJson(res, 400, { code: "invalid-payload", message: "property, raw, and reason are required" }, allowedOrigin, undefined, allowMethods);
           return;
@@ -1118,7 +1403,7 @@ export function createDppServer(options: DppServerOptions): Server {
         const model = decodeParam(relMatch[1]!);
         const batch = decodeParam(relMatch[2]!);
         const { activePack, maxBodyBytes, runner } = await loadRuntime();
-        const body = await readJsonObject(req, maxBodyBytes);
+        const body = await readBody(req, maxBodyBytes);
         const version = parseOptionalVersion(body.version);
         const snapshot = version
           ? runner.repository.getSync(model, batch, version)
@@ -1128,6 +1413,7 @@ export function createDppServer(options: DppServerOptions): Server {
           return;
         }
         const release = await generateRelease(activePack, snapshot, { software, by: OPERATOR });
+        assertOutputWithin(release.files);
         const events = await releaseEvents(model, batch, snapshot.version, release.outcomes);
         for (const ev of events) runner.logStore.addSync(ev);
         sendJson(
@@ -1190,7 +1476,7 @@ export function createDppServer(options: DppServerOptions): Server {
             throw new AuthError("forbidden", 403, "Principal is not permitted to modify evidence legal holds");
           }
         }
-        const body = await readJsonObject(req, defaultMaxBytes);
+        const body = await readBody(req, defaultMaxBytes);
         if (typeof body.legalHold !== "boolean") {
           sendJson(res, 400, { code: "invalid-payload", message: "legalHold boolean is required" }, allowedOrigin, undefined, allowMethods);
           return;
@@ -1271,10 +1557,33 @@ export function createDppServer(options: DppServerOptions): Server {
         return;
       }
 
-      sendJson(res, 404, { code: "not-found", message: `Unknown route ${method} ${pathname}` }, allowedOrigin, undefined, allowMethods);
+      sendJson(res, 404, { code: "not-found", message: "Unknown route" }, allowedOrigin, undefined, allowMethods);
     } catch (err) {
       const mapped = mapError(err);
-      sendJson(res, mapped.status, { code: mapped.code, message: mapped.message }, allowedOrigin, mapped.extraHeaders, allowMethods);
+      sendJson(
+        res,
+        mapped.status,
+        { code: mapped.code, message: mapped.message, ...(mapped.limit ? { limit: mapped.limit } : {}) },
+        allowedOrigin,
+        mapped.extraHeaders,
+        allowMethods,
+      );
+    }
+    },
+  );
+
+  // T11: a hard cap on open connections; a connection over it is refused at once and counted.
+  server.maxConnections = limits.http.max_connections;
+  server.on("drop", () => metrics.recordLimit("OVER_LIMIT", "max_connections"));
+  // T11: a client that is too slow to send its headers or its request (Slowloris) is answered 408 and its socket is closed.
+  server.on("clientError", (err: Error & { code?: string }, socket) => {
+    const timedOut = err.code === "ERR_HTTP_REQUEST_TIMEOUT";
+    if (timedOut) metrics.recordLimit("TIMEOUT", "request_timeout_ms");
+    if (socket.writable && !socket.destroyed) {
+      socket.end(`HTTP/1.1 ${timedOut ? "408 Request Timeout" : "400 Bad Request"}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
+    } else {
+      socket.destroy();
     }
   });
+  return server;
 }

@@ -26,11 +26,13 @@
     "golden": "node scripts/golden.mjs",
     "serve": "vite preview --port 4173 --strictPort",
     "check-secrets": "node scripts/check-secrets.mjs",
+    "check-audit": "node scripts/check-audit.mjs",
     "check-licences": "node scripts/check-licences.mjs",
     "audit-deps": "npm audit --omit=dev --audit-level=high",
     "rehearse-install": "bash scripts/rehearse-install.sh",
     "acceptance": "node scripts/acceptance.mjs",
-    "perf": "node scripts/perf.mjs"
+    "perf": "node scripts/perf.mjs",
+    "load": "node scripts/load.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "1.4.0",

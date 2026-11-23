@@ -258,10 +258,12 @@ describe("licence audit", () => {
     expect(r.stdout).toContain("allow-list MIT, ISC, BSD-2-Clause, BSD-3-Clause, Apache-2.0, 0BSD, OFL-1.1, CC0-1.0, BlueOak-1.0.0");
   });
 
-  it("is a CI step, and the vulnerability report is a step that does not block", () => {
+  it("is a CI step, and the dependency audit is a gating step (D8-06: check-audit, no continue-on-error)", () => {
     const ci = readFileSync(".github/workflows/ci.yml", "utf8");
     expect(ci).toMatch(/npm run check-licences/);
-    expect(ci).toMatch(/continue-on-error: true\s+run: npm audit --omit=dev --audit-level=high/);
+    expect(ci).toMatch(/- name: Dependency audit gate[^\n]*\n\s+run: npm run check-audit/);
+    expect(ci).not.toMatch(/continue-on-error/);
+    expect(ci).not.toMatch(/npm audit --omit=dev/);
   });
 });
 

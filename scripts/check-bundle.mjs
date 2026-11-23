@@ -13,6 +13,9 @@ import { join } from "node:path";
 const DIST = process.env.DPP_DIST ?? "dist";
 const isScript = (f) => /\.[mc]?js$/.test(f);
 const FORBIDDEN = ["dangerouslyAllowBrowser", "api.anthropic.com"];
+// The durable server bundle must carry no LLM SDK code at all (D8-05, threat T10), whatever VITE_ENABLE_LLM says.
+const DIST_SERVER = process.env.DPP_DIST_SERVER ?? "dist-server";
+const FORBIDDEN_SERVER = ["@anthropic-ai", "anthropic", "api.anthropic.com", "dangerouslyAllowBrowser"];
 const errors = [];
 
 if (!existsSync(join(DIST, "index.html"))) {
@@ -63,8 +66,17 @@ for (const marker of ["PDFDocument", "Helvetica"]) {
   if (!bundleText.includes(marker)) errors.push(`the bundle lacks "${marker}": pdf-lib should be bundled for the customer PDF`);
 }
 
+if (existsSync(DIST_SERVER)) {
+  const walk = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)]));
+  const serverFiles = walk(DIST_SERVER);
+  for (const file of serverFiles) {
+    const text = readFileSync(file, "utf8").toLowerCase();
+    for (const s of FORBIDDEN_SERVER) if (text.includes(s.toLowerCase())) errors.push(`${file} contains "${s}": the server bundle must not contain LLM SDK code`);
+  }
+}
+
 if (errors.length) {
   for (const e of errors) console.error(`check-bundle: ${e}`);
   process.exit(1);
 }
-console.log("Bundle OK: content security policy present, no browser LLM client, public contract pack only, pdf-lib bundled, pdfjs-dist not.");
+console.log(`Bundle OK: content security policy present, no browser LLM client, public contract pack only, pdf-lib bundled, pdfjs-dist not${existsSync(DIST_SERVER) ? ", no LLM SDK in the server bundle" : ""}.`);

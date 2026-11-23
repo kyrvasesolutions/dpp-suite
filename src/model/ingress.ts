@@ -202,15 +202,34 @@ class Deadline {
     private readonly clock: () => number,
     private readonly name: string,
     startedAt?: number,
+    private readonly budget?: IngressBudget,
   ) {
     // the deadline belongs to the job (the whole import of the pair), so a second file inherits the time the first one used
     this.start = startedAt ?? clock();
   }
   check(stage: Stage) {
+    // The server's job budget (cancellation token + wall-clock deadline) throws a LimitError, which is not a stage failure:
+    // it stops the whole job, never one file (C8-02). It runs at every stage boundary and at every parser tick.
+    this.budget?.check(stage);
     if (this.clock() - this.start > this.limitMs) {
       throw new StageFailure(stage, [issue(stage, "deadline", this.name, `The limit is ${this.limitMs / 1000} s.`)]);
     }
   }
+}
+
+/** The server's job budget as ingress sees it: `check` throws when the job was cancelled or passed its deadline (Cycle 8). */
+export interface IngressBudget {
+  check(stage: string): void;
+}
+
+/** Execution budgets that replace the pinned input limits for one job (the server passes OPERATIONAL-LIMITS here; the browser passes none). */
+export interface IngressLimits {
+  maxFileBytes?: number;
+  maxJsonDepth?: number;
+  maxRows?: number;
+  /** Most JSON values in one document; exceeding it stops the parse with `too-many-nodes`. */
+  maxParserNodes?: number;
+  deadlineMs?: number;
 }
 
 /** Optional clock, so tests can run a job past its deadline without waiting for it. */
@@ -221,7 +240,25 @@ export interface ImportInput {
   now?: () => number;
   /** When the job began, on the same clock: the deadline counts from here, not from this file. */
   startedAt?: number;
+  /** Cycle 8: cooperative cancellation and deadline of the job. Absent in the browser. */
+  budget?: IngressBudget;
+  /** Cycle 8: budgets that override the pinned input limits. Absent in the browser. */
+  limits?: IngressLimits;
 }
+
+/** The effective input limits of one import: the pinned ones, overridden by the job's budgets. */
+function effectiveLimits(pinned: ProfilePack["policy"]["limits"], over: IngressLimits | undefined) {
+  return {
+    ...pinned,
+    ...(over?.maxFileBytes !== undefined ? { max_file_bytes: over.maxFileBytes } : {}),
+    ...(over?.maxJsonDepth !== undefined ? { max_json_depth: over.maxJsonDepth } : {}),
+    ...(over?.maxRows !== undefined ? { max_erp_data_rows: over.maxRows } : {}),
+    ...(over?.deadlineMs !== undefined ? { job_deadline_ms: over.deadlineMs } : {}),
+  };
+}
+
+/** An ingress issue built from a code, for a caller outside this file (a job-level budget stop). */
+export const ingressIssue = (stage: Stage, code: IngressCode, location: string, detail?: string): IngressIssue => issue(stage, code, location, detail);
 
 async function bytesStage(bytes: Uint8Array, name: string, declaredType: string, role: SourceFile["role"], maxBytes: number) {
   const expected = role === "erp" ? { type: "text/csv", ext: ".csv" } : { type: "application/json", ext: ".json" };
@@ -354,8 +391,8 @@ export async function importErpCsv(
   actor = "ACT-01",
 ): Promise<ImportResult> {
   const contract = pack.inputs.erp;
-  const limits = pack.policy.limits;
-  const deadline = new Deadline(limits.job_deadline_ms, input.now ?? (() => performance.now()), input.name, input.startedAt);
+  const limits = effectiveLimits(pack.policy.limits, input.limits);
+  const deadline = new Deadline(limits.job_deadline_ms, input.now ?? (() => performance.now()), input.name, input.startedAt, input.budget);
   let file: SourceFile = { name: input.name, role: "erp", mediaType: input.type, sha256: "", size: input.bytes.length };
   try {
     deadline.check("bytes");
@@ -527,8 +564,8 @@ export async function importLabJson(
   actor = "ACT-01",
 ): Promise<ImportResult> {
   const contract = pack.inputs.lab;
-  const limits = pack.policy.limits;
-  const deadline = new Deadline(limits.job_deadline_ms, input.now ?? (() => performance.now()), input.name, input.startedAt);
+  const limits = effectiveLimits(pack.policy.limits, input.limits);
+  const deadline = new Deadline(limits.job_deadline_ms, input.now ?? (() => performance.now()), input.name, input.startedAt, input.budget);
   let file: SourceFile = { name: input.name, role: "lab", mediaType: input.type, sha256: "", size: input.bytes.length };
   try {
     deadline.check("bytes");
@@ -539,11 +576,25 @@ export async function importLabJson(
     let doc: JsonValue;
     try {
       deadline.check("parse");
-      doc = parseStrictJson(decoded.text, { maxDepth: limits.max_json_depth, tick: () => deadline.check("parse") });
+      doc = parseStrictJson(decoded.text, {
+        maxDepth: limits.max_json_depth,
+        ...(input.limits?.maxParserNodes !== undefined ? { maxNodes: input.limits.maxParserNodes } : {}),
+        tick: () => deadline.check("parse"),
+      });
     } catch (e) {
       if (!(e instanceof JsonSyntaxError)) throw e;
-      const code: IngressCode = e.code === "duplicate-key" ? "duplicate-key" : e.code === "non-finite-number" ? "non-finite-number" : e.code === "too-deep" ? "too-deep" : "json-syntax";
-      throw new StageFailure("parse", [issue("parse", code, `${name}, ${e.path || "/"}`, e.message)]);
+      const code: IngressCode =
+        e.code === "duplicate-key"
+          ? "duplicate-key"
+          : e.code === "non-finite-number"
+            ? "non-finite-number"
+            : e.code === "too-deep"
+              ? "too-deep"
+              : e.code === "too-many-nodes"
+                ? "too-many-nodes"
+                : "json-syntax";
+      // The node-limit text never carries the offset or the path: neither is needed, and neither is echoed.
+      throw new StageFailure("parse", [issue("parse", code, code === "too-many-nodes" ? name : `${name}, ${e.path || "/"}`, code === "too-many-nodes" ? undefined : e.message)]);
     }
 
     deadline.check("structure");

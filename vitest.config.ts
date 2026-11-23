@@ -8,5 +8,7 @@ export default defineConfig({
   test: {
     include: ["tests/unit/**/*.test.ts", "tests/simulation/**/*.test.ts"],
     environment: "jsdom",
+    // Records any non-loopback network attempt in node-environment files and fails the file (D8-05).
+    setupFiles: ["tests/support/noEgress.ts"],
   },
 });

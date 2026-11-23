@@ -574,6 +574,40 @@ export const MIGRATIONS: readonly Migration[] = [
       DROP TABLE IF EXISTS users;
     `,
   },
+  {
+    // Cycle 8 (D8-02): who submitted a job, and the audited reason of a cancel. Additive; v1-v6 are untouched.
+    version: 7,
+    name: "0007_cycle8_job_control",
+    up: `
+      CREATE TABLE IF NOT EXISTS job_submitters (
+        job_id TEXT PRIMARY KEY REFERENCES import_jobs(job_id) ON DELETE CASCADE,
+        security_domain TEXT NOT NULL,
+        submitter_sub TEXT NOT NULL,
+        recorded_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS job_cancellations (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        job_id TEXT NOT NULL UNIQUE REFERENCES import_jobs(job_id) ON DELETE CASCADE,
+        security_domain TEXT NOT NULL,
+        requested_by TEXT NOT NULL,
+        reason TEXT NOT NULL CHECK (length(reason) BETWEEN 1 AND 500),
+        outcome TEXT NOT NULL CHECK (outcome IN ('CANCELLED')),
+        requested_at TEXT NOT NULL
+      );
+
+      CREATE TRIGGER IF NOT EXISTS trg_job_cancellations_no_update
+      BEFORE UPDATE ON job_cancellations
+      BEGIN
+        SELECT RAISE(ABORT, 'job_cancellations is append-only and cannot be updated');
+      END;
+    `,
+    down: `
+      DROP TRIGGER IF EXISTS trg_job_cancellations_no_update;
+      DROP TABLE IF EXISTS job_cancellations;
+      DROP TABLE IF EXISTS job_submitters;
+    `,
+  },
 ];
 
 export function migrationChecksum(m: Migration): string {

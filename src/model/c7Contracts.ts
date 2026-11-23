@@ -41,6 +41,10 @@ export const SERVER_ACTIONS = [
   "config-approve",
   "config-activate",
   "config-rollback",
+  /** Cycle 8: the submitter (ACT-01, own jobs only) or an ADMIN cancels a running import job. */
+  "job:cancel",
+  /** Cycle 8: counters only. */
+  "metrics:read",
 ] as const;
 export type ServerAction = (typeof SERVER_ACTIONS)[number];
 
@@ -58,6 +62,7 @@ export const ROLE_ACTION_MATRIX: Record<ServerRole, readonly ServerAction[]> = {
     "job-recover",
     "log-read",
     "config-read",
+    "job:cancel",
   ],
   "ACT-06": ["record-read-customer", "release-customer"],
   ADMIN: [
@@ -76,6 +81,8 @@ export const ROLE_ACTION_MATRIX: Record<ServerRole, readonly ServerAction[]> = {
     "config-approve",
     "config-activate",
     "config-rollback",
+    "job:cancel",
+    "metrics:read",
   ],
   CURATOR: [
     "record-read-internal",
@@ -86,7 +93,7 @@ export const ROLE_ACTION_MATRIX: Record<ServerRole, readonly ServerAction[]> = {
     "config-activate",
     "config-rollback",
   ],
-  AUDITOR: ["record-read-internal", "record-read-customer", "evidence-read", "job-read", "log-read", "role-read", "config-read"],
+  AUDITOR: ["record-read-internal", "record-read-customer", "evidence-read", "job-read", "log-read", "role-read", "config-read", "metrics:read"],
 };
 
 export interface AuthContext {

@@ -525,13 +525,14 @@ describe("4. job coordinator", () => {
     expect(() => c.admit("a1", "B")).toThrow();
   });
 
-  it("the new server actions map to the intended roles, and the Cycle 7 matrix is untouched", () => {
+  it("the new server actions map to the intended roles, and every other Cycle 7 grant is untouched", () => {
     expect(C8_ACTIONS["job:cancel"].roles).toEqual(["ACT-01", "ADMIN"]);
     expect(C8_ACTIONS["metrics:read"].roles).toEqual(["ADMIN", "AUDITOR"]);
+    // Cycle 8 (Layer 3) joined the two actions to the real matrix: exactly the roles above hold them, no other role does.
     for (const role of SERVER_ROLES) {
       const actions = ROLE_ACTION_MATRIX[role] as readonly string[];
-      expect(actions, role).not.toContain("job:cancel");
-      expect(actions, role).not.toContain("metrics:read");
+      expect(actions.includes("job:cancel"), role).toBe((C8_ACTIONS["job:cancel"].roles as readonly string[]).includes(role));
+      expect(actions.includes("metrics:read"), role).toBe((C8_ACTIONS["metrics:read"].roles as readonly string[]).includes(role));
     }
   });
 });
