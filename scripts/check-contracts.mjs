@@ -260,6 +260,22 @@ if (profileFrozen) {
   for (const key of ["max_file_bytes", "max_json_depth", "job_deadline_ms", "max_erp_data_rows"]) {
     if (!Number.isInteger(limits?.limits?.[key]) || limits.limits[key] < 1) fail(`LIMITS: ${key} must be a positive whole number`);
   }
+  const opLimits = pinnedYaml("policy", policyRefs.find((r) => r.startsWith("OPERATIONAL-LIMITS@")));
+  if (!opLimits) fail(`${profilePath}: pins.policy must pin OPERATIONAL-LIMITS`);
+  if (opLimits) {
+    for (const [group, keys] of Object.entries({
+      execution: ["source_file_max_bytes", "source_pair_max_bytes", "max_nesting_depth", "max_records_per_job", "job_deadline_ms", "max_parser_nodes_per_job", "max_output_bytes_per_route", "total_staging_max_bytes", "execution_memory_max_bytes", "cancellation_poll_max_ms"],
+      coordinator: ["max_active_jobs_per_security_domain", "max_queued_jobs_per_security_domain", "max_active_jobs_total", "retry_after_seconds"],
+      http: ["headers_timeout_ms", "request_timeout_ms", "keep_alive_timeout_ms", "max_connections", "max_request_body_bytes", "rate_limit_window_ms", "rate_limit_read_per_window", "rate_limit_write_per_window"],
+      targets: ["import_job_p95_ms", "read_p95_ms", "concurrent_clients", "volume_committed_batches", "max_rss_bytes"],
+    })) {
+      for (const key of keys) {
+        if (!Number.isInteger(opLimits[group]?.[key]) || opLimits[group][key] < 1) fail(`OPERATIONAL-LIMITS: ${group}.${key} must be a positive whole number`);
+      }
+    }
+    if (opLimits.execution?.retry_count !== 0) fail("OPERATIONAL-LIMITS: execution.retry_count must be 0 (the server never retries on its own)");
+    if (opLimits.targets?.max_server_errors !== 0) fail("OPERATIONAL-LIMITS: targets.max_server_errors must be 0");
+  }
   const retention = pinnedYaml("policy", policyRefs.find((r) => r.startsWith("RETENTION@")));
   if (!retention) fail(`${profilePath}: pins.policy must pin RETENTION`);
   if (retention) {

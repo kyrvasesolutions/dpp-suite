@@ -45,6 +45,7 @@ pins:
     - LIMITS@1.0.0
     - RETENTION@1.0.0
     - EXCEPTIONS@1.0.0
+    - OPERATIONAL-LIMITS@1.0.0
 properties:
   - id: ALU-D101
     definition_ref: urn:dpp-demo:standin:term:product-model-id

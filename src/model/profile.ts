@@ -9,6 +9,7 @@
 import { parse } from "yaml";
 import { z } from "zod";
 import { canonical } from "./canonical";
+import { OperationalLimitsSchema, type OperationalLimits } from "./c8Contracts";
 import { ExceptionCatalogueSchema, RetentionPolicySchema, type ExceptionCatalogue, type RetentionPolicy } from "./pContracts";
 
 export const ROUTES = ["customer-pdf", "erp-staging-csv", "registry-prep-json"] as const;
@@ -283,6 +284,8 @@ export interface ProfilePack {
     retention: RetentionPolicy;
     exceptions: ExceptionCatalogue;
   };
+  /** The pinned operational limits, coordinator and HTTP bounds and load targets (Cycle 8, D8-01). ARTIFICIAL-DEMO design values. */
+  operationalLimits: OperationalLimits;
 }
 
 /** Reads the actor/field matrix CSV: comment lines start with "#", then `property,<routes…>`, then one row per property. */
@@ -421,7 +424,7 @@ export async function loadProfilePack(source: PackSource): Promise<ProfilePack> 
     ...contracts("routes", "routes/", profile.pins.route_contracts),
   ];
 
-  const policyFamilies = ["READINESS-RULES", "DERIVED-RULES", "LIMITS", "RETENTION", "EXCEPTIONS"] as const;
+  const policyFamilies = ["READINESS-RULES", "DERIVED-RULES", "LIMITS", "RETENTION", "EXCEPTIONS", "OPERATIONAL-LIMITS"] as const;
   for (const ref of profile.pins.policy) {
     const family = ref.split("@")[0];
     if (!(policyFamilies as readonly string[]).includes(family)) {
@@ -438,6 +441,7 @@ export async function loadProfilePack(source: PackSource): Promise<ProfilePack> 
   const limits = pinnedDoc("policy", policyPinFor("LIMITS"), LimitsDoc);
   const retention = pinnedDoc("policy", policyPinFor("RETENTION"), RetentionPolicySchema);
   const exceptions = pinnedDoc("policy", policyPinFor("EXCEPTIONS"), ExceptionCatalogueSchema);
+  const operationalLimits = pinnedDoc("policy", policyPinFor("OPERATIONAL-LIMITS"), OperationalLimitsSchema);
   LOADED_RETENTION.set(retention.doc, await sha256Hex(canonical(retention.doc)));
 
   const termById = new Map(terms.doc.terms.map((t) => [t.id, t]));
@@ -509,6 +513,7 @@ export async function loadProfilePack(source: PackSource): Promise<ProfilePack> 
       limits.file,
       retention.file,
       exceptions.file,
+      operationalLimits.file,
       ...codeLists.map(({ ref, path, digest }) => ({ ref, path, digest })),
     ],
     termCount: terms.doc.terms.length,
@@ -529,6 +534,7 @@ export async function loadProfilePack(source: PackSource): Promise<ProfilePack> 
       retention: retention.doc,
       exceptions: exceptions.doc,
     },
+    operationalLimits: operationalLimits.doc,
   };
 }
 

@@ -35,6 +35,8 @@ export type IngressCode =
   | "json-syntax"
   | "duplicate-key"
   | "too-deep"
+  | "too-many-nodes"
+  | "cancelled"
   | "non-finite-number"
   | "schema"
   | "missing-value"
@@ -68,6 +70,8 @@ export const ERROR_TEXT: Record<IngressCode, string> = {
   "too-large": "The file is larger than the declared limit for a source file, so it was not read.",
   "deadline": "The import ran past its time limit and was stopped. Nothing is imported.",
   "too-deep": "The JSON is nested deeper than the declared limit.",
+  "too-many-nodes": "The JSON holds more values than the declared limit, so it was not processed. Nothing is imported.",
+  "cancelled": "The import was cancelled and stopped. Nothing is imported.",
   "json-syntax": "The JSON text is malformed.",
   "duplicate-key": "An object in the JSON has the same key twice, so it is unclear which value is meant.",
   "non-finite-number": "A number is too large to represent, or not a number at all.",

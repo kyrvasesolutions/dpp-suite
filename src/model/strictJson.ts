@@ -17,7 +17,7 @@ export class JsonSyntaxError extends Error {
   override name = "JsonSyntaxError";
   constructor(
     message: string,
-    readonly code: "syntax" | "duplicate-key" | "non-finite-number" | "too-deep",
+    readonly code: "syntax" | "duplicate-key" | "non-finite-number" | "too-deep" | "too-many-nodes",
     readonly offset: number,
     readonly path: string,
   ) {
@@ -30,6 +30,8 @@ const NUMBER = /-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/y;
 export interface ParseOptions {
   /** Deepest nesting allowed; the root container is depth 1. Checked before recursing, so a hostile text cannot overflow the stack. */
   maxDepth?: number;
+  /** Most value nodes allowed in one document (every object, array, string, number, boolean and null counts once). Exceeding it throws `too-many-nodes`. */
+  maxNodes?: number;
   /** Called for every value, so the caller can enforce a deadline. */
   tick?: () => void;
 }
@@ -38,6 +40,8 @@ export function parseStrictJson(text: string, options: ParseOptions = {}): JsonV
   let i = 0;
   let depth = 0;
   const maxDepth = options.maxDepth ?? Number.POSITIVE_INFINITY;
+  const maxNodes = options.maxNodes ?? Number.POSITIVE_INFINITY;
+  let nodes = 0;
   const enter = (path: string) => {
     depth++;
     if (depth > maxDepth) fail(`nesting is deeper than ${maxDepth} levels`, path, "too-deep");
@@ -85,6 +89,7 @@ export function parseStrictJson(text: string, options: ParseOptions = {}): JsonV
   function value(path: string): JsonValue {
     options.tick?.();
     ws();
+    if (++nodes > maxNodes) fail(`the document has more than ${maxNodes} values`, path, "too-many-nodes");
     const c = text[i];
     if (c === "{") {
       enter(path);

@@ -1,0 +1,39 @@
+# Operational limits and design targets (ARTIFICIAL-DEMO design values, not measured limits). PUBLIC STAND-IN for the private N pack (decision D1-01, option b): synthetic, renumbered
+# identifiers, stand-in definitions and codes. Generated from the private specification; do not edit by hand.
+id: OPERATIONAL-LIMITS
+version: 1.0.0
+status: FROZEN
+execution:
+  source_file_max_bytes: 10485760
+  source_pair_max_bytes: 20971520
+  max_nesting_depth: 12
+  max_records_per_job: 1
+  job_deadline_ms: 30000
+  max_parser_nodes_per_job: 100000
+  max_output_bytes_per_route: 10485760
+  total_staging_max_bytes: 67108864
+  execution_memory_max_bytes: 536870912
+  cancellation_poll_max_ms: 100
+  retry_count: 0
+coordinator:
+  max_active_jobs_per_security_domain: 2
+  max_queued_jobs_per_security_domain: 8
+  max_active_jobs_total: 4
+  retry_after_seconds: 2
+http:
+  headers_timeout_ms: 10000
+  request_timeout_ms: 60000
+  keep_alive_timeout_ms: 5000
+  max_connections: 256
+  max_request_body_bytes: 31457280
+  rate_limit_window_ms: 60000
+  rate_limit_read_per_window: 600
+  rate_limit_write_per_window: 120
+targets:
+  import_job_p95_ms: 5000
+  read_p95_ms: 500
+  concurrent_clients: 16
+  volume_committed_batches: 1000
+  max_server_errors: 0
+  max_rss_bytes: 536870912
+note: ARTIFICIAL-DEMO design values and targets, not measured limits. The execution values are the S4 contract values; the coordinator, http and targets values are design values for the demonstrator. Configurable by pinning a new version of this file.
