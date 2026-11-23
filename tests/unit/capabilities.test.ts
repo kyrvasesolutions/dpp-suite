@@ -7,7 +7,7 @@ describe("capability registry", () => {
   it("has one entry per screen", () => {
     const ids = CAPABILITIES.map((c) => c.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect([...ids].sort()).toEqual(["graph", "import", "mapping", "outputs", "prepare", "profile", "readiness", "record", "requirements", "server", "validation"]);
+    expect([...ids].sort()).toEqual(["graph", "identity-releases", "import", "mapping", "outputs", "prepare", "profile", "readiness", "record", "requirements", "server", "validation"]);
   });
 
   it("uses only the four labels", () => {
@@ -92,6 +92,20 @@ describe("capability registry", () => {
       expect(labelOfFunction(f), f).toBe("supported");
     }
     expect(labelOfFunction("FUNC-087")).toBeUndefined(); // N has no slice of it
+  });
+
+  it("labels Cycle 7 identity, access & config release P functions untested until Cycle 7 exit without altering N labels", () => {
+    const c7 = capabilityOf("identity-releases");
+    expect(c7.label).toBe("untested");
+    expect(c7.increment).toBe("P");
+    expect(c7.screen).toBe(false);
+    for (const f of ["FUNC-001", "FUNC-018", "FUNC-019", "FUNC-027", "FUNC-046", "FUNC-085", "FUNC-134"]) {
+      expect(labelOfFunction(f, "P"), f).toBe("untested");
+    }
+    expect(labelOfFunction("FUNC-001")).toBe("supported");
+    expect(labelOfFunction("FUNC-019")).toBe("supported");
+    expect(labelOfFunction("FUNC-046")).toBe("supported");
+    expect(labelOfFunction("FUNC-018")).toBeUndefined();
   });
 
   it("fails loudly for an unknown screen", () => {
