@@ -103,6 +103,15 @@ const shown = (a: ProjectedValue["assertions"][number]) => (typeof a.value === "
 export function buildItems(pack: ProfilePack, projection: Projection): OutputValue[] {
   const info = pack.routes[projection.route];
   const label = new Map(pack.properties.map((p) => [p.id, p.labels]));
+  const byProp = new Map<string, ProjectedValue[]>();
+  for (const v of projection.values) {
+    let bucket = byProp.get(v.property);
+    if (!bucket) {
+      bucket = [];
+      byProp.set(v.property, bucket);
+    }
+    bucket.push(v);
+  }
   return info.output.map((item): OutputValue => {
     // The matrix has the last word, again: an item for a denied property is never read.
     const access = decide(pack, projection.route, item.property);
@@ -126,7 +135,7 @@ export function buildItems(pack: ProfilePack, projection: Projection): OutputVal
       return { ...base, present: true, challenged: false, text, lines: [{ text }], numeric: false, ruleId: d.rule, sources: d.sources, refs: [], fields: [] };
     }
 
-    const own = projection.values.filter((v) => v.property === item.property);
+    const own = byProp.get(item.property) ?? [];
     const usable = (v: ProjectedValue) => v.status !== "challenged";
     const refOf = (v: ProjectedValue, index: number): AssertionRef => ({ property: v.property, ...(v.member ? { member: v.member } : {}), ...(v.qualifier ? { qualifier: v.qualifier } : {}), index });
 
@@ -225,8 +234,9 @@ export function prepare(
   route: Route,
   options: { allowHold?: boolean } = {},
 ): { projection: Projection; items: OutputValue[]; holds: HoldReason[] } {
-  const projection = project(pack, record, route);
-  const holds = assess(pack, record).find((r) => r.route === route)!.holds;
+  const readiness = assess(pack, record, { routes: [route] })[0]!;
+  const projection = project(pack, record, route, readiness);
+  const holds = readiness.holds;
   if (projection.route !== route) throw new RouteRefusedError(route, [], `The projection is for ${projection.route}, not ${route}`);
   if (projection.onHold && !options.allowHold) {
     throw new RouteRefusedError(route, holds, `${pack.routes[route].recipient} is on hold, so no file is made: ${holds.map((h) => h.ruleId).join(", ")}`);

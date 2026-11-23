@@ -431,6 +431,8 @@ export class JobCoordinatorModel {
       this.#activeByDomain.set(e.domain, (this.#activeByDomain.get(e.domain) ?? 0) + 1);
       this.#queue = this.#queue.filter((q) => q !== id);
       started.push(id);
+      // V1-11: stop the pass as soon as any waiting job reaches OVERTAKE_LIMIT so a single pass never exceeds it.
+      if (waitingForBytes.some((w) => w.overtaken >= OVERTAKE_LIMIT)) break;
     }
     return started;
   }

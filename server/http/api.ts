@@ -231,8 +231,10 @@ async function readJsonObject(req: IncomingMessage, maxBytes: number, limitName:
   const pieces: string[] = [];
   let total = 0;
   await new Promise<void>((resolveBody, rejectBody) => {
-    // A client that left before the body was read (for instance while its job waited in the queue) never fires 'close' again: look first.
-    if (req.destroyed && !req.complete) return rejectBody(Object.assign(new Error("The request was aborted"), { statusCode: 400, code: "request-aborted" }));
+    // V2-13: already ended before listeners or timer are attached.
+    if (req.readableEnded) return resolveBody();
+    // V1-10: a client whose stream was already destroyed before `readableEnded` (even if `req.complete` became true) will never emit `data`/`end`/`close`.
+    if (req.destroyed) return rejectBody(Object.assign(new Error("The request was aborted"), { statusCode: 400, code: "request-aborted" }));
     let timer: NodeJS.Timeout | undefined;
     const settle = () => {
       if (timer) clearTimeout(timer);
@@ -272,9 +274,10 @@ async function readJsonObject(req: IncomingMessage, maxBytes: number, limitName:
     };
     const onClose = () => {
       settle();
-      if (!req.complete) rejectBody(Object.assign(new Error("The request was aborted"), { statusCode: 400, code: "request-aborted" }));
+      // V1-10: `onClose` only runs before `onEnd` (otherwise `onEnd` already called `settle`). Always reject when the stream closed without ending cleanly.
+      if (!req.readableEnded) rejectBody(Object.assign(new Error("The request was aborted"), { statusCode: 400, code: "request-aborted" }));
+      else resolveBody();
     };
-    if (req.readableEnded) return resolveBody();
     req.on("data", onData);
     req.once("end", onEnd);
     req.once("error", onError);
@@ -576,9 +579,11 @@ export function createDppServer(options: DppServerOptions): Server {
   );
   const allowedHosts = new Set([...LOOPBACK_HOSTS, ...(options.host && hostName(options.host) ? [hostName(options.host)] : [])]);
 
-  /** The body cap of a route: its own cap, never above the transport cap (`max_request_body_bytes`). */
+  /** Maximum JSON body size for control/metadata routes (V2-12: bounded below the 30 MiB transport cap). */
+  const CONTROL_BODY_MAX_BYTES = 256 * 1024;
+  /** The body cap of a route: its own cap, never above the transport cap (`max_request_body_bytes`), with `body_read_timeout_ms` (V2-12). */
   const readBody = (req: IncomingMessage, routeMaxBytes: number) =>
-    readJsonObject(req, Math.min(routeMaxBytes, limits.http.max_request_body_bytes));
+    readJsonObject(req, Math.min(routeMaxBytes, limits.http.max_request_body_bytes), "max_request_body_bytes", limits.http.body_read_timeout_ms);
   /**
    * The body cap of an import (D8-11): the base64 of the largest record the server admits, plus the JSON around it. It is what the
    * coordinator reserves for a request that does not declare its length, and never above the transport cap.
@@ -811,7 +816,7 @@ export function createDppServer(options: DppServerOptions): Server {
       };
       const grants = new GrantStore(options.db, domain, { now: options.now });
       const configReleases = new ConfigReleaseStore(options.db, domain, { now: options.now });
-      const defaultMaxBytes = Math.max(options.pack.policy.limits.max_file_bytes * 3, 1_048_576);
+      const defaultMaxBytes = CONTROL_BODY_MAX_BYTES;
 
       // =========================================================================
       // DEDICATED CUSTOMER OUTPUT SURFACE (/api/customer/*) — C7-03, EV-4
@@ -849,7 +854,7 @@ export function createDppServer(options: DppServerOptions): Server {
           return;
         }
         const rawProjection = project(activePack, snapshot.record, "customer-pdf");
-        const customerRoute = assess(activePack, snapshot.record).find((r) => r.route === "customer-pdf")!;
+        const customerRoute = assess(activePack, snapshot.record, { routes: ["customer-pdf"] })[0]!;
         const knownProps = new Set(activePack.properties.map((p) => p.id));
         const isReady = customerRoute.status === "ready";
         const safeProjection = {
@@ -894,8 +899,8 @@ export function createDppServer(options: DppServerOptions): Server {
         requireAuth("release-customer");
         const model = decodeParam(custRelMatch[1]!);
         const batch = decodeParam(custRelMatch[2]!);
-        const { activePack, maxBodyBytes, runner } = await loadRuntime();
-        const body = await readBody(req, maxBodyBytes);
+        const { activePack, runner } = await loadRuntime();
+        const body = await readBody(req, defaultMaxBytes);
         const version = parseOptionalVersion(body.version);
         const snapshot = version
           ? runner.repository.getSync(model, batch, version)
@@ -1222,6 +1227,8 @@ export function createDppServer(options: DppServerOptions): Server {
       if (method === "POST" && pathname === "/api/jobs/import") {
         const submitter = requireAuth("import-submit");
         const { maxBodyBytes, runner } = await loadRuntime();
+        // V1-10: if the client disconnected while `loadRuntime` ran, abort before taking a coordinator slot.
+        if (res.destroyed || res.closed || req.destroyed) return;
         const importCap = Math.min(maxBodyBytes, importBodyCap);
         const importLimit = importBodyCap <= maxBodyBytes ? importCapLimit : "max_request_body_bytes";
         // A declared length over the cap is refused before a queue place is taken and before a byte is read (D8-11).
@@ -1247,6 +1254,11 @@ export function createDppServer(options: DppServerOptions): Server {
           token.cancel("client-disconnected"); // the client left: the job stops at its next check and nothing is committed
           if (!started) slot.release(); // still queued: leave the queue now
         });
+        if (res.destroyed || res.closed) {
+          token.cancel("client-disconnected");
+          slot.release();
+          return;
+        }
         let answer: Record<string, unknown>;
         let answerStatus = 200;
         try {
@@ -1256,6 +1268,7 @@ export function createDppServer(options: DppServerOptions): Server {
             return; // abandoned while queued: the client is gone
           }
           started = true;
+          if (res.destroyed || res.closed || req.destroyed || token.isCancelled) return;
           // No lane shared by all clients: what the bodies in memory can add up to is bounded by the in-flight byte budget, and the time
           // one body may take, counted from the grant of the slot, by `body_read_timeout_ms` (D8-12).
           const body = await readJsonObject(req, importCap, importLimit, limits.http.body_read_timeout_ms);
@@ -1546,8 +1559,8 @@ export function createDppServer(options: DppServerOptions): Server {
         requireAuth("record-correct");
         const model = decodeParam(correctMatch[1]!);
         const batch = decodeParam(correctMatch[2]!);
-        const { activePack, maxBodyBytes, runner } = await loadRuntime();
-        const body = await readBody(req, maxBodyBytes);
+        const { activePack, runner } = await loadRuntime();
+        const body = await readBody(req, defaultMaxBytes);
         if (typeof body.property !== "string" || !body.property || typeof body.raw !== "string" || typeof body.reason !== "string") {
           sendJson(res, 400, { code: "invalid-payload", message: "property, raw, and reason are required" }, allowedOrigin, undefined, allowMethods);
           return;
@@ -1583,8 +1596,8 @@ export function createDppServer(options: DppServerOptions): Server {
         requireAuth("release-internal");
         const model = decodeParam(relMatch[1]!);
         const batch = decodeParam(relMatch[2]!);
-        const { activePack, maxBodyBytes, runner } = await loadRuntime();
-        const body = await readBody(req, maxBodyBytes);
+        const { activePack, runner } = await loadRuntime();
+        const body = await readBody(req, defaultMaxBytes);
         const version = parseOptionalVersion(body.version);
         const snapshot = version
           ? runner.repository.getSync(model, batch, version)

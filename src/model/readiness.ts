@@ -67,6 +67,8 @@ export interface AssessOptions {
    * add to what the profile requires; they never remove anything.
    */
   requires?: Partial<Record<Route, string[]>>;
+  /** Optional subset of routes to evaluate (defaults to all routes). */
+  routes?: readonly Route[];
 }
 
 const sourceOf = (a: Assertion) => a.source;
@@ -127,26 +129,56 @@ export function assess(pack: ProfilePack, record: ProductRecord, options: Assess
   const footprintProperty = byRole(pack, "footprint");
   const evidenceProperty = byRole(pack, "evidence");
   const footprint = selectFootprint(pack, record);
-  const valuesOf = (property: string): RecordValue[] => record.values.filter((v) => v.property === property);
+  const byProp = new Map<string, RecordValue[]>();
+  for (const v of record.values) {
+    let bucket = byProp.get(v.property);
+    if (!bucket) {
+      bucket = [];
+      byProp.set(v.property, bucket);
+    }
+    bucket.push(v);
+  }
+  const valuesOf = (property: string): RecordValue[] => byProp.get(property) ?? [];
   const evidenceById = new Map(
     valuesOf(evidenceProperty)
       .filter((v) => v.qualifier !== undefined && !v.member)
       .map((v) => [v.qualifier!, v] as const),
   );
+  const routes = options.routes ?? ROUTES;
 
-  return ROUTES.map((route) => {
+  return routes.map((route) => {
     const info = pack.routes[route];
     const requiredIds = pack.properties
       .filter((p) => p.requiredBy[route] || (options.requires?.[route] ?? []).includes(p.id))
       .map((p) => p.id);
     const holds: HoldReason[] = [];
+    const holdIndex = new Map<string, { hold: HoldReason; seen: Set<string> }>();
     const add = (ruleId: string, property: string | null, member: string | undefined, sources: Assertion["source"][]) => {
-      const merged = holds.find((h) => h.ruleId === ruleId && h.property === property && h.member === member);
-      if (!merged) {
-        holds.push({ ruleId, property, ...(member ? { member } : {}), sources: [...sources] });
+      const hKey = `${ruleId}\0${property ?? ""}\0${member ?? ""}`;
+      let entry = holdIndex.get(hKey);
+      if (!entry) {
+        const seen = new Set<string>();
+        const deduped: Assertion["source"][] = [];
+        for (const s of sources) {
+          const sk = keyOf(s);
+          if (!seen.has(sk)) {
+            seen.add(sk);
+            deduped.push(s);
+          }
+        }
+        const hold: HoldReason = { ruleId, property, ...(member ? { member } : {}), sources: deduped };
+        holds.push(hold);
+        entry = { hold, seen };
+        holdIndex.set(hKey, entry);
         return;
       }
-      for (const s of sources) if (!merged.sources.some((x) => keyOf(x) === keyOf(s))) merged.sources.push(s);
+      for (const s of sources) {
+        const sk = keyOf(s);
+        if (!entry.seen.has(sk)) {
+          entry.seen.add(sk);
+          entry.hold.sources.push(s);
+        }
+      }
     };
     if (info.status === "HOLD") add("RR-STANDING-HOLD", null, undefined, []);
 

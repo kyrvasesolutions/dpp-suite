@@ -703,12 +703,12 @@ export async function importLabJson(
     // The lab file names the model, batch and alloy it reports on, so they become assertions too (FUNC-065).
     const reference = (key: string, property: string, member?: string) => {
       const raw = str(get(product, key));
-      // The same rule as for identifiers in the ERP extract: padding would keep the value from matching its record.
-      if (key !== "alloy" && (raw !== raw.trim() || HAS_INVISIBLE.test(raw))) {
+      // The same rule as for identifiers in the ERP extract: padding would keep the value from matching its record (R3-03: applies to alloy too).
+      if (raw !== raw.trim() || HAS_INVISIBLE.test(raw)) {
         errors.push(issue("semantics", "padded-identifier", `${name}, /product/${key}`, JSON.stringify(raw)));
         return;
       }
-      if (key !== "alloy" && unsafeIdentifier(raw)) {
+      if (unsafeIdentifier(raw)) {
         errors.push(issue("semantics", "unsafe-identifier", `${name}, /product/${key}`));
         return;
       }
@@ -1151,6 +1151,7 @@ export const baseAssertion = (v: RecordValue): Assertion | undefined => v.assert
  */
 export function checkCorrectedValue(pack: ProfilePack, base: Assertion, raw: string): { ok: true; value: string | number | null } | { ok: false; reason: string } {
   const no = (reason: string) => ({ ok: false as const, reason });
+  if (raw.length > MAX_TEXT_FIELD_CHARS) return no(`The corrected value is longer than ${MAX_TEXT_FIELD_CHARS} characters.`);
   if (raw.replace(INVISIBLE, "").trim() === "") return no("The corrected value is empty.");
   if (raw !== raw.trim() || HAS_INVISIBLE.test(raw)) return no("The corrected value has spaces at its ends or invisible characters.");
   if (/[\u0000-\u001f\u007f]/.test(raw)) return no("The corrected value has a control character or a line break.");
@@ -1158,6 +1159,15 @@ export function checkCorrectedValue(pack: ProfilePack, base: Assertion, raw: str
   const unit = base.unit;
   const rest = base.source.location.slice(base.source.file.length + 2);
   const column = base.source.role === "erp" ? pack.inputs.erp.columns.find((c) => c.name === /^row \d+, column (.+)$/.exec(rest)?.[1]) : undefined;
+  // R3-02: identifier and coded fields obey the same printable-ASCII NFKC-stable allow-list and length cap on correction as at ingress.
+  const isIdentifier =
+    Boolean(base.member?.startsWith("FLD-Identifier-")) ||
+    Boolean(column?.maps_to.includes("FLD-Identifier-")) ||
+    Boolean(column?.code_list) ||
+    base.property === byRole(pack, "alloy");
+  if (isIdentifier && unsafeIdentifier(raw)) {
+    return no("The corrected identifier contains characters that are not allowed or is too long.");
+  }
   if (unit !== null) {
     if (DECIMAL_COMMA.test(raw)) return no("The corrected value uses a decimal comma; the contract requires a point.");
     if (!DECIMAL.test(raw)) return no("The corrected value is not a plain number with a point as decimal separator.");

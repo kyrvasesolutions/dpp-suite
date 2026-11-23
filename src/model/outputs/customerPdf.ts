@@ -115,6 +115,7 @@ const metricsOf = (font: PDFFont): Metrics => {
  * for every word and a growing word for every cut, so a few kilobytes without a break took many seconds on the main thread.
  */
 export function wrap(text: string, font: PDFFont, size: number, width: number): string[] {
+  if (width <= 0 || size <= 0) return text.split("\n");
   const m = metricsOf(font);
   const scale = size / 1000;
   const fits = (units: number) => units * scale <= width;
@@ -137,7 +138,7 @@ export function wrap(text: string, font: PDFFont, size: number, width: number): 
       const units = (a: number, b: number) => (b <= a ? 0 : g[b]! - g[a]! + (b - a >= 2 ? k[b - 1]! - k[a]! : 0));
       let o = 0; // the part of the word left to place starts here
       // a word longer than the column (a digest) is cut at the column width
-      while (!fits(units(o, len))) {
+      while (o < len && !fits(units(o, len))) {
         let n = 1;
         while (o + n < len && fits(units(o, o + n + 1))) n++;
         if (line) (lines.push(line), (line = ""), (lineUnits = 0), (lineLast = ""));
