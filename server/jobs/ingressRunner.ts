@@ -154,6 +154,7 @@ export class IngressRunner {
         }
       }, this.#pollMs);
       worker.once("message", (m: { ok: boolean; result?: IngressTaskResult }) => {
+        if (killing) return; // the job was stopped (deadline or cancel): an answer that arrives while the worker is being terminated is ignored
         if (m.ok && m.result) {
           done(() => resolvePromise(m.result!));
         } else {

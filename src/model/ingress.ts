@@ -24,6 +24,7 @@ export type IngressCode =
   | "wrong-encoding"
   | "control-character"
   | "unsafe-identifier"
+  | "field-too-long"
   | "execution-failed"
   | "empty-file"
   | "csv-syntax"
@@ -61,8 +62,9 @@ export type IngressCode =
 export const ERROR_TEXT: Record<IngressCode, string> = {
   "media-type": "The file is not of the expected type. Use the ERP extract as .csv and the laboratory file as .json.",
   "byte-order-mark": "The file starts with a byte order mark. Save it as UTF-8 without BOM.",
-  "unsafe-identifier": "An identifier or code contains a control, direction or invisible character, or is longer than the declared limit.",
+  "unsafe-identifier": "An identifier or code contains a character that is not plain printable ASCII (a control, direction, invisible, combining or look-alike character), or is longer than the declared limit.",
   "execution-failed": "The import could not be processed and was stopped. Nothing is imported.",
+  "field-too-long": "A text in the file is longer than the declared limit for one field, so the file was not read further. Nothing is imported.",
   "control-character": "The file contains a control character (for example a NUL) inside a value. Remove it and export the file again.",
   "wrong-encoding": "The file is not valid UTF-8. Export it again with UTF-8 encoding.",
   "empty-file": "The file is empty.",
@@ -410,9 +412,16 @@ const HAS_INVISIBLE = /[\u200B-\u200D\u2060\uFEFF\u00AD]/;
 const MAX_NUMBER_LITERAL = 64;
 /** The longest identifier or code accepted in a cell or a JSON identifier field. */
 export const MAX_IDENTIFIER_LENGTH = 128;
-/** C1 controls, DEL, bidirectional controls and isolates: never part of an identifier. */
-const UNSAFE_IDENTIFIER = /[\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/;
-const unsafeIdentifier = (raw: string) => raw.length > MAX_IDENTIFIER_LENGTH || UNSAFE_IDENTIFIER.test(raw);
+/** The longest text of one field (an ERP cell, a string in the laboratory file): the file is refused above it, before any layout or output sees it (R2-01). */
+export const MAX_TEXT_FIELD_CHARS = 2000;
+/**
+ * An identifier or code is plain printable ASCII (an inner space is allowed: "EN AW-5754"; the ends are checked as padding), at most `MAX_IDENTIFIER_LENGTH` long (R2-03). Every identifier of the
+ * pinned pack and of the fixtures is ASCII, so an allow-list closes what a deny-list of invisible, combining and direction characters
+ * could not: look-alike letters (Cyrillic, full-width), format and tag characters, combining marks, line and paragraph separators,
+ * private-use characters, surrogates and non-ASCII spaces. Such a value is also not its own NFKC form, which is checked as well.
+ */
+const SAFE_IDENTIFIER = /^[\u0020-\u007e]+$/;
+const unsafeIdentifier = (raw: string) => raw.length > MAX_IDENTIFIER_LENGTH || (raw !== "" && (!SAFE_IDENTIFIER.test(raw) || raw !== raw.normalize("NFKC")));
 
 function exact(raw: string) {
   if (raw.length > MAX_NUMBER_LITERAL) return false;
@@ -457,6 +466,11 @@ export async function importErpCsv(
     deadline.check("parse");
     const rows = csvRows(decoded.text, contract.delimiter, name, () => deadline.check("parse"));
     const [header = [], ...body] = rows;
+    // R2-01: one field is never longer than `MAX_TEXT_FIELD_CHARS`; the first that is names the file and the place, never the text.
+    for (let r = 0; r < rows.length; r++) {
+      const long = rows[r]!.findIndex((cell) => cell.length > MAX_TEXT_FIELD_CHARS);
+      if (long !== -1) throw new StageFailure("parse", [issue("parse", "field-too-long", `${name}, row ${r + 1}, column ${long + 1}`)]);
+    }
     failIf(
       "parse",
       body.flatMap((r, i) =>
@@ -664,6 +678,16 @@ export async function importLabJson(
             ? [...v.entries].some(([k, x]) => /[\u0000-\u001f]/.test(k) || hasControl(x))
             : false;
     if (hasControl(doc)) throw new StageFailure("parse", [issue("parse", "control-character", name)]);
+    // R2-01: one string is never longer than `MAX_TEXT_FIELD_CHARS` (keys included).
+    const longText = (v: JsonValue): boolean =>
+      v.kind === "string"
+        ? v.value.length > MAX_TEXT_FIELD_CHARS
+        : v.kind === "array"
+          ? v.items.some(longText)
+          : v.kind === "object"
+            ? [...v.entries].some(([k, x]) => k.length > MAX_TEXT_FIELD_CHARS || longText(x))
+            : false;
+    if (longText(doc)) throw new StageFailure("parse", [issue("parse", "field-too-long", name)]);
 
     deadline.check("structure");
     const structure: IngressIssue[] = [];

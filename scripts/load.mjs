@@ -75,18 +75,28 @@ export function readOperationalLimits(pack = join(ROOT, "contracts/n")) {
 }
 
 /**
- * A source pair of about `totalBytes` bytes (both files together) for batch number `n`: the clean pair with its free-text fields padded
- * (the product name in the ERP row, the method of the first observation in the lab file), so the import still commits (D8-10, V2-02).
+ * A source pair of `totalBytes` bytes (both files together) for batch number `n` that still commits (D8-10, V2-02, D8-12). A field of the
+ * files is at most 2000 characters (R2-01), so the size cannot come from one long text. The laboratory file gets up to 1000 more
+ * observations (a real record of about a thousand values) and the rest is JSON whitespace after the document, which the strict parser
+ * allows; only when the laboratory file is full (10 MiB) is the rest added to the ERP file as trailing line breaks, which are padding, not rows.
  */
 export function sizedVariant(n, totalBytes, fixtures = join(ROOT, "fixtures/n")) {
   const v = variant(n, fixtures);
-  const cap = 10 * 1024 * 1024 - 4096; // one source file stays under source_file_max_bytes
+  const fileCap = 10 * 1024 * 1024 - 4096; // one source file stays under source_file_max_bytes
   const extra = Math.max(0, totalBytes - v.erp.length - v.lab.length);
-  const erpPad = Math.min(cap, Math.floor(extra / 2));
-  const labPad = Math.min(cap, extra - erpPad);
-  const erp = v.erp.toString("utf8").replace("Aluminium sheet EN AW-5754 H111, 2.0 mm", (m) => m + "x".repeat(erpPad));
-  const lab = v.lab.toString("utf8").replace('"method": "EN 485-4 thickness measurement"', (m) => `${m.slice(0, -1)}${"x".repeat(labPad)}"`);
-  return { batch: v.batch, erp: Buffer.from(erp, "utf8"), lab: Buffer.from(lab, "utf8") };
+  const labExtra = Math.min(extra, fileCap - v.lab.length);
+  const erpExtra = extra - labExtra;
+  const doc = JSON.parse(v.lab.toString("utf8"));
+  const base = doc.observations[0];
+  const one = JSON.stringify({ ...base, observation_id: "OBS-P0000" }).length + 4;
+  const clones = Math.min(1000, Math.floor(labExtra / one / 2));
+  for (let i = 0; i < clones; i++) doc.observations.push({ ...base, observation_id: `OBS-P${String(i).padStart(4, "0")}` });
+  const labText = JSON.stringify(doc, null, 2) + "\n";
+  const labBytes = Buffer.byteLength(labText);
+  const target = Math.min(fileCap, v.lab.length + labExtra);
+  const lab = Buffer.from(labText + " ".repeat(Math.max(0, target - labBytes)), "utf8");
+  const erp = Buffer.concat([v.erp, Buffer.from("\n".repeat(erpExtra), "utf8")]);
+  return { batch: v.batch, erp, lab };
 }
 
 /** One source pair for batch number `n`: the clean fixtures with their batch identifier replaced. */
@@ -540,7 +550,7 @@ export async function runLoad(cfg) {
   const maxP95 = percentile(maxMs, 95);
   const checks = [
     { target: "import_job_p95_ms", limit: t.import_job_p95_ms, measured: round(importP95), pass: importP95 <= t.import_job_p95_ms, note: `p95 of ${importMs.length} complete import jobs at ${typicalBytes} B (ERP + lab + evidence, committed), at ${committedCount} committed batches` },
-    { target: "import_job_p95_ms_at_record_bytes_max", limit: t.import_job_p95_ms, measured: round(maxP95), pass: maxCommitted === params.maxRuns && maxP95 <= t.import_job_p95_ms, note: `p95 of ${maxMs.length} committed imports of ${maxPayloadBytes} B of source files (record_bytes_max ${maxBytes})` },
+    { target: "import_job_p95_ms_at_record_bytes_max", limit: t.import_job_p95_ms, measured: round(maxP95), pass: maxCommitted === params.maxRuns && (scaled || params.maxRuns >= 30) && maxP95 <= t.import_job_p95_ms, note: `p95 of ${maxMs.length} committed imports of ${maxPayloadBytes} B of source files (record_bytes_max ${maxBytes})` },
     { target: "read_p95_ms", limit: t.read_p95_ms, measured: round(readP95), pass: readP95 <= t.read_p95_ms, note: `p95 of ${readMs.length} reads (records list, record detail, customer PDF) at ${users.read.length} concurrent clients` },
     { target: "reads_all_2xx", limit: "2xx", measured: readStatuses, pass: readAll2xx, note: "every read of the mix answered 2xx; a refused read is a failed read, not a fast one" },
     { target: "concurrent_clients", limit: t.concurrent_clients, measured: users.read.length, pass: scaled ? users.read.length > 0 : users.read.length >= t.concurrent_clients, note: scaled ? "scaled down (bounded in-process run)" : "clients that ran the read mix at the same time" },
@@ -548,7 +558,7 @@ export async function runLoad(cfg) {
     { target: "max_server_errors", limit: t.max_server_errors, measured: counters.serverErrors, pass: counters.serverErrors <= t.max_server_errors && counters.transportErrors === 0, note: `5xx answers over ${counters.requests} requests; transport errors ${counters.transportErrors}` },
     { target: "max_rss_bytes", limit: t.max_rss_bytes, measured: peakRss, pass: peakRss > 0 && peakRss <= t.max_rss_bytes, note: "peak resident set size of the server over the run at typical sizes (volume, timed imports, read mix, burst, revocation), sampled every 250 ms" },
     { target: "max_rss_bytes_during_max_size_runs", limit: t.max_rss_bytes, measured: Math.max(phases["max-size runs"].peakRssBytes, phases["max-size burst"].peakRssBytes), pass: Math.max(phases["max-size runs"].peakRssBytes, phases["max-size burst"].peakRssBytes) > 0 && Math.max(phases["max-size runs"].peakRssBytes, phases["max-size burst"].peakRssBytes) <= t.max_rss_bytes, note: `peak server RSS while records of record_bytes_max (= server_record_max_bytes, ${maxBytes} B) were imported, one after the other and in a burst; ${Math.round((Math.max(phases["max-size runs"].peakRssBytes, phases["max-size burst"].peakRssBytes) / t.max_rss_bytes) * 100)} % of max_rss_bytes (D8-11 pins the size so that this stays at or under 90 %)` },
-    { target: "max_size_burst", limit: params.maxBurst, measured: maxBurst.committed, pass: maxBurst.committed === params.maxBurst && Object.keys(maxBurst.statuses).every((k) => k === "200" || k === "429") && maxBurst.missingRetryAfter === 0 && phases["max-size burst"].serverErrors === 0, note: `${params.maxBurst} concurrent imports of ${maxBytes} B (pinned max_size_burst_jobs ${t.max_size_burst_jobs}): only 200 or 429 with Retry-After, all committed, no 5xx` },
+    { target: "max_size_burst", limit: scaled ? params.maxBurst : t.max_size_burst_jobs, measured: maxBurst.committed, pass: (scaled ? maxBurst.committed === params.maxBurst : maxBurst.committed >= t.max_size_burst_jobs) && Object.keys(maxBurst.statuses).every((k) => k === "200" || k === "429") && maxBurst.missingRetryAfter === 0 && phases["max-size burst"].serverErrors === 0, note: `${params.maxBurst} concurrent imports of ${maxBytes} B (pinned max_size_burst_jobs ${t.max_size_burst_jobs}): only 200 or 429 with Retry-After, all committed, no 5xx` },
     { target: "burst_only_2xx_or_429", limit: "2xx or 429 with Retry-After", measured: burstStatuses, pass: unexpected.length === 0 && missingRetryAfter === 0 && nonJson === 0 && (firstRound["429"] ?? 0) > 0, note: `${params.burst} concurrent imports into one domain: the first round was refused with 429 for the overflow` },
     { target: "burst_retries_commit_exactly_once", limit: params.burst, measured: committedKeys.size, pass: committedKeys.size === params.burst && lostOrDuplicated === 0, note: `lost or duplicated: ${lostOrDuplicated}; retry rounds ${rounds}` },
     { target: "health_p95_during_burst_ms", limit: t.read_p95_ms, measured: round(healthP95), pass: healthP95 !== null && healthP95 <= t.read_p95_ms, note: `p95 of ${healthMs.length} health probes while the burst ran` },
@@ -625,7 +635,7 @@ async function main() {
     clients: Number(arg("clients", limits.targets.concurrent_clients)),
     burst: Number(arg("burst", 64)),
     readIterations: Number(arg("read-iterations", 48)),
-    maxRuns: Number(arg("max-runs", 3)),
+    maxRuns: Number(arg("max-runs", 30)),
     maxBurst: Number(arg("max-burst", limits.targets.max_size_burst_jobs)),
     revokeAfterMs: 400,
   };

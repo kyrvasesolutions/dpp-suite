@@ -273,7 +273,8 @@ describe("3. linear-time ingress at the maximum legal sizes (V1-01, V4-01)", () 
       const e = await importErpCsv(pack, { bytes: enc(erp.replace(";2.0;", `;1.${zeros}1;`)), name: CLEAN.erp, type: "text/csv" });
       const l = await importLabJson(pack, { bytes: enc(lab.replace('"value": 2.01,', `"value": 1.${zeros}1,`)), name: CLEAN.lab, type: "application/json" });
       const ms = performance.now() - t;
-      expect(e.ok ? [] : e.errors.map((x) => x.code), `erp ${digits}`).toContain("precision-loss");
+      // a CSV cell is a field, and a field is at most 2000 characters (R2-01): the cell is refused for its length; a JSON number is not a string and is refused for its precision
+      expect(e.ok ? [] : e.errors.map((x) => x.code), `erp ${digits}`).toContain("field-too-long");
       expect(l.ok ? [] : l.errors.map((x) => x.code), `lab ${digits}`).toContain("precision-loss");
       expect(ms, `${digits} digits`).toBeLessThan(1500);
     }
@@ -304,6 +305,51 @@ describe("4. identifier hygiene (V4-03)", () => {
       expect(l.ok ? [] : l.errors.map((x) => x.code), `lab U+${ch.charCodeAt(0).toString(16)}`).toContain("unsafe-identifier");
       expect(JSON.stringify(l)).not.toContain(ch);
     }
+  });
+
+  it("R2-03: refuses what a deny-list misses: Arabic letter mark, tag characters, combining marks, variation selectors, invisible operators, fillers, annotation characters, non-ASCII spaces, line separators, full-width and Cyrillic look-alikes", async () => {
+    const pack = await loadPack();
+    const erp = dec(fixtureBytes("n", CLEAN.erp));
+    const lab = dec(fixtureBytes("n", CLEAN.lab));
+    const names: Array<[string, string]> = [
+      ["U+061C", "\u061c"], ["U+E0041", String.fromCodePoint(0xe0041)], ["U+034F", "\u034f"], ["U+FE0F", "\ufe0f"], ["U+2062", "\u2062"],
+      ["U+180E", "\u180e"], ["U+3164", "\u3164"], ["U+FFF9", "\ufff9"], ["U+FFFC", "\ufffc"], ["U+0301", "\u0301"], ["NBSP", "\u00a0"],
+      ["U+2028", "\u2028"], ["U+2029", "\u2029"], ["U+E000", "\ue000"], ["lone surrogate", "\ud800"],
+    ];
+    for (const [name, ch] of names) {
+      const quoted = ch === "\u2028" || ch === "\u2029" ? `"DEMO${ch}-PM"` : `DEMO${ch}-PM`;
+      const e = await importErpCsv(pack, { bytes: enc(erp.replace("DEMO-PM", quoted)), name: CLEAN.erp, type: "text/csv" });
+      expect(e.ok, `erp ${name}`).toBe(false);
+      const l = await importLabJson(pack, { bytes: enc(lab.replace('"batch_id": "B-2026-0417"', `"batch_id": "B-2026${ch}-0417"`)), name: CLEAN.lab, type: "application/json" });
+      expect(l.ok, `lab ${name}`).toBe(false);
+    }
+    // look-alike letters and compatibility forms in the batch identifier
+    for (const [name, letter] of [["full-width B (not its own NFKC form)", "\uff22"], ["Cyrillic Ve", "\u0412"]] as const) {
+      const e = await importErpCsv(pack, { bytes: enc(erp.replace("B-2026-0417", `${letter}-2026-0417`)), name: CLEAN.erp, type: "text/csv" });
+      expect(e.ok ? [] : e.errors.map((x) => x.code), `erp ${name}`).toContain("unsafe-identifier");
+      const l = await importLabJson(pack, { bytes: enc(lab.replace('"batch_id": "B-2026-0417"', `"batch_id": "${letter}-2026-0417"`)), name: CLEAN.lab, type: "application/json" });
+      expect(l.ok ? [] : l.errors.map((x) => x.code), `lab ${name}`).toContain("unsafe-identifier");
+    }
+    // plain ASCII, including an inner space of a pack code ("EN AW-5754"), is still accepted
+    expect((await importErpCsv(pack, { bytes: fixtureBytes("n", CLEAN.erp), name: CLEAN.erp, type: "text/csv" })).ok).toBe(true);
+  });
+
+  it("R2-01: a field of exactly 2000 characters is read, one more is refused with field-too-long, in a CSV cell and in a JSON string or key", async () => {
+    const pack = await loadPack();
+    const erp = dec(fixtureBytes("n", CLEAN.erp));
+    const lab = dec(fixtureBytes("n", CLEAN.lab));
+    const name = (n: number) => "Aluminium sheet ".repeat(Math.ceil(n / 16)).slice(0, n).trim().padEnd(n, "x");
+    const withName = (n: number) => importErpCsv(pack, { bytes: enc(erp.replace("Aluminium sheet EN AW-5754 H111, 2.0 mm", name(n))), name: CLEAN.erp, type: "text/csv" });
+    expect((await withName(2000)).ok).toBe(true);
+    const over = await withName(2001);
+    expect(over.ok ? [] : over.errors.map((x) => x.code)).toEqual(["field-too-long"]);
+    expect(JSON.stringify(over)).not.toContain("Aluminium sheet Aluminium");
+    const withMethod = (n: number) => importLabJson(pack, { bytes: enc(lab.replace('"method": "EN 485-4 thickness measurement"', `"method": "${name(n)}"`)), name: CLEAN.lab, type: "application/json" });
+    expect((await withMethod(2000)).ok).toBe(true);
+    const labOver = await withMethod(2001);
+    expect(labOver.ok ? [] : labOver.errors.map((x) => x.code)).toEqual(["field-too-long"]);
+    const key = await importLabJson(pack, { bytes: enc(lab.replace('"observations": [', `"${"k".repeat(2001)}": 1, "observations": [`)), name: CLEAN.lab, type: "application/json" });
+    expect(key.ok ? [] : key.errors.map((x) => x.code)).toEqual(["field-too-long"]);
   });
 
   it("refuses zero-width characters in the middle of an identifier too", async () => {

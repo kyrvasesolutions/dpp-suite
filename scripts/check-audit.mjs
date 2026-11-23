@@ -53,7 +53,7 @@ export function collectAdvisories(audit) {
 }
 
 /** Structural validation of the accepted-risks file. Returns a list of problems. */
-export function validateRisks(file) {
+export function validateRisks(file, today) {
   const errors = [];
   if (file === null || typeof file !== "object" || Array.isArray(file)) return ["accepted-risks: the file must be an object"];
   if (file.version !== 1) errors.push("accepted-risks: version must be 1");
@@ -66,6 +66,8 @@ export function validateRisks(file) {
     if (r.advisory !== undefined && r.advisory !== null && (typeof r.advisory !== "string" || r.advisory.trim() === "")) errors.push(`${at}: "advisory" must be a non-empty string or null`);
     if (typeof r.severity === "string" && !SEVERITIES.includes(r.severity)) errors.push(`${at}: severity "${r.severity}" is not one of ${SEVERITIES.join(", ")}`);
     for (const k of ["date", "review_by"]) if (typeof r[k] === "string" && !validDate(r[k])) errors.push(`${at}: "${k}" must be a valid YYYY-MM-DD date`);
+    // R2-04: an acceptance cannot be dated after today (a future date would stretch its review window), and the severity is one of the exact, lower-case names.
+    if (typeof r.date === "string" && validDate(r.date) && typeof today === "string" && validDate(today) && r.date > today) errors.push(`${at}: date ${r.date} is later than today (${today})`);
     if (validDate(r.date) && validDate(r.review_by) && r.review_by < r.date) errors.push(`${at}: review_by is before date`);
     else if (validDate(r.date) && validDate(r.review_by) && days(r.date, r.review_by) > MAX_REVIEW_WINDOW_DAYS) errors.push(`${at}: review_by is ${days(r.date, r.review_by)} days after date; the maximum window is ${MAX_REVIEW_WINDOW_DAYS} days`);
     if (typeof r.id === "string") {
@@ -84,7 +86,7 @@ export function evaluateAudit(audit, risksFile, today) {
   const errors = [];
   const notes = [];
   if (!validDate(today)) errors.push(`today "${today}" is not a valid YYYY-MM-DD date`);
-  errors.push(...validateRisks(risksFile));
+  errors.push(...validateRisks(risksFile, today));
   if (audit === null || typeof audit !== "object") errors.push("npm audit result is not an object");
   else if (audit.error) errors.push(`npm audit failed: ${String(audit.error.code ?? "error")}: ${String(audit.error.summary ?? "").slice(0, 200)}`);
   else if (audit.auditReportVersion !== 2 || typeof audit.vulnerabilities !== "object" || audit.vulnerabilities === null) errors.push("npm audit result has an unexpected format (expected auditReportVersion 2)");
@@ -97,6 +99,12 @@ export function evaluateAudit(audit, risksFile, today) {
   const accepted = [];
   const matched = new Set();
   for (const adv of collectAdvisories(audit)) {
+    // R2-04: a severity that is not one of the exact names (a different case, a new word) cannot be compared with an acceptance: it fails the check.
+    if (!SEVERITIES.includes(adv.severity)) {
+      unaccepted.push(adv);
+      errors.push(`advisory ${adv.id} in ${adv.package} has the severity "${adv.severity}", which is not one of ${SEVERITIES.join(", ")} (lower case)`);
+      continue;
+    }
     const risk = risks.find((r) => typeof r.advisory === "string" && r.advisory.toLowerCase() === adv.id.toLowerCase() && r.package === adv.package);
     if (risk && SEVERITIES.indexOf(adv.severity) > SEVERITIES.indexOf(risk.severity)) {
       // the advisory got worse since it was accepted: the acceptance no longer covers it
@@ -108,7 +116,7 @@ export function evaluateAudit(audit, risksFile, today) {
       accepted.push({ ...adv, risk: risk.id });
     } else unaccepted.push(adv);
   }
-  for (const adv of unaccepted) errors.push(`unaccepted advisory ${adv.id} in ${adv.package} (${adv.severity}): ${adv.title} (fix available: ${JSON.stringify(adv.fixAvailable)})`);
+  for (const adv of unaccepted) if (SEVERITIES.includes(adv.severity)) errors.push(`unaccepted advisory ${adv.id} in ${adv.package} (${adv.severity}): ${adv.title} (fix available: ${JSON.stringify(adv.fixAvailable)})`);
   for (const r of risks) if (typeof r.advisory === "string" && !matched.has(r.id)) notes.push(`${r.id}: accepted advisory ${r.advisory} no longer appears in the audit; consider removing it`);
   return { ok: errors.length === 0, errors, unaccepted, accepted, notes };
 }

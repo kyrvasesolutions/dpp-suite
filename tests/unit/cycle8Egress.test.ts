@@ -266,6 +266,13 @@ describe("listening on any local interface still works under the guard (F2)", ()
     }
   });
 
+  it("F6: only the lookup of the exact bind host is skipped: listening on a name that is not an IP literal or localhost is still checked", () => {
+    const server = http.createServer();
+    refusedSync(() => server.listen(0, "example.com"));
+    refusedSync(() => server.listen({ port: 0, host: "metadata.internal.example" }));
+    expect(server.listening).toBe(false);
+  });
+
   it("the DPP server in OIDC mode starts on 0.0.0.0 with the guard in refuse mode, and health is 200 over 127.0.0.1", async () => {
     const dir = mkdtempSync(join(tmpdir(), "dpp-egress-listen-"));
     const pack = await loadPack();

@@ -185,8 +185,11 @@ describe("Cycle 7 dedicated internal vs customer deployment surface separation (
       }),
     });
     expect(impRes.status).toBe(200);
-    const imp = (await impRes.json()) as { snapshot: { model: string; batch: string; version: number; record: ProductRecord } };
-    const { model, batch, record } = imp.snapshot;
+    // The import answer is a bounded summary (D8-12): the record itself is read from the history of the record.
+    const imp = (await impRes.json()) as { snapshot: { model: string; batch: string; version: number } };
+    const { model, batch } = imp.snapshot;
+    const histRes = await fetch(`${internalUrl}/api/records/${encodeURIComponent(model)}/${encodeURIComponent(batch)}/history`, { headers: authHeaders(opTok) });
+    const record = ((await histRes.json()) as { history: Array<{ version: number; record: ProductRecord }> }).history.find((h) => h.version === imp.snapshot.version)!.record;
     const m = encodeURIComponent(model);
     const b = encodeURIComponent(batch);
 

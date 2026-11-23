@@ -66,6 +66,10 @@ export const OperationalLimitsSchema = z
         keep_alive_timeout_ms: PosInt,
         max_connections: PosInt,
         max_request_body_bytes: PosInt,
+        /** An import body must arrive within this time of the moment its job was granted a slot; a slower one is 408 TIMEOUT and its socket is destroyed (D8-12). */
+        body_read_timeout_ms: PosInt,
+        /** A socket that moves no byte for this long is destroyed, so a client that never reads its answer holds nothing (D8-12). */
+        idle_socket_timeout_ms: PosInt,
         rate_limit_window_ms: PosInt,
         rate_limit_read_per_window: PosInt,
         rate_limit_write_per_window: PosInt,
@@ -125,6 +129,8 @@ export const LIMIT_NAMES = [
   "max_connections",
   "job_deadline_ms",
   "request_timeout_ms",
+  "body_read_timeout_ms",
+  "idle_socket_timeout_ms",
 ] as const;
 export type LimitName = (typeof LIMIT_NAMES)[number];
 
@@ -136,6 +142,7 @@ const CODE_OUTCOME: Readonly<Record<string, LimitOutcome>> = {
   "queue-full": "OVER_LIMIT",
   "rate-limited": "OVER_LIMIT",
   deadline: "TIMEOUT",
+  "body-timeout": "TIMEOUT",
   cancelled: "CANCELLED",
 };
 
@@ -309,7 +316,17 @@ interface JobEntry {
   state: JobState;
   /** Record bytes this job holds against the in-flight budget once it is active (D8-11). */
   bytes: number;
+  /** How many later jobs started ahead of this one while it waited for the byte budget (bounded by `OVERTAKE_LIMIT`, D8-12). */
+  overtaken: number;
 }
+
+/**
+ * Bounded overtaking for the byte budget (D8-12). Jobs keep arrival order inside their own security domain, and a domain whose
+ * first waiting job does not fit the byte budget does not hold back the other domains. To keep a large record from waiting for ever,
+ * a job that does not fit may be overtaken by at most this many later jobs; after that nothing behind it starts until it does, so it runs
+ * as soon as the jobs ahead of it have freed their bytes (alone, when it is larger than the whole budget).
+ */
+export const OVERTAKE_LIMIT = 8;
 
 /**
  * Deterministic coordinator: per-security-domain active slots, a FIFO queue, and a global active cap.
@@ -361,10 +378,6 @@ export class JobCoordinatorModel {
     return budget === undefined || this.#activeBytes === 0 || this.#activeBytes + bytes <= budget;
   }
 
-  #canStart(domain: string, bytes: number): boolean {
-    return this.activeCount(domain) < this.config.maxActivePerDomain && this.activeCount() < this.config.maxActiveTotal && this.#fitsBytes(bytes);
-  }
-
   /**
    * Admits a job: starts it, queues it, or refuses it with OVER_LIMIT `queue_full` (HTTP 429 with Retry-After).
    * `bytes` is the record size the job will hold in memory (D8-11); a job that does not fit the in-flight budget waits in the queue.
@@ -372,25 +385,46 @@ export class JobCoordinatorModel {
   admit(jobId: string, domain: string, bytes = 0): AdmitDecision {
     if (this.#entries.has(jobId)) throw new Error("job id already admitted");
     if (!Number.isSafeInteger(bytes) || bytes < 0) throw new Error("record bytes must be a non-negative whole number");
-    if (!this.#canStart(domain, bytes) && this.queuedCount(domain) >= this.config.maxQueuedPerDomain) {
-      return { kind: "rejected", outcome: "OVER_LIMIT", limit: "queue_full", code: "queue-full", retryAfterSeconds: this.config.retryAfterSeconds };
-    }
-    this.#entries.set(jobId, { jobId, domain, state: "queued", bytes });
+    this.#entries.set(jobId, { jobId, domain, state: "queued", bytes, overtaken: 0 });
     this.#queue.push(jobId);
     const started = this.start();
     if (started.includes(jobId)) return { kind: "started", jobId };
+    // The queue cap of the domain always applies to a job that does not start at once, whatever kept it waiting (slots, total, bytes).
+    if (this.queuedCount(domain) > this.config.maxQueuedPerDomain) {
+      this.#entries.delete(jobId);
+      this.#queue = this.#queue.filter((q) => q !== jobId);
+      return { kind: "rejected", outcome: "OVER_LIMIT", limit: "queue_full", code: "queue-full", retryAfterSeconds: this.config.retryAfterSeconds };
+    }
     return { kind: "queued", jobId, position: this.#queue.indexOf(jobId) + 1 };
   }
 
-  /** Starts every waiting job that now fits, in arrival order, and returns their ids. */
+  /**
+   * Starts every waiting job that now fits, in arrival order, and returns their ids.
+   *  - A waiting job of a domain at its slot cap is skipped, and so is every later job of that domain (arrival order inside a domain).
+   *  - A waiting job that does not fit the byte budget blocks only its own domain. Jobs of other domains that fit may start ahead
+   *    of it, at most `OVERTAKE_LIMIT` times each; after that nothing behind it starts until it does.
+   *  - The global cap ends the pass.
+   */
   start(): string[] {
     const started: string[] = [];
+    const blockedDomains = new Set<string>();
+    const waitingForBytes: JobEntry[] = [];
     for (const id of [...this.#queue]) {
       if (this.activeCount() >= this.config.maxActiveTotal) break;
       const e = this.#entries.get(id)!;
-      if (this.activeCount(e.domain) >= this.config.maxActivePerDomain) continue;
-      // Strict arrival order for the byte budget: a record that does not fit yet holds back the jobs behind it, so it cannot starve (D8-11).
-      if (!this.#fitsBytes(e.bytes)) break;
+      if (blockedDomains.has(e.domain)) continue;
+      if (this.activeCount(e.domain) >= this.config.maxActivePerDomain) {
+        blockedDomains.add(e.domain);
+        continue;
+      }
+      if (!this.#fitsBytes(e.bytes)) {
+        blockedDomains.add(e.domain);
+        waitingForBytes.push(e);
+        // A job that has been passed often enough is next: nothing behind it may start ahead of it.
+        if (e.overtaken >= OVERTAKE_LIMIT) break;
+        continue;
+      }
+      for (const w of waitingForBytes) w.overtaken++;
       e.state = "active";
       this.#activeTotal++;
       this.#activeBytes += e.bytes;

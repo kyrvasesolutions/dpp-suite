@@ -81,23 +81,82 @@ const COL_W = { en: 134, de: 134, value: A4.w - M.right - 332 };
 
 const unitText = (u?: string) => (u ? ` ${u.replace("{CO2e}", " CO2e")}` : "");
 
-function wrap(text: string, font: PDFFont, size: number, width: number): string[] {
+/**
+ * Glyph widths and kerning pairs of a font, in 1/1000 em (whole numbers), asked of the font once per character and per pair.
+ * `widthOfTextAtSize` is the sum of the glyph widths plus the kerning of each neighbouring pair, so the width of any piece of a text
+ * is a difference of two prefix sums: no piece is ever measured again (R2-01).
+ */
+class Metrics {
+  readonly #glyph = new Map<string, number>();
+  readonly #pair = new Map<string, number>();
+  constructor(private readonly font: PDFFont) {}
+  glyph(c: string): number {
+    let w = this.#glyph.get(c);
+    if (w === undefined) (w = this.font.widthOfTextAtSize(c, 1000)), this.#glyph.set(c, w);
+    return w;
+  }
+  kern(a: string, b: string): number {
+    const key = a + b;
+    let k = this.#pair.get(key);
+    if (k === undefined) (k = this.font.widthOfTextAtSize(key, 1000) - this.glyph(a) - this.glyph(b)), this.#pair.set(key, k);
+    return k;
+  }
+}
+const METRICS = new WeakMap<PDFFont, Metrics>();
+const metricsOf = (font: PDFFont): Metrics => {
+  let m = METRICS.get(font);
+  if (!m) METRICS.set(font, (m = new Metrics(font)));
+  return m;
+};
+
+/**
+ * Breaks a text into lines of at most `width`, at spaces, and cuts a word that is wider than the column. The lines are those that measuring
+ * every candidate line with the font would give, in time linear in the length of the text: the cubic version measured a growing line
+ * for every word and a growing word for every cut, so a few kilobytes without a break took many seconds on the main thread.
+ */
+export function wrap(text: string, font: PDFFont, size: number, width: number): string[] {
+  const m = metricsOf(font);
+  const scale = size / 1000;
+  const fits = (units: number) => units * scale <= width;
+  const space = m.glyph(" ");
   const lines: string[] = [];
   for (const para of text.split("\n")) {
     let line = "";
+    let lineUnits = 0;
+    let lineLast = "";
     for (const word of para.split(" ")) {
-      let w = word;
-      // a word longer than the column (a digest) is cut at the column width
-      while (font.widthOfTextAtSize(w, size) > width) {
-        let n = w.length;
-        while (n > 1 && font.widthOfTextAtSize(w.slice(0, n), size) > width) n--;
-        if (line) (lines.push(line), (line = ""));
-        lines.push(w.slice(0, n));
-        w = w.slice(n);
+      // prefix sums of the word: glyph widths, and the kerning between neighbours
+      const len = word.length;
+      const g = new Float64Array(len + 1);
+      const k = new Float64Array(len + 1);
+      for (let i = 0; i < len; i++) {
+        g[i + 1] = g[i]! + m.glyph(word[i]!);
+        k[i + 1] = k[i]! + (i + 1 < len ? m.kern(word[i]!, word[i + 1]!) : 0);
       }
-      const next = line ? `${line} ${w}` : w;
-      if (font.widthOfTextAtSize(next, size) <= width) line = next;
-      else (lines.push(line), (line = w));
+      /** Width of word[a..b) in 1/1000 em. */
+      const units = (a: number, b: number) => (b <= a ? 0 : g[b]! - g[a]! + (b - a >= 2 ? k[b - 1]! - k[a]! : 0));
+      let o = 0; // the part of the word left to place starts here
+      // a word longer than the column (a digest) is cut at the column width
+      while (!fits(units(o, len))) {
+        let n = 1;
+        while (o + n < len && fits(units(o, o + n + 1))) n++;
+        if (line) (lines.push(line), (line = ""), (lineUnits = 0), (lineLast = ""));
+        lines.push(word.slice(o, o + n));
+        o += n;
+      }
+      const w = o === 0 ? word : word.slice(o);
+      const wUnits = units(o, len);
+      const nextUnits = line ? lineUnits + m.kern(lineLast, " ") + space + (w ? m.kern(" ", w[0]!) : 0) + wUnits : wUnits;
+      if (fits(nextUnits)) {
+        line = line ? `${line} ${w}` : w;
+        lineUnits = nextUnits;
+        lineLast = w ? w[w.length - 1]! : " ";
+      } else {
+        lines.push(line);
+        line = w;
+        lineUnits = wUnits;
+        lineLast = w ? w[w.length - 1]! : "";
+      }
     }
     lines.push(line);
   }

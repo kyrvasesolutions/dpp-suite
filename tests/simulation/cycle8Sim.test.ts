@@ -22,6 +22,7 @@ import {
   JobCoordinatorModel,
   LIMIT_NAMES,
   LIMIT_OUTCOMES,
+  OVERTAKE_LIMIT,
   LimitError,
   PUBLIC_LOG_FIELDS,
   PublicLogError,
@@ -81,6 +82,8 @@ describe("calibration: the pinned pack carries the D8-01 values", () => {
       keep_alive_timeout_ms: 5000,
       max_connections: 256,
       max_request_body_bytes: 31457280,
+      body_read_timeout_ms: 10000,
+      idle_socket_timeout_ms: 60000,
       rate_limit_window_ms: 60000,
       rate_limit_read_per_window: 600,
       rate_limit_write_per_window: 120,
@@ -584,13 +587,89 @@ describe("4. job coordinator", () => {
       expect(d.admit("a2", "A", 11).kind).toBe("queued"); // one byte over
     });
 
-    it("is strict FIFO for bytes: a small job behind a waiting big job does not overtake it", () => {
+    it("keeps arrival order inside a domain and isolation across domains: a domain whose first job waits for bytes does not hold back the others", () => {
       const c = make();
       c.admit("a1", "A", body());
       expect(c.admit("b1", "B", body()).kind).toBe("queued");
-      expect(c.admit("c1", "C", 100).kind).toBe("queued"); // it would fit, but b1 is first in line
-      expect(c.queuedIds()).toEqual(["b1", "c1"]);
-      expect(c.finish("a1")).toEqual({ kind: "finished", jobId: "a1", started: ["b1", "c1"] }); // in arrival order: b1 first, then c1 fits behind it
+      expect(c.admit("b2", "B", 100).kind).toBe("queued"); // it would fit, but b1 of its own domain is first in line
+      expect(c.admit("c1", "C", 100)).toEqual({ kind: "started", jobId: "c1" }); // another domain: not held back by B
+      expect(c.queuedIds()).toEqual(["b1", "b2"]);
+      expect(c.finish("a1")).toEqual({ kind: "finished", jobId: "a1", started: ["b1", "b2"] }); // b1 first, then b2 fits behind it
+    });
+
+    it("V1-08 scenario: A1 holds the budget, B1 waits for it, twenty small jobs of C: the queue cap of C still holds and B1 does not block C", () => {
+      const c = make();
+      expect(c.admit("A1", "A", 2_900_000).kind).toBe("started");
+      expect(c.admit("B1", "B", 2_900_000).kind).toBe("queued");
+      const kinds = Array.from({ length: 20 }, (_, i) => c.admit(`C${i}`, "C", 1000).kind);
+      expect(kinds.filter((k) => k === "started")).toHaveLength(2); // the two slots of C
+      expect(kinds.filter((k) => k === "queued")).toHaveLength(8); // the queue of C holds eight, whatever kept them waiting
+      expect(kinds.filter((k) => k === "rejected")).toHaveLength(10);
+      expect(c.queuedCount("C")).toBe(8);
+      expect(c.queuedCount("B")).toBe(1);
+      expect(c.activeCount()).toBe(3);
+    });
+
+    it("the queue cap of a domain applies whatever kept its jobs waiting: eight waiting for bytes, the ninth is queue_full", () => {
+      const c = make();
+      c.admit("a1", "A", body());
+      for (let i = 1; i <= 8; i++) expect(c.admit(`b${i}`, "B", body()).kind).toBe("queued");
+      expect(c.admit("b9", "B", body())).toMatchObject({ kind: "rejected", limit: "queue_full" });
+      expect(c.stateOf("b9")).toBe("unknown");
+      expect(c.queuedCount("B")).toBe(8);
+    });
+
+    it("bounded overtaking: later jobs of other domains pass a waiting job at most OVERTAKE_LIMIT times, then it is next", () => {
+      const c = make();
+      expect(c.admit("a1", "A", body()).kind).toBe("started");
+      expect(c.admit("B1", "B", body()).kind).toBe("queued"); // does not fit while a1 holds its bytes
+      const smalls = Array.from({ length: 40 }, (_, i) => `s${i}`);
+      let started = 0;
+      for (const id of smalls) if (c.admit(id, `S${id}`, 100).kind === "started") started++;
+      // the global cap (4) is full: a1 and three smalls. Free them one by one: no more than OVERTAKE_LIMIT smalls get in ahead of B1.
+      const active = () => smalls.filter((id) => c.stateOf(id) === "active");
+      let guard = 0;
+      while (active().length && guard++ < 200) {
+        for (const id of active()) {
+          const out = c.finish(id);
+          if (out.kind === "finished") started += out.started.filter((x) => x.startsWith("s")).length;
+        }
+      }
+      expect(started).toBeLessThanOrEqual(OVERTAKE_LIMIT);
+      expect(c.stateOf("B1")).toBe("queued"); // still waiting for a1's bytes, and nothing behind it started in the meantime
+      expect(smalls.filter((id) => c.stateOf(id) === "queued").length).toBeGreaterThan(0);
+      // as soon as the bytes are free, B1 is the next job to run, ahead of every small job that waits
+      const out = c.finish("a1");
+      expect(out).toMatchObject({ kind: "finished" });
+      expect(out.kind === "finished" ? out.started[0] : "").toBe("B1");
+    });
+
+    it("a job larger than the whole budget runs only alone, and is not starved by small jobs of other domains", () => {
+      const c = make();
+      c.admit("a1", "A", 100);
+      expect(c.admit("HUGE", "H", budget() * 2).kind).toBe("queued"); // not alone: a1 is running
+      const others = Array.from({ length: 30 }, (_, i) => `o${i}`);
+      for (const id of others) c.admit(id, `O${id}`, 100);
+      let overtook = 0;
+      for (let round = 0; round < 100; round++) {
+        for (const id of [...others, "a1"]) {
+          if (c.stateOf(id) !== "active") continue;
+          const out = c.finish(id);
+          if (out.kind === "finished") {
+            overtook += out.started.filter((x) => x.startsWith("o")).length;
+            if (out.started.includes("HUGE")) {
+              expect(c.activeCount(), "alone").toBe(1);
+              expect(c.inflightBytes).toBe(budget() * 2);
+              return expectNoOneElseStarts(c);
+            }
+          }
+        }
+      }
+      throw new Error("HUGE never ran");
+      function expectNoOneElseStarts(m: JobCoordinatorModel) {
+        expect(overtook).toBeLessThanOrEqual(OVERTAKE_LIMIT + 3); // the ones that were already running or got in before it was passed 8 times
+        expect(m.admit("late", "L", 1).kind).toBe("queued"); // nothing runs beside it
+      }
     });
 
     it("a record larger than the whole budget still runs, alone", () => {
@@ -966,7 +1045,7 @@ describe("7. drop-one-input: each required OPERATIONAL-LIMITS field breaks the p
 
   it("removing any single field fails the load, naming that field", async () => {
     const all = leaves(L);
-    expect(all.length).toBe(12 + 6 + 8 + 9);
+    expect(all.length).toBe(12 + 6 + 10 + 9);
     for (const [group, key] of all) {
       let error: unknown;
       try {

@@ -67,13 +67,26 @@ interface Layer {
 interface State {
   layers: Layer[];
   restore: Array<() => void>;
-  /** Depth of `net.Server.listen` calls in progress on this thread: their lookups resolve a LOCAL bind address, not a destination. */
+  /** Depth of `net.Server.listen` calls in progress on this thread. */
   listening: number;
+  /** The exact bind hosts of those calls (an IP literal or `localhost`): only their own lookup is a local address, not a destination (F6). */
+  bindHosts: string[];
 }
 
 const KEY = Symbol.for("dpp.egressGuard.state");
+
+/** The host a `listen` call binds to, when it is an IP literal or `localhost` (lower case); otherwise null. */
+function bindHostOf(args: unknown[]): string | null {
+  const a0 = args[0];
+  let host: unknown;
+  if (a0 !== null && typeof a0 === "object") host = (a0 as { host?: unknown }).host;
+  else if (typeof args[1] === "string") host = args[1];
+  if (typeof host !== "string") return null;
+  const h = host.toLowerCase().replace(/^\[|\]$/g, "");
+  return h === "localhost" || net.isIP(h) !== 0 ? h : null;
+}
 const g = globalThis as unknown as Record<symbol, State | undefined>;
-const state = (): State => (g[KEY] ??= { layers: [], restore: [], listening: 0 });
+const state = (): State => (g[KEY] ??= { layers: [], restore: [], listening: 0, bindHosts: [] });
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyFn = (...args: any[]) => any;
@@ -269,11 +282,14 @@ function applyPatches(): void {
   // A listening server resolves its own bind address (any local interface, 0.0.0.0, a LAN IP): that is not a destination.
   patch(net.Server.prototype, "listen", (orig) => function (this: unknown, ...a: unknown[]) {
     const st = state();
+    const bind = bindHostOf(a);
     st.listening++;
+    if (bind !== null) st.bindHosts.push(bind);
     try {
       return orig.apply(this, a);
     } finally {
       st.listening--;
+      if (bind !== null) st.bindHosts.pop();
     }
   });
   patch(tls, "connect", (orig) => function (this: unknown, ...a: unknown[]) {
@@ -299,7 +315,10 @@ function applyPatches(): void {
 
   // name resolution
   patch(dns, "lookup", (orig) => function (this: unknown, ...a: unknown[]) {
-    if (state().listening === 0) check("dns.lookup", a[0]);
+    // Only the lookup of the exact host a listening server binds to (an IP literal or localhost) is not a destination; any other lookup is checked.
+    const st = state();
+    const name = typeof a[0] === "string" ? a[0].toLowerCase() : null;
+    if (!(st.listening > 0 && name !== null && st.bindHosts.includes(name))) check("dns.lookup", a[0]);
     return orig.apply(this, a);
   });
   patch(dns.promises, "lookup", (orig) => async function (this: unknown, ...a: unknown[]) {

@@ -29,6 +29,8 @@ http:
   keep_alive_timeout_ms: 5000
   max_connections: 256
   max_request_body_bytes: 31457280
+  body_read_timeout_ms: 10000
+  idle_socket_timeout_ms: 60000
   rate_limit_window_ms: 60000
   rate_limit_read_per_window: 600
   rate_limit_write_per_window: 120

@@ -58,7 +58,7 @@ import { currentMigrationVersion } from "../db/migrations";
 import { ImportJobRunner, type ImportEvidenceUpload, type ImportJobControl } from "../jobs/importJobRunner";
 import { trimMemory, TRIM_AFTER_BYTES } from "../jobs/trimMemory";
 import { IngressRunner } from "../jobs/ingressRunner";
-import { JobCoordinator, Lane, LiveJobs, QueueFullError } from "../jobs/jobControl";
+import { JobCoordinator, LiveJobs, QueueFullError } from "../jobs/jobControl";
 import { RateLimiter, ServerMetrics, routeTemplate } from "./limits";
 import { ConfigReleaseStore } from "../releases/configReleaseStore";
 import { sha256Sync } from "../store/sqlRepository";
@@ -202,6 +202,14 @@ function declaredLength(req: IncomingMessage): number | undefined {
   return typeof declared === "string" && /^\d+$/.test(declared) ? Number(declared) : undefined;
 }
 
+/** The longest Origin header the server looks at (R2-02). */
+const MAX_ORIGIN_LENGTH = 256;
+function trimTrailingSlashes(text: string): string {
+  let end = text.length;
+  while (end > 0 && text.charCodeAt(end - 1) === 47) end--;
+  return text.slice(0, end);
+}
+
 /** Base64 text length of `bytes` bytes. */
 const base64Length = (bytes: number): number => Math.ceil(bytes / 3) * 4;
 /** Room for the JSON around the base64 of one import request (names, types, keys, small evidence). */
@@ -211,7 +219,7 @@ const IMPORT_ENVELOPE_BYTES = 256 * 1024;
  * Reads a JSON object body under a byte cap that is enforced while the body streams (T13): a declared length over the cap is refused
  * before a byte is read, and an undeclared or understated one is refused as soon as the cap is crossed. The rest is discarded, never buffered.
  */
-async function readJsonObject(req: IncomingMessage, maxBytes: number, limitName: string = "max_request_body_bytes"): Promise<Record<string, unknown>> {
+async function readJsonObject(req: IncomingMessage, maxBytes: number, limitName: string = "max_request_body_bytes", timeoutMs?: number): Promise<Record<string, unknown>> {
   const tooLarge = () => bodyTooLarge(limitName);
   const declared = declaredLength(req);
   if (declared !== undefined && declared > maxBytes) {
@@ -223,13 +231,30 @@ async function readJsonObject(req: IncomingMessage, maxBytes: number, limitName:
   const pieces: string[] = [];
   let total = 0;
   await new Promise<void>((resolveBody, rejectBody) => {
+    // A client that left before the body was read (for instance while its job waited in the queue) never fires 'close' again: look first.
+    if (req.destroyed && !req.complete) return rejectBody(Object.assign(new Error("The request was aborted"), { statusCode: 400, code: "request-aborted" }));
+    let timer: NodeJS.Timeout | undefined;
+    const settle = () => {
+      if (timer) clearTimeout(timer);
+      req.off("data", onData);
+      req.off("end", onEnd);
+      req.off("error", onError);
+      req.off("close", onClose);
+    };
+    if (timeoutMs !== undefined) {
+      // D8-12: the whole body must arrive within `body_read_timeout_ms` of the grant of the slot. A slow drip cannot hold a slot or its bytes.
+      timer = setTimeout(() => {
+        settle();
+        pieces.length = 0;
+        rejectBody(Object.assign(new Error("The request body did not arrive in time"), { statusCode: 408, code: "body-timeout", limit: "body_read_timeout_ms", destroySocket: true }));
+      }, timeoutMs);
+      timer.unref();
+    }
     const onData = (chunk: Buffer | string) => {
       const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       total += buf.byteLength;
       if (total > maxBytes) {
-        req.off("data", onData);
-        req.off("end", onEnd);
-        req.off("error", onError);
+        settle();
         pieces.length = 0;
         req.resume(); // discard the rest of the body
         rejectBody(tooLarge());
@@ -237,9 +262,16 @@ async function readJsonObject(req: IncomingMessage, maxBytes: number, limitName:
       }
       pieces.push(decoder.decode(buf, { stream: true }));
     };
-    const onEnd = () => resolveBody();
-    const onError = (e: Error) => rejectBody(e);
+    const onEnd = () => {
+      settle();
+      resolveBody();
+    };
+    const onError = (e: Error) => {
+      settle();
+      rejectBody(e);
+    };
     const onClose = () => {
+      settle();
       if (!req.complete) rejectBody(Object.assign(new Error("The request was aborted"), { statusCode: 400, code: "request-aborted" }));
     };
     if (req.readableEnded) return resolveBody();
@@ -262,6 +294,25 @@ async function readJsonObject(req: IncomingMessage, maxBytes: number, limitName:
     throw Object.assign(new Error("Request body must be a JSON object"), { statusCode: 400, code: "invalid-payload" });
   }
   return parsed as Record<string, unknown>;
+}
+
+/** After an early answer: read and discard what the client is still sending, for at most `DRAIN_MS`, then end the connection. Nothing is kept. */
+const DRAIN_MS = 2000;
+function drainThenClose(req: IncomingMessage, res: ServerResponse): void {
+  const socket = req.socket;
+  if (req.complete || socket.destroyed) {
+    res.once("finish", () => socket.end());
+    return;
+  }
+  req.resume();
+  const timer = setTimeout(() => socket.destroy(), DRAIN_MS);
+  timer.unref();
+  const done = () => {
+    clearTimeout(timer);
+    if (!socket.destroyed) socket.end();
+  };
+  req.once("end", done);
+  req.once("close", () => clearTimeout(timer));
 }
 
 function decodeParam(raw: string): string {
@@ -459,8 +510,6 @@ export function createDppServer(options: DppServerOptions): Server {
   const metrics = new ServerMetrics();
   const coordinator = new JobCoordinator(limits);
   const liveJobs = new LiveJobs();
-  /** One import body is read and decoded at a time (about 100 MB of transient copies for a body of 30 MB). */
-  const bodyLane = new Lane(1);
   /** Each import's ingress runs in a worker thread that the main thread can terminate (D8-10). */
   const ingress = options.testHooks?.ingress ?? new IngressRunner({ limits });
   const REASON_MAX = 500;
@@ -582,7 +631,14 @@ export function createDppServer(options: DppServerOptions): Server {
       return;
     }
     // Cross-site guard: an Origin must be this server itself or an explicitly allowed origin (default: none).
-    const origin = typeof req.headers.origin === "string" ? req.headers.origin.replace(/\/+$/, "").toLowerCase() : undefined;
+    // R2-02: an Origin is a scheme, a host and a port. A longer one is refused with fixed text before anything is done with it, and the
+    // trailing slashes are trimmed by index, not by a regular expression that could backtrack over a header of 16 KB of slashes.
+    const rawOrigin = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
+    if (rawOrigin !== undefined && rawOrigin.length > MAX_ORIGIN_LENGTH) {
+      sendJson(res, 403, { code: "origin-not-allowed", message: "Cross-origin requests are not accepted from this origin" });
+      return;
+    }
+    const origin = rawOrigin === undefined ? undefined : trimTrailingSlashes(rawOrigin).toLowerCase();
     const sameOrigin = origin !== undefined && origin === `http://${(req.headers.host ?? "").toLowerCase()}`;
     const crossOriginAllowed = origin !== undefined && extraOrigins.includes(origin);
     if (origin !== undefined && !sameOrigin && !crossOriginAllowed) {
@@ -1191,8 +1247,8 @@ export function createDppServer(options: DppServerOptions): Server {
           token.cancel("client-disconnected"); // the client left: the job stops at its next check and nothing is committed
           if (!started) slot.release(); // still queued: leave the queue now
         });
-        let outcome: Awaited<ReturnType<typeof runner.runImportJob>>;
-        let laneRelease: (() => void) | null = null;
+        let answer: Record<string, unknown>;
+        let answerStatus = 200;
         try {
           try {
             await slot.ready;
@@ -1200,8 +1256,9 @@ export function createDppServer(options: DppServerOptions): Server {
             return; // abandoned while queued: the client is gone
           }
           started = true;
-          laneRelease = await bodyLane.acquire();
-          const body = await readJsonObject(req, importCap, importLimit);
+          // No lane shared by all clients: what the bodies in memory can add up to is bounded by the in-flight byte budget, and the time
+          // one body may take, counted from the grant of the slot, by `body_read_timeout_ms` (D8-12).
+          const body = await readJsonObject(req, importCap, importLimit, limits.http.body_read_timeout_ms);
 
           if (body.idempotencyKey !== undefined && typeof body.idempotencyKey !== "string") {
             sendJson(res, 400, { code: "invalid-payload", message: "idempotencyKey must be a string" }, allowedOrigin, undefined, allowMethods);
@@ -1275,8 +1332,6 @@ export function createDppServer(options: DppServerOptions): Server {
           if (erpBytes.byteLength + (labPayload?.bytes.byteLength ?? 0) > limits.coordinator.server_record_max_bytes) {
             throw Object.assign(new Error("The source files are larger than the declared maximum size"), { statusCode: 413, code: "too-large", limit: "server_record_max_bytes" });
           }
-          laneRelease(); // the body is decoded: its transient copies are gone, the next body may be read
-          laneRelease = null;
           const budget = new JobBudget({ deadlineMs: limits.execution.job_deadline_ms, now: clock, token });
           const control: ImportJobControl = {
             budget,
@@ -1290,7 +1345,7 @@ export function createDppServer(options: DppServerOptions): Server {
             ingress,
             ...(options.testHooks?.workerSpinMs ? { spinMs: options.testHooks.workerSpinMs } : {}),
           };
-          outcome = await runner.runImportJob({
+          const outcome = await runner.runImportJob({
             control,
           idempotencyKey,
           actor: OPERATOR,
@@ -1314,42 +1369,48 @@ export function createDppServer(options: DppServerOptions): Server {
           evidence,
           });
 
+          // The answer is a bounded summary (D8-12): the job, the receipt, the record's keys, versions and digests, the verdicts. The record
+          // itself (as large as the pair of files) is read with GET /api/records/:model/:batch/history. So the slot is free as soon as the job is
+          // in a terminal state, and a client that does not read its answer holds nothing.
+          // A refusal tells its own submitter where the problem is (file name and row or JSON pointer) and what kind it is, with the
+          // fixed text of the code. It never carries a field value: the free-text detail of an ingress issue is dropped (D8-09).
+          const { snapshot, ...rest } = outcome;
+          answer = {
+            ...rest,
+            ...(snapshot
+              ? {
+                  snapshot: {
+                    model: snapshot.model,
+                    batch: snapshot.batch,
+                    version: snapshot.version,
+                    ...(snapshot.supersedes ? { supersedes: snapshot.supersedes } : {}),
+                    digest: snapshot.digest,
+                    actor: snapshot.actor,
+                    reason: snapshot.reason,
+                    sources: snapshot.sources,
+                    record: { model: snapshot.record.model, batch: snapshot.record.batch, digest: snapshot.record.digest },
+                  },
+                }
+              : {}),
+            ...(outcome.errors
+              ? {
+                  errors: outcome.errors.map((e) => ({
+                    stage: e.stage,
+                    code: e.code,
+                    message: ERROR_TEXT[e.code] ?? "The import was refused.",
+                    location: e.location,
+                  })),
+                }
+              : {}),
+          };
+          answerStatus = outcome.ok ? 200 : 422;
         } finally {
-          laneRelease?.();
           if (claimedJobId) liveJobs.unregister(claimedJobId);
-          // A large record keeps its place until its response has left and the memory of the job is given back, so the next large record
-          // is not read while this one is still held (D8-11). A small one frees its place at once.
-          if (!large) slot.release();
-          else {
-            let freed = false;
-            const free = () => {
-              if (freed) return;
-              freed = true;
-              trimMemory();
-              slot.release();
-            };
-            if (res.destroyed || res.closed) free();
-            else {
-              res.once("close", free);
-              res.once("finish", free);
-            }
-          }
+          // The record, its decoded copies and the text of the request are garbage now: give the memory back before the next job starts.
+          if (large) trimMemory();
+          slot.release();
         }
-
-        // A refusal tells its own submitter where the problem is (file name and row or JSON pointer) and what kind it is, with the
-        // fixed text of the code. It never carries a field value: the free-text detail of an ingress issue is dropped (D8-09).
-        const answer = outcome.errors
-          ? {
-              ...outcome,
-              errors: outcome.errors.map((e) => ({
-                stage: e.stage,
-                code: e.code,
-                message: ERROR_TEXT[e.code] ?? "The import was refused.",
-                location: e.location,
-              })),
-            }
-          : outcome;
-        sendJson(res, outcome.ok ? 200 : 422, answer, allowedOrigin, undefined, allowMethods);
+        sendJson(res, answerStatus, answer!, allowedOrigin, undefined, allowMethods);
         return;
       }
 
@@ -1680,20 +1741,36 @@ export function createDppServer(options: DppServerOptions): Server {
       sendJson(res, 404, { code: "not-found", message: "Unknown route" }, allowedOrigin, undefined, allowMethods);
     } catch (err) {
       const mapped = mapError(err);
+      // An early refusal (413, 429) is answered while the client may still be sending its body. Closing the socket at once would reset
+      // the connection and the client could lose the answer (V2-11): the answer is sent, the rest of the body is read and thrown away
+      // for a short bounded time, then the socket is closed. A body that did not arrive in time (408) is not waited for: its socket is destroyed.
+      const closing = mapped.extraHeaders?.Connection === "close";
+      const { Connection: _connection, ...otherHeaders } = mapped.extraHeaders ?? {};
+      void _connection;
       sendJson(
         res,
         mapped.status,
         { code: mapped.code, message: mapped.message, ...(mapped.limit ? { limit: mapped.limit } : {}) },
         allowedOrigin,
-        mapped.extraHeaders,
+        closing ? otherHeaders : mapped.extraHeaders,
         allowMethods,
       );
+      if ((err as { destroySocket?: boolean } | null)?.destroySocket) {
+        const socket = req.socket;
+        res.once("finish", () => socket.destroy());
+        setTimeout(() => socket.destroy(), 250).unref();
+      } else if (closing) {
+        drainThenClose(req, res);
+      }
     }
     },
   );
 
   // T11: a hard cap on open connections; a connection over it is refused at once and counted.
   server.maxConnections = limits.http.max_connections;
+  // D8-12: a socket that moves no byte for `idle_socket_timeout_ms` is destroyed (Node does so when no 'timeout' listener is set), so a
+  // client that never reads its answer, or stops sending, cannot keep a connection open for ever.
+  server.setTimeout(limits.http.idle_socket_timeout_ms);
   server.on("drop", () => metrics.recordLimit("OVER_LIMIT", "max_connections"));
   // T11: a client that is too slow to send its headers or its request (Slowloris) is answered 408 and its socket is closed.
   server.on("clientError", (err: Error & { code?: string }, socket) => {

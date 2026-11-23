@@ -184,10 +184,15 @@ describe("Cycle 7 controlled configuration package releases & rollback (C7-04)",
     const preBody = (await preImp.json()) as {
       ok: boolean;
       receipt: { policyPin: string; retentionUntil: string };
-      snapshot: { model: string; batch: string; record: { values: Array<{ property: string; assertions: Array<{ flags: string[] }> }> } };
+      snapshot: { model: string; batch: string; version: number };
     };
+    // The import answer is a bounded summary (D8-12): the record is read from the history of the record.
+    const preHist = (await (await fetch(`${baseUrl}/api/records/${encodeURIComponent(preBody.snapshot.model)}/${encodeURIComponent(preBody.snapshot.batch)}/history`, { headers: jsonAuth(op1) })).json()) as {
+      history: Array<{ version: number; record: { values: Array<{ property: string; assertions: Array<{ flags: string[] }> }> } }>;
+    };
+    const preRecord = preHist.history.find((h) => h.version === preBody.snapshot.version)!.record;
     const temperProp = pack.inputs.erp.columns.find((c) => c.code_list?.startsWith("TEMPER"))!.maps_to.split("/")[0]!;
-    const preTemperFlags = preBody.snapshot.record.values.find((v) => v.property === temperProp)!.assertions[0]!.flags;
+    const preTemperFlags = preRecord.values.find((v) => v.property === temperProp)!.assertions[0]!.flags;
     expect(preTemperFlags).toContain("unknown-code");
     expect(preBody.receipt.policyPin).toBe("RETENTION@1.0.0");
     expect(preBody.receipt.retentionUntil).toBe("2036-11-19T12:00:00.000Z");
@@ -280,12 +285,16 @@ describe("Cycle 7 controlled configuration package releases & rollback (C7-04)",
     const postBody = (await postImp.json()) as {
       ok: boolean;
       receipt: { retentionUntil: string; policyPin: string };
-      snapshot: { model: string; batch: string; record: { values: Array<{ property: string; assertions: Array<{ flags: string[] }> }> } };
+      snapshot: { model: string; batch: string; version: number };
     };
     expect(postBody.ok).toBe(true);
     expect(postBody.receipt.policyPin).toBe("RETENTION@1.1.0");
     expect(postBody.receipt.retentionUntil).toBe("2037-11-19T12:00:00.000Z");
-    const postTemperFlags = postBody.snapshot.record.values.find((v) => v.property === temperProp)!.assertions[0]!.flags;
+    const postHist = (await (await fetch(`${baseUrl}/api/records/${encodeURIComponent(postBody.snapshot.model)}/${encodeURIComponent(postBody.snapshot.batch)}/history`, { headers: jsonAuth(op1) })).json()) as {
+      history: Array<{ version: number; record: { values: Array<{ property: string; assertions: Array<{ flags: string[] }> }> } }>;
+    };
+    const postRecord = postHist.history.find((h) => h.version === postBody.snapshot.version)!.record;
+    const postTemperFlags = postRecord.values.find((v) => v.property === temperProp)!.assertions[0]!.flags;
     expect(postTemperFlags).not.toContain("unknown-code");
 
     // Re-import clean H111 ERP, then verify operator correction H111 -> H14 NOW SUCCEEDS under 1.1.0!
@@ -348,12 +357,16 @@ describe("Cycle 7 controlled configuration package releases & rollback (C7-04)",
     expect(afterRbImp.status).toBe(200);
     const afterRbBody = (await afterRbImp.json()) as {
       receipt: { retentionUntil: string; policyPin: string };
-      snapshot: { model: string; batch: string; record: { values: Array<{ property: string; assertions: Array<{ flags: string[] }> }> } };
+      snapshot: { model: string; batch: string; version: number };
     };
     expect(afterRbBody.receipt.policyPin).toBe("RETENTION@1.0.0");
     expect(afterRbBody.receipt.retentionUntil).toBe("2036-11-19T12:00:00.000Z");
+    const afterRbHist = (await (await fetch(`${baseUrl}/api/records/${encodeURIComponent(afterRbBody.snapshot.model)}/${encodeURIComponent(afterRbBody.snapshot.batch)}/history`, { headers: jsonAuth(op1) })).json()) as {
+      history: Array<{ version: number; record: { values: Array<{ property: string; assertions: Array<{ flags: string[] }> }> } }>;
+    };
+    const afterRbRecord = afterRbHist.history.find((h) => h.version === afterRbBody.snapshot.version)!.record;
     expect(
-      afterRbBody.snapshot.record.values.find((v) => v.property === temperProp)!.assertions.flatMap((a) => a.flags),
+      afterRbRecord.values.find((v) => v.property === temperProp)!.assertions.flatMap((a) => a.flags),
     ).toContain("unknown-code");
 
     const afterRbCorr = await fetch(

@@ -10,7 +10,7 @@ import { collectAdvisories, evaluateAudit, validateRisks } from "../../scripts/c
 
 type Result = { ok: boolean; errors: string[]; unaccepted: unknown[]; accepted: { risk: string }[]; notes: string[] };
 const evaluate = evaluateAudit as (a: unknown, r: unknown, today: string) => Result;
-const validate = validateRisks as (f: unknown) => string[];
+const validate = validateRisks as (f: unknown, today?: string) => string[];
 
 const TODAY = "2026-11-23";
 const audit = (vulns: Record<string, unknown> = {}) => ({ auditReportVersion: 2, vulnerabilities: vulns, metadata: {} });
@@ -166,5 +166,25 @@ describe("check-audit command line (canned audit file, no network)", () => {
     const r = run({ error: { code: "ENOTFOUND", summary: "no network" } });
     expect(r.code).toBe(1);
     expect(r.out).toMatch(/npm audit failed: ENOTFOUND/);
+  });
+});
+
+describe("R2-04: dates in the future and unknown severities", () => {
+  it("refuses an acceptance dated after today", () => {
+    expect(validate(file(risk({ date: "2026-11-24", review_by: "2027-02-01" })), TODAY).join("\n")).toMatch(/date 2026-11-24 is later than today \(2026-11-23\)/);
+    expect(validate(file(risk({ date: "2026-11-23", review_by: "2027-02-01" })), TODAY)).toEqual([]); // today itself is fine
+    const r = evaluate(audit(), file(risk({ date: "2099-01-01", review_by: "2099-03-01" })), TODAY);
+    expect(r.ok).toBe(false);
+    expect(r.errors.join("\n")).toMatch(/later than today/);
+  });
+
+  it("fails an advisory whose severity is not one of the exact names, so it cannot slip past an acceptance", () => {
+    for (const bad of ["High", "HIGH", "none", "severe", "unknown", ""]) {
+      const r = evaluate(audit(advisory("left-pad", "GHSA-aaaa-bbbb-cccc", bad)), file(risk({ severity: "critical" })), TODAY);
+      expect(r.ok, bad).toBe(false);
+      expect(r.errors.join("\n"), bad).toMatch(/not one of info, low, moderate, high, critical/);
+    }
+    // an accepted risk with a different-case severity is refused too
+    expect(validate(file(risk({ severity: "Moderate" })), TODAY).join("\n")).toMatch(/not one of/);
   });
 });
