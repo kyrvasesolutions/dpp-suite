@@ -447,7 +447,7 @@ export const MIGRATIONS: readonly Migration[] = [
       END;
 
       CREATE TABLE IF NOT EXISTS config_packages (
-        release_id TEXT PRIMARY KEY,
+        release_id TEXT PRIMARY KEY NOT NULL,
         package_id TEXT NOT NULL,
         version TEXT NOT NULL,
         security_domain TEXT NOT NULL,
@@ -478,6 +478,7 @@ export const MIGRATIONS: readonly Migration[] = [
         SELECT 1 FROM config_packages
         WHERE release_id = NEW.release_id
            OR (security_domain = NEW.security_domain AND package_id = NEW.package_id AND version = NEW.version)
+           OR (NEW.state = 'active' AND security_domain = NEW.security_domain AND package_id = NEW.package_id AND state = 'active')
       )
       BEGIN
         SELECT RAISE(ABORT, 'config_packages are append-only; a release that exists cannot be replaced');
@@ -486,20 +487,26 @@ export const MIGRATIONS: readonly Migration[] = [
       CREATE TRIGGER IF NOT EXISTS trg_config_packages_immutable_content
       BEFORE UPDATE ON config_packages
       WHEN
-        NEW.release_id != OLD.release_id OR
-        NEW.package_id != OLD.package_id OR
-        NEW.version != OLD.version OR
-        NEW.security_domain != OLD.security_domain OR
-        NEW.manifest_sha256 != OLD.manifest_sha256 OR
-        NEW.digest_algorithm != OLD.digest_algorithm OR
+        NEW.release_id IS NOT OLD.release_id OR
+        NEW.package_id IS NOT OLD.package_id OR
+        NEW.version IS NOT OLD.version OR
+        NEW.security_domain IS NOT OLD.security_domain OR
+        NEW.manifest_sha256 IS NOT OLD.manifest_sha256 OR
+        NEW.digest_algorithm IS NOT OLD.digest_algorithm OR
         NEW.predecessor_release_id IS NOT OLD.predecessor_release_id OR
-        NEW.proposed_by != OLD.proposed_by OR
-        NEW.proposed_at != OLD.proposed_at OR
-        NEW.note != OLD.note OR
-        NEW.bundle_json != OLD.bundle_json
+        NEW.proposed_by IS NOT OLD.proposed_by OR
+        NEW.proposed_at IS NOT OLD.proposed_at OR
+        NEW.note IS NOT OLD.note OR
+        NEW.bundle_json IS NOT OLD.bundle_json
       BEGIN
         SELECT RAISE(ABORT, 'config_packages content is immutable; only release workflow fields may change');
       END;
+
+      CREATE TABLE IF NOT EXISTS domain_retention_policies (
+        security_domain TEXT PRIMARY KEY NOT NULL,
+        policy_pin TEXT NOT NULL REFERENCES retention_policies(policy_pin) ON DELETE RESTRICT,
+        activated_at TEXT NOT NULL
+      );
 
       CREATE TABLE IF NOT EXISTS config_package_events (
         seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -556,7 +563,9 @@ export const MIGRATIONS: readonly Migration[] = [
       DROP TRIGGER IF EXISTS trg_config_packages_immutable_content;
       DROP TRIGGER IF EXISTS trg_config_packages_no_replace;
       DROP TRIGGER IF EXISTS trg_config_packages_no_delete;
+      UPDATE config_packages SET predecessor_release_id = NULL WHERE predecessor_release_id IS NOT NULL;
       DROP TABLE IF EXISTS config_packages;
+      DROP TABLE IF EXISTS domain_retention_policies;
       DROP TRIGGER IF EXISTS trg_grant_events_no_replace;
       DROP TRIGGER IF EXISTS trg_grant_events_no_update;
       DROP TRIGGER IF EXISTS trg_grant_events_no_delete;

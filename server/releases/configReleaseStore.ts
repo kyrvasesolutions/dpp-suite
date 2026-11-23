@@ -2,13 +2,14 @@
  * Controlled schema, mapping, and policy package release & rollback store with four-eyes approval
  * (C7-04, LEAN-DEF-14, EV-6, ADR-0005).
  *
- * Separates stable `packageId` from immutable `releaseId` + `version` + `manifestSha256`, enforces
- * predecessor chains, validates every proposed bundle through `loadProfilePack` + retention floor
- * rules before saving, requires a distinct approver (`approver_sub !== proposer_sub`), and supports
- * auditable rollback to any previously approved/superseded release.
+ * Separates stable `packageId` (bound strictly to `pack.id`) from immutable `releaseId` + `version`
+ * + canonical `manifestSha256`, enforces predecessor chains, validates every proposed bundle through
+ * `loadProfilePack` + full retention-floor + pin-immutability rules before saving, requires a
+ * distinct approver (`approver !== proposer`, normalized), and supports atomic TOCTOU-free rollback
+ * strictly to previously active (`superseded`) releases.
  */
 import { createHash, randomUUID } from "node:crypto";
-import { CLASSIFICATIONS } from "../../src/model/classification";
+import { canonical } from "../../src/model/canonical";
 import {
   ConfigReleaseError,
   ProposePackageSchema,
@@ -16,12 +17,13 @@ import {
   type ConfigPackageRelease,
   type ProposePackageInput,
 } from "../../src/model/c7Contracts";
-import { DEFAULT_SECURITY_DOMAIN, EVIDENCE_FLOOR } from "../../src/model/pContracts";
+import { DEFAULT_SECURITY_DOMAIN } from "../../src/model/pContracts";
 import { loadProfilePack, type PackSource, type ProfilePack } from "../../src/model/profile";
 import type { DbAdapter } from "../db/adapter";
-import { PolicyStore } from "../store/policyStore";
+import { PolicyStore, validateRetentionFloors } from "../store/policyStore";
 
-const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
+const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/;
+const SHA256_HEX = /^[0-9a-f]{64}$/;
 
 interface PackageRow {
   release_id: string;
@@ -73,7 +75,10 @@ function rowToRelease(r: PackageRow): ConfigPackageRelease {
   };
 }
 
-function validateReason(reason: string): string {
+function validateReason(reason: unknown): string {
+  if (typeof reason !== "string") {
+    throw new ConfigReleaseError("reason-required", 400, "A single-line reason of 1..500 characters is required");
+  }
   const trimmed = reason.trim();
   if (!trimmed || trimmed.length > 500 || CONTROL_CHARS.test(trimmed)) {
     throw new ConfigReleaseError("reason-required", 400, "A single-line reason of 1..500 characters is required");
@@ -81,29 +86,17 @@ function validateReason(reason: string): string {
   return trimmed;
 }
 
+function validateActorSub(actorSub: unknown): string {
+  if (typeof actorSub !== "string" || !actorSub || actorSub !== actorSub.trim() || actorSub.length > 128 || CONTROL_CHARS.test(actorSub)) {
+    throw new ConfigReleaseError("invalid-package", 400, "A valid non-empty actor subject identifier is required");
+  }
+  return actorSub;
+}
+
 function assertRetentionFloor(pack: ProfilePack): void {
-  const retention = pack.policy.retention;
-  if (retention.default_classification !== "restricted") {
-    throw new ConfigReleaseError("retention-floor-violation", 400, "Retention policy default_classification must remain restricted");
-  }
-  if (retention.default_retention_days < EVIDENCE_FLOOR.retentionDays) {
-    throw new ConfigReleaseError(
-      "retention-floor-violation",
-      400,
-      `Retention policy default_retention_days must be at least ${EVIDENCE_FLOOR.retentionDays} days`,
-    );
-  }
-  const evRule = retention.datasets.find((d) => d.dataset === "evidence-object");
-  if (
-    !evRule ||
-    CLASSIFICATIONS.indexOf(evRule.classification) < CLASSIFICATIONS.indexOf(EVIDENCE_FLOOR.classification) ||
-    evRule.retention_days < EVIDENCE_FLOOR.retentionDays
-  ) {
-    throw new ConfigReleaseError(
-      "retention-floor-violation",
-      400,
-      `evidence-object dataset must be at least ${EVIDENCE_FLOOR.classification} and ${EVIDENCE_FLOOR.retentionDays} days`,
-    );
+  const err = validateRetentionFloors(pack.policy.retention);
+  if (err) {
+    throw new ConfigReleaseError("retention-floor-violation", 400, err);
   }
 }
 
@@ -132,7 +125,7 @@ export class ConfigReleaseStore {
     options: { now?: () => string } = {},
   ) {
     this.now = options.now ?? (() => new Date().toISOString());
-    this.policies = new PolicyStore(db);
+    this.policies = new PolicyStore(db, securityDomain);
   }
 
   private appendEvent(
@@ -212,18 +205,32 @@ export class ConfigReleaseStore {
   }
 
   /**
-   * Seeds the verified start-up contract pack as the initial active release if no release exists yet
-   * for `(securityDomain, packageId)`. Idempotent across restarts.
+   * Seeds the verified start-up contract pack as the initial active release and activates its
+   * retention policy pin atomically if no active release exists yet for `(securityDomain, packageId)`.
+   * Idempotent across restarts.
    */
-  async bootstrapActivePack(source: PackSource, packageId = "PROFILE-ALU-24-01", version = "1.0.0"): Promise<ConfigPackageRelease> {
-    const existing = this.getActive(packageId);
-    if (existing) return existing;
+  async bootstrapActivePack(source: PackSource, packageId?: string, version?: string): Promise<ConfigPackageRelease> {
+    if (!SHA256_HEX.test(source.manifestDigest)) {
+      throw new ConfigReleaseError("invalid-package", 400, "Bootstrap pack source must carry a valid SHA-256 manifestDigest");
+    }
     const pack = await parseAndValidateBundle(source);
+    const resolvedPackageId = packageId ?? pack.id;
+    const resolvedVersion = version ?? pack.version;
+    if (resolvedPackageId !== pack.id) {
+      throw new ConfigReleaseError(
+        "invalid-package",
+        400,
+        `Bootstrap packageId "${resolvedPackageId}" does not match verified profile id "${pack.id}"`,
+      );
+    }
+    const existing = this.getActive(resolvedPackageId);
+    if (existing) return existing;
+
     const nowIso = this.now();
     const releaseId = `REL-${randomUUID()}`;
 
     return this.db.transaction(() => {
-      const raced = this.getActive(packageId);
+      const raced = this.getActive(resolvedPackageId);
       if (raced) return raced;
       this.db.run(
         `INSERT INTO config_packages (
@@ -232,8 +239,8 @@ export class ConfigReleaseStore {
           activated_by, activated_at, note, bundle_json
         ) VALUES (?, ?, ?, ?, ?, 'sha256', NULL, 'active', 'system-bootstrap', ?, 'signed-pack', ?, 'system-bootstrap', ?, ?, ?)`,
         releaseId,
-        packageId,
-        version,
+        resolvedPackageId,
+        resolvedVersion,
         this.securityDomain,
         source.manifestDigest,
         nowIso,
@@ -242,15 +249,18 @@ export class ConfigReleaseStore {
         `Initial verified signed contract pack (${pack.id}@${pack.version})`,
         JSON.stringify(source),
       );
-      this.appendEvent(releaseId, packageId, "proposed", "system-bootstrap", "Initial signed pack bootstrap", nowIso);
-      this.appendEvent(releaseId, packageId, "approved", "signed-pack", "Verified owner signature in SIGNATURES.json", nowIso);
-      this.appendEvent(releaseId, packageId, "activated", "system-bootstrap", "Active at server startup", nowIso);
+      this.appendEvent(releaseId, resolvedPackageId, "proposed", "system-bootstrap", "Initial signed pack bootstrap", nowIso);
+      this.appendEvent(releaseId, resolvedPackageId, "approved", "signed-pack", "Verified owner signature in SIGNATURES.json", nowIso);
+      this.appendEvent(releaseId, resolvedPackageId, "activated", "system-bootstrap", "Active at server startup", nowIso);
+      // Seed the baseline retention policy pin atomically so future rollbacks never hit pin poisoning.
+      this.policies.activate(pack.policy.retention, nowIso);
       return this.get(releaseId)!;
     });
   }
 
   /** Proposes and validates a new versioned configuration package (state -> `validated`). */
-  async propose(rawInput: unknown, actorSub: string): Promise<ConfigPackageRelease> {
+  async propose(rawInput: unknown, actorSubInput: string): Promise<ConfigPackageRelease> {
+    const actorSub = validateActorSub(actorSubInput);
     if (rawInput && typeof rawInput === "object" && typeof (rawInput as { version?: unknown }).version === "string") {
       const v = String((rawInput as { version: string }).version).toLowerCase();
       if (v === "latest" || v.includes("latest")) {
@@ -266,8 +276,11 @@ export class ConfigReleaseStore {
       );
     }
     const input: ProposePackageInput = parsed.data;
-    const manifestText = `${JSON.stringify(input.manifest, null, 2)}\n`;
-    const manifestSha256 = createHash("sha256").update(manifestText).digest("hex");
+    if (CONTROL_CHARS.test(input.note)) {
+      throw new ConfigReleaseError("invalid-package", 400, "Release note must be single-line printable text");
+    }
+    // Canonical SHA-256 digest of the manifest (independent of JSON key order).
+    const manifestSha256 = createHash("sha256").update(canonical(input.manifest)).digest("hex");
     const bundle: PackSource = {
       dir: `release:${input.packageId}@${input.version}`,
       manifest: input.manifest,
@@ -275,13 +288,26 @@ export class ConfigReleaseStore {
       manifestDigest: manifestSha256,
     };
 
-    // Full structural, digest, pin, disclosure matrix, derived rule, limits, and retention-floor check
-    await parseAndValidateBundle(bundle);
+    // Full structural, digest, pin, disclosure matrix, derived rule, limits, and full retention-floor check
+    const pack = await parseAndValidateBundle(bundle);
+    if (input.packageId !== pack.id) {
+      throw new ConfigReleaseError(
+        "invalid-package",
+        400,
+        `Proposed packageId "${input.packageId}" must match verified profile id "${pack.id}"`,
+      );
+    }
 
     const nowIso = this.now();
     const releaseId = `REL-${randomUUID()}`;
 
     return this.db.transaction(() => {
+      // Fail early if the proposal tries to reuse an existing immutable retention policy pin with different content.
+      const pinConflict = this.policies.checkPinConflict(pack.policy.retention);
+      if (pinConflict) {
+        throw new ConfigReleaseError("invalid-package", 409, pinConflict);
+      }
+
       const dup = this.db.get<{ release_id: string }>(
         "SELECT release_id FROM config_packages WHERE security_domain = ? AND package_id = ? AND version = ?",
         this.securityDomain,
@@ -328,8 +354,9 @@ export class ConfigReleaseStore {
     });
   }
 
-  /** Approves a `validated` release under four-eyes separation of duties (`approver !== proposer`). */
-  approve(releaseId: string, actorSub: string, reasonInput: string): ConfigPackageRelease {
+  /** Approves a `validated` release under strict four-eyes separation of duties (`approver !== proposer`). */
+  approve(releaseId: string, actorSubInput: string, reasonInput: string): ConfigPackageRelease {
+    const actorSub = validateActorSub(actorSubInput);
     const reason = validateReason(reasonInput);
     const nowIso = this.now();
 
@@ -343,14 +370,14 @@ export class ConfigReleaseStore {
       if (row.state !== "validated") {
         throw new ConfigReleaseError("invalid-state", 409, `Release "${releaseId}" is in state "${row.state}" and cannot be approved`);
       }
-      if (row.proposed_by === actorSub) {
+      if (row.proposed_by.trim().toLowerCase() === actorSub.toLowerCase()) {
         throw new ConfigReleaseError(
           "self-approval-forbidden",
           403,
           "Four-eyes rule: the principal who proposed a configuration release cannot approve it",
         );
       }
-      this.db.run(
+      const updated = this.db.run(
         `UPDATE config_packages SET state = 'approved', approved_by = ?, approved_at = ?
          WHERE security_domain = ? AND release_id = ? AND state = 'validated'`,
         actorSub,
@@ -358,13 +385,17 @@ export class ConfigReleaseStore {
         this.securityDomain,
         releaseId,
       );
+      if (updated.changes !== 1) {
+        throw new ConfigReleaseError("invalid-state", 409, `Release "${releaseId}" could not be approved concurrently`);
+      }
       this.appendEvent(releaseId, row.package_id, "approved", actorSub, reason, nowIso);
       return this.get(releaseId)!;
     });
   }
 
   /** Rejects a `validated` or `approved` (not yet active) release with a mandatory reason. */
-  reject(releaseId: string, actorSub: string, reasonInput: string): ConfigPackageRelease {
+  reject(releaseId: string, actorSubInput: string, reasonInput: string): ConfigPackageRelease {
+    const actorSub = validateActorSub(actorSubInput);
     const reason = validateReason(reasonInput);
     const nowIso = this.now();
 
@@ -378,19 +409,23 @@ export class ConfigReleaseStore {
       if (row.state !== "validated" && row.state !== "approved") {
         throw new ConfigReleaseError("invalid-state", 409, `Release "${releaseId}" in state "${row.state}" cannot be rejected`);
       }
-      this.db.run(
+      const updated = this.db.run(
         `UPDATE config_packages SET state = 'rejected'
          WHERE security_domain = ? AND release_id = ? AND state IN ('validated', 'approved')`,
         this.securityDomain,
         releaseId,
       );
+      if (updated.changes !== 1) {
+        throw new ConfigReleaseError("invalid-state", 409, `Release "${releaseId}" changed state concurrently`);
+      }
       this.appendEvent(releaseId, row.package_id, "rejected", actorSub, reason, nowIso);
       return this.get(releaseId)!;
     });
   }
 
   /** Activates an `approved` release atomically, superseding the predecessor and returning the verified `ProfilePack`. */
-  async activate(releaseId: string, actorSub: string, reasonInput: string): Promise<{ release: ConfigPackageRelease; pack: ProfilePack }> {
+  async activate(releaseId: string, actorSubInput: string, reasonInput: string): Promise<{ release: ConfigPackageRelease; pack: ProfilePack }> {
+    const actorSub = validateActorSub(actorSubInput);
     const reason = validateReason(reasonInput);
     const preRow = this.db.get<PackageRow>(
       "SELECT * FROM config_packages WHERE security_domain = ? AND release_id = ?",
@@ -425,15 +460,18 @@ export class ConfigReleaseStore {
       }
 
       if (currentActive) {
-        this.db.run(
+        const sup = this.db.run(
           "UPDATE config_packages SET state = 'superseded' WHERE security_domain = ? AND release_id = ? AND state = 'active'",
           this.securityDomain,
           currentActive.releaseId,
         );
+        if (sup.changes !== 1) {
+          throw new ConfigReleaseError("invalid-state", 409, "Active release changed concurrently during activation");
+        }
         this.appendEvent(currentActive.releaseId, row.package_id, "superseded", actorSub, `Superseded by ${releaseId}: ${reason}`, nowIso);
       }
 
-      this.db.run(
+      const act = this.db.run(
         `UPDATE config_packages SET state = 'active', activated_by = ?, activated_at = ?
          WHERE security_domain = ? AND release_id = ? AND state = 'approved'`,
         actorSub,
@@ -441,8 +479,10 @@ export class ConfigReleaseStore {
         this.securityDomain,
         releaseId,
       );
+      if (act.changes !== 1) {
+        throw new ConfigReleaseError("invalid-state", 409, `Release "${releaseId}" is no longer in approved state`);
+      }
       this.appendEvent(releaseId, row.package_id, "activated", actorSub, reason, nowIso);
-      // Activate the release's verified retention policy atomically inside the same transaction
       this.policies.activate(pack.policy.retention, nowIso);
       return this.get(releaseId)!;
     });
@@ -451,15 +491,16 @@ export class ConfigReleaseStore {
   }
 
   /**
-   * Rolls back the active release of `packageId` to a previously approved/superseded release atomically,
-   * recording the mandatory reason and restoring the target's verified `ProfilePack` + retention policy.
+   * Rolls back the active release of `packageId` to a previously active (`superseded`) release atomically,
+   * re-verifying both active and target states inside the write transaction to prevent async TOCTOU.
    */
   async rollback(
     packageId: string,
     targetReleaseId: string | undefined,
-    actorSub: string,
+    actorSubInput: string,
     reasonInput: string,
   ): Promise<{ release: ConfigPackageRelease; rolledBackFrom: string; pack: ProfilePack }> {
+    const actorSub = validateActorSub(actorSubInput);
     const reason = validateReason(reasonInput);
     const currentActive = this.getActive(packageId);
     if (!currentActive) {
@@ -473,24 +514,24 @@ export class ConfigReleaseStore {
       throw new ConfigReleaseError("invalid-state", 409, "Cannot roll back to the already-active release");
     }
 
-    const targetRow = this.db.get<PackageRow>(
+    const preTarget = this.db.get<PackageRow>(
       "SELECT * FROM config_packages WHERE security_domain = ? AND package_id = ? AND release_id = ?",
       this.securityDomain,
       packageId,
       desiredTargetId,
     );
-    if (!targetRow) {
+    if (!preTarget) {
       throw new ConfigReleaseError("not-found", 404, `Rollback target "${desiredTargetId}" not found for package "${packageId}"`);
     }
-    if (targetRow.state !== "superseded" && targetRow.state !== "approved") {
+    if (preTarget.state !== "superseded") {
       throw new ConfigReleaseError(
         "invalid-state",
         409,
-        `Rollback target "${desiredTargetId}" must be a previously approved/superseded release (state: "${targetRow.state}")`,
+        `Rollback target "${desiredTargetId}" must be a previously active superseded release (state: "${preTarget.state}")`,
       );
     }
 
-    const bundle = JSON.parse(targetRow.bundle_json) as PackSource;
+    const bundle = JSON.parse(preTarget.bundle_json) as PackSource;
     const pack = await parseAndValidateBundle(bundle);
     const nowIso = this.now();
 
@@ -499,21 +540,41 @@ export class ConfigReleaseStore {
       if (!liveActive || liveActive.releaseId !== currentActive.releaseId) {
         throw new ConfigReleaseError("invalid-state", 409, "Active release changed concurrently during rollback");
       }
-      this.db.run(
+      const liveTarget = this.db.get<PackageRow>(
+        "SELECT * FROM config_packages WHERE security_domain = ? AND package_id = ? AND release_id = ?",
+        this.securityDomain,
+        packageId,
+        desiredTargetId,
+      );
+      if (!liveTarget || liveTarget.state !== "superseded") {
+        throw new ConfigReleaseError(
+          "invalid-state",
+          409,
+          `Rollback target "${desiredTargetId}" is no longer in superseded state (current: "${liveTarget?.state ?? "missing"}")`,
+        );
+      }
+
+      const rb = this.db.run(
         "UPDATE config_packages SET state = 'rolled_back' WHERE security_domain = ? AND release_id = ? AND state = 'active'",
         this.securityDomain,
         liveActive.releaseId,
       );
+      if (rb.changes !== 1) {
+        throw new ConfigReleaseError("invalid-state", 409, "Active release changed concurrently during rollback");
+      }
       this.appendEvent(liveActive.releaseId, packageId, "rolled-back", actorSub, `Rolled back to ${desiredTargetId}: ${reason}`, nowIso);
 
-      this.db.run(
+      const restore = this.db.run(
         `UPDATE config_packages SET state = 'active', activated_by = ?, activated_at = ?
-         WHERE security_domain = ? AND release_id = ?`,
+         WHERE security_domain = ? AND release_id = ? AND state = 'superseded'`,
         actorSub,
         nowIso,
         this.securityDomain,
         desiredTargetId,
       );
+      if (restore.changes !== 1) {
+        throw new ConfigReleaseError("invalid-state", 409, `Rollback target "${desiredTargetId}" changed state concurrently`);
+      }
       this.appendEvent(desiredTargetId, packageId, "activated", actorSub, `Restored via rollback from ${liveActive.releaseId}: ${reason}`, nowIso);
       this.policies.activate(pack.policy.retention, nowIso);
       return this.get(desiredTargetId)!;
@@ -522,16 +583,21 @@ export class ConfigReleaseStore {
     return { release, rolledBackFrom: currentActive.releaseId, pack };
   }
 
+  /** Loads the verified `ProfilePack` of one exact `releaseId` row (prevents cache/row divergence). */
+  async loadPackByReleaseId(releaseId: string): Promise<ProfilePack | undefined> {
+    const row = this.db.get<PackageRow>(
+      "SELECT * FROM config_packages WHERE security_domain = ? AND release_id = ?",
+      this.securityDomain,
+      releaseId,
+    );
+    if (!row) return undefined;
+    return parseAndValidateBundle(JSON.parse(row.bundle_json) as PackSource);
+  }
+
   /** Loads the verified `ProfilePack` of the currently active release, if one exists in the DB. */
   async loadActivePack(packageId?: string): Promise<ProfilePack | undefined> {
     const active = this.getActive(packageId);
     if (!active) return undefined;
-    const row = this.db.get<PackageRow>(
-      "SELECT * FROM config_packages WHERE security_domain = ? AND release_id = ?",
-      this.securityDomain,
-      active.releaseId,
-    );
-    if (!row) return undefined;
-    return parseAndValidateBundle(JSON.parse(row.bundle_json) as PackSource);
+    return this.loadPackByReleaseId(active.releaseId);
   }
 }

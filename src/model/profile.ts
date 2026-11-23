@@ -349,12 +349,25 @@ function parseCodeList(text: string) {
 export async function loadProfilePack(source: PackSource): Promise<ProfilePack> {
   const { manifest, files } = source;
   const digests = new Map<string, string>();
+  const assertSafePackPath = (path: string) => {
+    if (
+      !path ||
+      path.startsWith("/") ||
+      path.includes("\\") ||
+      path.includes("\u0000") ||
+      path.split("/").some((seg) => seg === "" || seg === "." || seg === "..")
+    ) {
+      throw new ProfileError(`invalid pack file path: ${JSON.stringify(path)}`);
+    }
+  };
   for (const path of Object.keys(files)) {
-    if (!(path in manifest.files)) throw new ProfileError(`${path} is not in MANIFEST.json`);
+    assertSafePackPath(path);
+    if (!Object.hasOwn(manifest.files, path)) throw new ProfileError(`${path} is not in MANIFEST.json`);
   }
   for (const [path, expected] of Object.entries(manifest.files)) {
-    const text = files[path];
-    if (text === undefined) throw new ProfileError(`${path} is in MANIFEST.json but missing`);
+    assertSafePackPath(path);
+    const text = Object.hasOwn(files, path) ? files[path] : undefined;
+    if (typeof text !== "string") throw new ProfileError(`${path} is in MANIFEST.json but missing`);
     const actual = await sha256Hex(text);
     if (actual !== expected) throw new ProfileError(`${path} does not match its pinned digest`);
     digests.set(path, actual);

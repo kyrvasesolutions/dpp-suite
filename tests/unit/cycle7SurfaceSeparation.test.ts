@@ -140,10 +140,12 @@ describe("Cycle 7 dedicated internal vs customer deployment surface separation (
       ["POST", "/api/jobs/import"],
       ["GET", "/api/evidence"],
       ["GET", "/api/log"],
+      ["GET", "/api/policy"],
       ["GET", "/api/policy/retention"],
       ["GET", "/api/admin/users"],
       ["GET", "/api/admin/audit"],
       ["GET", "/api/config-releases"],
+      ["OPTIONS", "/api/records"],
     ] as const) {
       const res = await fetch(`${customerUrl}${path}`, {
         method,
@@ -153,6 +155,10 @@ describe("Cycle 7 dedicated internal vs customer deployment surface separation (
       expect(res.status, `customer surface ${method} ${path} as ADMIN`).toBe(403);
       expect(((await res.json()) as { code: string }).code).toBe("surface-forbidden");
     }
+
+    // Protocol-relative //api/records is rejected cleanly with 400 invalid-url
+    const protoRel = await fetch(`${customerUrl}//api/records`, { headers: authHeaders(adminTok) });
+    expect(protoRel.status).toBe(400);
 
     // Operator imports a clean record + evidence on internal listener
     const erpB64 = Buffer.from(fixtureBytes("n", CLEAN.erp)).toString("base64");

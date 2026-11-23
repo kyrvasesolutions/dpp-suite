@@ -221,7 +221,7 @@ export class ImportJobRunner {
       throw new RetentionViolationError("domain-missing", "securityDomain is required for ImportJobRunner");
     }
     this.now = options.now ?? (() => new Date().toISOString());
-    this.policies = new PolicyStore(db);
+    this.policies = new PolicyStore(db, securityDomain);
     this.repository = new SqlRecordRepository(db, securityDomain);
     this.evidenceStore = new SqlEvidenceStore(db, securityDomain, { now: this.now });
     this.logStore = new SqlLogStore(db, securityDomain);

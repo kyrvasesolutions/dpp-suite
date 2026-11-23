@@ -22,7 +22,7 @@ import { loadProfilePack } from "../src/model/profile";
 import { loadJwksFromFile, OidcVerifier } from "./auth/oidc";
 import { SqliteAdapter } from "./db/adapter";
 import { migrateUp } from "./db/migrations";
-import { createDppServer } from "./http/api";
+import { createDppServer, isLoopbackBindHost } from "./http/api";
 import { ImportJobRunner } from "./jobs/importJobRunner";
 import { ConfigReleaseStore } from "./releases/configReleaseStore";
 import { PolicyStore } from "./store/policyStore";
@@ -58,6 +58,13 @@ async function main(): Promise<void> {
   const staticDirRaw = process.env.DPP_STATIC_DIR?.trim() || "dist";
   const staticDir = surface !== "customer" && existsSync(staticDirRaw) ? staticDirRaw : undefined;
 
+  // Fail closed on insecure configuration BEFORE opening or mutating the SQLite database.
+  if (authMode === "local-dev" && !isLoopbackBindHost(host)) {
+    throw new Error(
+      `Refusing to bind unauthenticated local-dev server to non-loopback host "${host}". Set DPP_AUTH_MODE=oidc with OIDC JWKS configuration first.`,
+    );
+  }
+
   let oidcVerifier: OidcVerifier | undefined;
   if (authMode === "oidc") {
     const issuer = process.env.DPP_OIDC_ISSUER?.trim() || "";
@@ -86,9 +93,9 @@ async function main(): Promise<void> {
   // load whichever approved configuration release is currently active in SQLite.
   const configReleases = new ConfigReleaseStore(db);
   const activeRelease = await configReleases.bootstrapActivePack(packSource, startupPack.id, startupPack.version);
-  const activePack = (await configReleases.loadActivePack(startupPack.id)) ?? startupPack;
+  const activePack = (await configReleases.loadPackByReleaseId(activeRelease.releaseId)) ?? startupPack;
 
-  // Activate the active configuration pack's pinned retention policy before accepting any data (C6-02).
+  // Ensure the active configuration pack's pinned retention policy is active before accepting any data (C6-02).
   const activePolicy = new PolicyStore(db).activate(activePack.policy.retention);
 
   // Recover any interrupted staged jobs on startup (C6-04).

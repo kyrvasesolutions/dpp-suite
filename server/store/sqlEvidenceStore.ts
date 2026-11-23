@@ -84,7 +84,7 @@ export class SqlEvidenceStore {
     if (!securityDomain.trim()) {
       throw new RetentionViolationError("domain-missing", "securityDomain is required for evidence storage");
     }
-    this.policies = new PolicyStore(db);
+    this.policies = new PolicyStore(db, securityDomain);
     this.now = options.now ?? (() => new Date().toISOString());
   }
 

@@ -108,6 +108,7 @@ export interface AuthorizationDecision {
   permitted: boolean;
   action: ServerAction;
   roleMatched: ServerRole | null;
+  deniedBy?: "surface" | "role";
   reason: string;
 }
 
@@ -240,12 +241,22 @@ export class ConfigReleaseError extends Error {
  * Evaluates surface compatibility first, then role × action matrix. Fail-closed on unknown roles/actions.
  */
 export function evaluateRoleAction(ctx: Pick<AuthContext, "roles" | "surface">, action: ServerAction): AuthorizationDecision {
+  if (!(DEPLOYMENT_SURFACES as readonly string[]).includes(ctx.surface)) {
+    return {
+      permitted: false,
+      action,
+      roleMatched: null,
+      deniedBy: "surface",
+      reason: `Unrecognized deployment surface "${String(ctx.surface)}" is rejected (fail closed)`,
+    };
+  }
   const customerOnlyActions: readonly ServerAction[] = ["record-read-customer", "release-customer"];
   if (ctx.surface === "customer" && !customerOnlyActions.includes(action)) {
     return {
       permitted: false,
       action,
       roleMatched: null,
+      deniedBy: "surface",
       reason: `Action "${action}" is disabled on the dedicated customer deployment surface`,
     };
   }
@@ -254,10 +265,12 @@ export function evaluateRoleAction(ctx: Pick<AuthContext, "roles" | "surface">, 
       permitted: false,
       action,
       roleMatched: null,
+      deniedBy: "surface",
       reason: `Customer output action "${action}" is disabled on the internal-only deployment surface`,
     };
   }
-  for (const role of ctx.roles) {
+  const roles = Array.isArray(ctx.roles) ? ctx.roles : [];
+  for (const role of roles) {
     const allowed = Object.hasOwn(ROLE_ACTION_MATRIX, role) ? ROLE_ACTION_MATRIX[role] : undefined;
     if (allowed && allowed.includes(action)) {
       return { permitted: true, action, roleMatched: role, reason: `Permitted for role ${role}` };
@@ -267,6 +280,7 @@ export function evaluateRoleAction(ctx: Pick<AuthContext, "roles" | "surface">, 
     permitted: false,
     action,
     roleMatched: null,
-    reason: `None of the principal's active roles (${ctx.roles.join(", ") || "none"}) may perform "${action}"`,
+    deniedBy: "role",
+    reason: `None of the principal's active roles (${roles.join(", ") || "none"}) may perform "${action}"`,
   };
 }

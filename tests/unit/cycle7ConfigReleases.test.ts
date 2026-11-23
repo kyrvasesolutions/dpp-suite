@@ -382,4 +382,119 @@ describe("Cycle 7 controlled configuration package releases & rollback (C7-04)",
     expect(detailInit.release.state).toBe("active");
     expect(detailInit.events.map((e) => e.event)).toEqual(["proposed", "approved", "activated", "superseded", "activated"]);
   });
+
+  it("blocks Validator 4 hardening edge cases: rogue packageId, pin-conflict at propose, snapshot retention weakening, duplicate dataset, case four-eyes bypass, and rollback to never-activated release", async () => {
+    const cur1 = idp.signRs256({ sub: "cur-1" });
+    const cur2 = idp.signEs256({ sub: "cur-2" });
+    const store = new ConfigReleaseStore(db, undefined, { now: () => NOW });
+
+    // 1. Rogue packageId shadowing PROFILE-ALU-24-01 refused
+    const roguePkg = buildPackageProposal(packSource, {
+      packageId: "ROGUE-PKG",
+      version: "1.0.0",
+      predecessorReleaseId: null,
+      note: "Attempt package shadowing",
+    });
+    const rRogue = await fetch(`${baseUrl}/api/config-releases/propose`, {
+      method: "POST",
+      headers: jsonAuth(cur1),
+      body: JSON.stringify(roguePkg),
+    });
+    expect(rRogue.status).toBe(400);
+
+    // 2. Weakening central-record-snapshot retention refused at propose()
+    const weakSnap = buildPackageProposal(packSource, {
+      version: "1.0.6",
+      predecessorReleaseId: initialReleaseId,
+      note: "Attempt snapshot downgrade",
+      mutateFiles: (files) => {
+        const oldRet = files["policy/RETENTION@1.0.0.yaml"]!;
+        delete files["policy/RETENTION@1.0.0.yaml"];
+        files["policy/RETENTION@1.0.6.yaml"] = oldRet
+          .replace("version: 1.0.0", "version: 1.0.6")
+          .replace(
+            "  - dataset: central-record-snapshot\n    classification: restricted\n    retention_days: 3650",
+            "  - dataset: central-record-snapshot\n    classification: public\n    retention_days: 1",
+          );
+        files["profile/PROFILE-ALU-24-01@1.0.0.yaml"] = files["profile/PROFILE-ALU-24-01@1.0.0.yaml"]!.replace(
+          "RETENTION@1.0.0",
+          "RETENTION@1.0.6",
+        );
+      },
+    });
+    const rWeakSnap = await fetch(`${baseUrl}/api/config-releases/propose`, {
+      method: "POST",
+      headers: jsonAuth(cur1),
+      body: JSON.stringify(weakSnap),
+    });
+    expect(rWeakSnap.status).toBe(400);
+    expect(((await rWeakSnap.json()) as { code: string }).code).toBe("retention-floor-violation");
+
+    // 3. Reusing RETENTION@1.0.0 pin with modified content refused early at propose() with 409
+    const pinReuse = buildPackageProposal(packSource, {
+      version: "1.0.5",
+      predecessorReleaseId: initialReleaseId,
+      note: "Attempt reusing RETENTION@1.0.0 with changed days",
+      mutateFiles: (files) => {
+        files["policy/RETENTION@1.0.0.yaml"] = files["policy/RETENTION@1.0.0.yaml"]!.replaceAll("3650", "4015");
+      },
+    });
+    const rPinReuse = await fetch(`${baseUrl}/api/config-releases/propose`, {
+      method: "POST",
+      headers: jsonAuth(cur1),
+      body: JSON.stringify(pinReuse),
+    });
+    expect(rPinReuse.status).toBe(409);
+
+    // 4. Case/whitespace four-eyes self-approval refused & rollback to never-activated approved release refused
+    const prop = buildPackageProposal(packSource, {
+      version: "1.2.0",
+      predecessorReleaseId: initialReleaseId,
+      note: "Approved but never activated release",
+      mutateFiles: (files) => {
+        files["code-lists/TEMPER@1.0.0.csv"] = `${files["code-lists/TEMPER@1.0.0.csv"]}H16\n`;
+      },
+    });
+    const created = await store.propose(prop, "cur-1");
+    expect(() => store.approve(created.releaseId, "CUR-1", "Case bypass")).toThrow(/Four-eyes/i);
+    expect(() => store.approve(created.releaseId, " cur-1 ", "Whitespace bypass")).toThrow(/valid non-empty actor/i);
+
+    // Approve legitimately by cur-2, then verify rollback cannot target never-activated approved release
+    store.approve(created.releaseId, "cur-2", "Legitimate second reviewer");
+    const rbUnact = await fetch(`${baseUrl}/api/config-releases/rollback`, {
+      method: "POST",
+      headers: jsonAuth(cur2),
+      body: JSON.stringify({
+        packageId: "PROFILE-ALU-24-01",
+        targetReleaseId: created.releaseId,
+        reason: "Attempt rollback to never-activated approved release",
+      }),
+    });
+    expect(rbUnact.status).toBe(409);
+    expect(((await rbUnact.json()) as { code: string }).code).toBe("invalid-state");
+
+    // 5. Cross-domain PolicyStore isolation: activating in domain-b does NOT clobber default domain
+    const domainBStore = new ConfigReleaseStore(db, "domain-b", { now: () => NOW });
+    const bInit = await domainBStore.bootstrapActivePack(packSource);
+    const bProp = buildPackageProposal(packSource, {
+      version: "2.0.0",
+      predecessorReleaseId: bInit.releaseId,
+      note: "Domain-B retention upgrade",
+      mutateFiles: (files) => {
+        const oldRet = files["policy/RETENTION@1.0.0.yaml"]!;
+        delete files["policy/RETENTION@1.0.0.yaml"];
+        files["policy/RETENTION@2.0.0.yaml"] = oldRet.replace("version: 1.0.0", "version: 2.0.0").replaceAll("3650", "5000");
+        files["profile/PROFILE-ALU-24-01@1.0.0.yaml"] = files["profile/PROFILE-ALU-24-01@1.0.0.yaml"]!.replace(
+          "RETENTION@1.0.0",
+          "RETENTION@2.0.0",
+        );
+      },
+    });
+    const bRel = await domainBStore.propose(bProp, "cur-1");
+    domainBStore.approve(bRel.releaseId, "cur-2", "Approve domain-b");
+    await domainBStore.activate(bRel.releaseId, "cur-2", "Activate domain-b");
+
+    expect(new PolicyStore(db, "domain-b").requireActive().policyPin).toBe("RETENTION@2.0.0");
+    expect(new PolicyStore(db).requireActive().policyPin).toBe("RETENTION@1.0.0");
+  });
 });

@@ -12,11 +12,13 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { readPack } from "../../config/contractPack";
 import { GrantStore } from "../../server/auth/grantStore";
+import { OidcVerifier } from "../../server/auth/oidc";
 import { SqliteAdapter } from "../../server/db/adapter";
 import { migrateUp } from "../../server/db/migrations";
 import { createDppServer } from "../../server/http/api";
 import { ConfigReleaseStore } from "../../server/releases/configReleaseStore";
 import { PolicyStore } from "../../server/store/policyStore";
+import { evaluateRoleAction } from "../../src/model/c7Contracts";
 import type { PackSource, ProfilePack } from "../../src/model/profile";
 import { buildPackageProposal, createTestIdp } from "../support/oidc";
 import { loadPack } from "../support/records";
@@ -239,5 +241,86 @@ describe("Cycle 7 AT-X privilege-escalation & token-forgery resistance", () => {
     expect(() =>
       db.run("UPDATE config_packages SET bundle_json = '{}' WHERE release_id = ?", initialReleaseId),
     ).toThrow(/immutable/);
+  });
+
+  it("blocks Validator 1-3 hardening edge cases: future grant_epoch, non-canonical base64url, alg object DoS, NaN clock, null bodies, bad versions, pre-body legal-hold RBAC, and silent epoch bumps", async () => {
+    const adminTok = idp.signRs256({ sub: "sole-admin" });
+    const opTok = idp.signRs256({ sub: "op-1" });
+    const custTok = idp.signEs256({ sub: "cust-1" });
+
+    // Future grant_epoch > live DB grantEpoch must be rejected with 403 grant-revoked
+    const futureEpochTok = idp.signRs256({ sub: "sole-admin", grant_epoch: 999 });
+    const futureRes = await fetch(`${baseUrl}/api/records`, { headers: { Authorization: `Bearer ${futureEpochTok}` } });
+    expect(futureRes.status).toBe(403);
+    expect(((await futureRes.json()) as { code: string }).code).toBe("grant-revoked");
+
+    // Non-canonical base64url (flip trailing unused bit of ES256 64-byte / 86-char signature) -> 401 token-malformed
+    const esValid = idp.signEs256({ sub: "cust-1" });
+    const [eh, ep, es] = esValid.split(".")!;
+    const lastChar = es.slice(-1);
+    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    const altChar = alphabet[(alphabet.indexOf(lastChar) ^ 1) % 64]!;
+    const malleableEs = `${eh}.${ep}.${es.slice(0, -1)}${altChar}`;
+    const malRes = await fetch(`${baseUrl}/api/customer/records`, { headers: { Authorization: `Bearer ${malleableEs}` } });
+    expect(malRes.status).toBe(401);
+    expect(((await malRes.json()) as { code: string }).code).toBe("token-malformed");
+
+    // Pre-verification object alg DoS (`{"alg":{"toString":null}}`) -> 401 (never 500)
+    const dosHead = Buffer.from(JSON.stringify({ alg: { toString: null } })).toString("base64url");
+    const dosBody = Buffer.from(JSON.stringify({ sub: "sole-admin" })).toString("base64url");
+    const dosRes = await fetch(`${baseUrl}/api/records`, { headers: { Authorization: `Bearer ${dosHead}.${dosBody}.sig` } });
+    expect(dosRes.status).toBe(401);
+    expect(((await dosRes.json()) as { code: string }).code).toBe("token-algorithm-rejected");
+
+    // Non-string kid & padded sub -> 401 token-malformed
+    const badKidTok = idp.signRs256({ sub: "sole-admin" }, { kid: 123 as unknown as string });
+    expect((await fetch(`${baseUrl}/api/records`, { headers: { Authorization: `Bearer ${badKidTok}` } })).status).toBe(401);
+    const paddedSubTok = idp.signRs256({ sub: " sole-admin " });
+    expect((await fetch(`${baseUrl}/api/records`, { headers: { Authorization: `Bearer ${paddedSubTok}` } })).status).toBe(401);
+
+    // Fail-closed clock tolerance / nowSec NaN and unrecognized surface
+    expect(() => new OidcVerifier({ ...idp.oidcConfig, clockToleranceSec: Number.NaN })).toThrow(/finite/i);
+    expect(() => new OidcVerifier(idp.oidcConfig).verifyToken(adminTok, Number.NaN)).toThrow(/finite/i);
+    expect(evaluateRoleAction({ roles: ["ADMIN"], surface: "Customer" as never }, "role-manage")).toMatchObject({
+      permitted: false,
+      deniedBy: "surface",
+    });
+
+    // JSON `null` body and non-integer `version` return 400 (never 500 or wrong latest snapshot)
+    const nullBodyRes = await fetch(`${baseUrl}/api/admin/users`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${adminTok}`, "Content-Type": "application/json" },
+      body: "null",
+    });
+    expect(nullBodyRes.status).toBe(400);
+
+    const badVerRes = await fetch(`${baseUrl}/api/records/M/B/release`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${opTok}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ version: "1" }),
+    });
+    expect(badVerRes.status).toBe(400);
+
+    // Customer calling legal-hold with empty/invalid JSON receives 403 BEFORE body validation
+    const custHoldRes = await fetch(`${baseUrl}/api/evidence/${"a".repeat(64)}/legal-hold`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${custTok}`, "Content-Type": "application/json" },
+      body: "{}",
+    });
+    expect(custHoldRes.status).toBe(403);
+
+    // Unauthenticated /api/health ignores spoofed X-Security-Domain in oidc mode
+    const hDefault = await (await fetch(`${baseUrl}/api/health`)).json();
+    const hSpoof = await (await fetch(`${baseUrl}/api/health`, { headers: { "X-Security-Domain": "other-tenant" } })).json();
+    expect(hSpoof).toEqual(hDefault);
+
+    // GrantStore: active upsertUser with no new roles does NOT silently bump grant_epoch; reserved evidence: prefix rejected
+    const gs = new GrantStore(db, undefined, { now: () => NOW });
+    const beforeOp = gs.getUser("op-1")!;
+    const afterOp = gs.upsertUser({ sub: "op-1", displayName: "Operator", roles: [], actorSub: "sole-admin", reason: "No-op sync" });
+    expect(afterOp.grantEpoch).toBe(beforeOp.grantEpoch);
+    expect(() =>
+      gs.upsertUser({ sub: `evidence:${"a".repeat(64)}`, displayName: "Collision", actorSub: "sole-admin", reason: "Reserved prefix" }),
+    ).toThrow(/reserved prefix/i);
   });
 });

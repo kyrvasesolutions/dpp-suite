@@ -26,6 +26,7 @@ import { resolveCallerTimeEnvelope } from "../../src/model/pContracts";
 import type { PackSource, ProfilePack } from "../../src/model/profile";
 import { OPERATOR } from "../../src/model/recordRepository";
 import { fixtureBytes } from "../support/fixtures";
+import { buildPackageProposal } from "../support/oidc";
 import { CLEAN, loadPack } from "../support/records";
 import { TEST_SOFTWARE } from "../support/release";
 
@@ -156,23 +157,37 @@ describe("Cycle 7 forward/backward migration checksum preservation on a producti
       expect(currentMigrationVersion(copyDb)).toBe(6);
       expect(computeStoreChecksum(copyDb)).toBe(baselineChecksum);
 
-      // Populate Cycle 7 identity + config release tables while on v6
+      // Populate Cycle 7 identity + multi-release predecessor chain in config_packages while on v6
       const grants = new GrantStore(copyDb, undefined, { now: () => NOW });
       grants.upsertUser({ sub: "admin-1", displayName: "Admin", roles: ["ADMIN"], actorSub: "bootstrap", reason: "Migration test" });
       const cfg = new ConfigReleaseStore(copyDb, undefined, { now: () => NOW });
-      await cfg.bootstrapActivePack(packSource, pack.id, pack.version);
+      const initRel = await cfg.bootstrapActivePack(packSource, pack.id, pack.version);
+      const nextProp = buildPackageProposal(packSource, {
+        version: "1.1.0",
+        predecessorReleaseId: initRel.releaseId,
+        note: "Predecessor chain test before v6->v5 rollback",
+        mutateFiles: (files) => {
+          files["code-lists/TEMPER@1.0.0.csv"] = `${files["code-lists/TEMPER@1.0.0.csv"]}H14\n`;
+        },
+      });
+      await cfg.propose(nextProp, "cur-1");
+
+      // Verify release_id NOT NULL constraint & IS NOT trigger hardening
+      expect(() =>
+        copyDb.run("UPDATE config_packages SET release_id = NULL WHERE release_id = ?", initRel.releaseId),
+      ).toThrow(/immutable|NOT NULL/i);
 
       // Atomic refusal: rolling back past v5 (into v4, which drops retained triggers) fails atomically at v6!
       expect(() => migrateDown(copyDb, 4)).toThrow(/retained or legal-hold/i);
       expect(currentMigrationVersion(copyDb)).toBe(6);
 
-      // 3. Backward migration v6 -> v5: exact baseline checksum preserved and v6 tables cleanly dropped
+      // 3. Backward migration v6 -> v5 (with 2-release predecessor chain!): exact baseline checksum preserved
       migrateDown(copyDb, 5);
       expect(currentMigrationVersion(copyDb)).toBe(5);
       expect(computeStoreChecksum(copyDb)).toBe(baselineChecksum);
 
       const c7Tables = copyDb.query<{ name: string }>(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('users', 'role_grants', 'grant_events', 'config_packages', 'config_package_events')",
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('users', 'role_grants', 'grant_events', 'config_packages', 'config_package_events', 'domain_retention_policies')",
       );
       expect(c7Tables).toHaveLength(0);
 

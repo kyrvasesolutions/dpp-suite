@@ -64,22 +64,32 @@ export function authenticateRequest(
   }
 
   const nowMs = Date.parse((config.now ?? (() => new Date().toISOString()))());
+  if (!Number.isFinite(nowMs)) {
+    throw new Error("Server clock produced an invalid timestamp");
+  }
   const nowSec = Math.floor(nowMs / 1000);
   const claims = config.oidcVerifier.verifyToken(match[1]!, nowSec);
 
   const grants = new GrantStore(db, securityDomain, { now: config.now });
   const user = grants.getUser(claims.sub);
   if (!user) {
-    throw new AuthError("user-unknown", 403, `Authenticated subject "${claims.sub}" has no provisioned user record in domain "${securityDomain}"`);
+    throw new AuthError(
+      "user-unknown",
+      403,
+      `Authenticated subject "${claims.sub}" has no provisioned user record in domain "${securityDomain}"`,
+    );
   }
   if (!user.active) {
     throw new AuthError("user-inactive", 403, `User "${claims.sub}" has been deactivated`);
   }
-  if (claims.grantEpoch !== undefined && claims.grantEpoch < user.grantEpoch) {
+  if (
+    claims.grantEpoch !== undefined &&
+    (!Number.isSafeInteger(claims.grantEpoch) || claims.grantEpoch !== user.grantEpoch)
+  ) {
     throw new AuthError(
       "grant-revoked",
       403,
-      `Token grant_epoch (${claims.grantEpoch}) was superseded by live grant_epoch (${user.grantEpoch})`,
+      `Token grant_epoch (${claims.grantEpoch}) does not match live grant_epoch (${user.grantEpoch})`,
     );
   }
 
@@ -109,11 +119,7 @@ export function authorizeRequest(
   const ctx = authenticateRequest(req, db, securityDomain, config);
   const decision = evaluateRoleAction(ctx, action);
   if (!decision.permitted) {
-    throw new AuthError(
-      decision.reason.includes("surface") ? "surface-forbidden" : "forbidden",
-      403,
-      decision.reason,
-    );
+    throw new AuthError(decision.deniedBy === "surface" ? "surface-forbidden" : "forbidden", 403, decision.reason);
   }
   return ctx;
 }
