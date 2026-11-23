@@ -116,7 +116,8 @@ export async function startC8Server(options: StartOptions = {}): Promise<C8Serve
     state: () => {
       const n = (table: string) => db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM ${table}`)!.n;
       return {
-        checksum: computeStoreChecksum(db),
+        // the cancellation audit row of a cancelled job is expected; everything a commit could touch is in the digest
+        checksum: computeStoreChecksum(db, { includeJobControl: false }),
         snapshots: n("snapshots"),
         receipts: n("update_receipts"),
         evidence: n("evidence_store"),

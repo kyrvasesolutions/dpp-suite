@@ -103,7 +103,7 @@ function validateDisplayName(displayName: unknown): string {
 
 function validateRole(role: unknown): ServerRole {
   if (typeof role !== "string" || !(SERVER_ROLES as readonly string[]).includes(role)) {
-    throw Object.assign(new Error(`Unknown role "${typeof role === "string" ? role : typeof role}"`), {
+    throw Object.assign(new Error("Unknown role"), {
       statusCode: 400,
       code: "invalid-role",
     });

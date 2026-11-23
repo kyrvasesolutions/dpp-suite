@@ -16,7 +16,7 @@ export interface RateLimiterOptions {
   windowMs: number;
   readPerWindow: number;
   writePerWindow: number;
-  /** Most distinct keys held at once. Past it, new keys share one overflow bucket per kind, so memory stays bounded. */
+  /** Most keys held for authenticated subjects, and (separately) for anonymous callers. The least recently used key is evicted first. */
   maxKeys: number;
   clock: () => number;
 }
@@ -26,45 +26,72 @@ interface Bucket {
   count: number;
 }
 
-const OVERFLOW_KEY = "\u0000overflow";
+/** An address as a limiter key: an IPv4 address as is, an IPv6 address by its /64, an IPv4-mapped IPv6 address as the IPv4 it holds. */
+export function addressKey(address: string | undefined): string {
+  const a = (address ?? "unknown").toLowerCase();
+  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(a);
+  if (mapped) return mapped[1]!;
+  if (!a.includes(":")) return a;
+  // expand "::" and keep the first four groups
+  const [head, tail = ""] = a.split("::");
+  const h = head ? head.split(":") : [];
+  const t = tail ? tail.split(":") : [];
+  const groups = a.includes("::") ? [...h, ...Array<string>(Math.max(0, 8 - h.length - t.length)).fill("0"), ...t] : h;
+  return `${groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, "")).join(":")}::/64`;
+}
 
-/** Fixed windows keyed by (kind, subject, remote address). Expired keys are evicted; the key map is capped. */
+/** An LRU map of fixed-window buckets. Expired buckets at the cold end are dropped as time passes; the size is capped. */
+class BucketPool {
+  readonly #map = new Map<string, Bucket>();
+  constructor(
+    readonly maxKeys: number,
+    readonly windowMs: number,
+  ) {}
+  get size(): number {
+    return this.#map.size;
+  }
+  /** Drops expired buckets from the cold end. */
+  sweep(now: number, keep?: string): void {
+    for (const [k, v] of this.#map) {
+      if (k !== keep && now - v.start >= this.windowMs) this.#map.delete(k);
+      else break;
+    }
+  }
+  touch(key: string, now: number): Bucket {
+    let b = this.#map.get(key);
+    if (b) this.#map.delete(key); // re-inserted below: most recently used goes to the end
+    if (!b || now - b.start >= this.windowMs) b = { start: now, count: 0 };
+    this.#map.set(key, b);
+    this.sweep(now, key);
+    while (this.#map.size > this.maxKeys) this.#map.delete(this.#map.keys().next().value as string);
+    return b;
+  }
+}
+
+/**
+ * Fixed windows keyed by (kind, subject, remote address) for authenticated subjects, and by (kind, address) for anonymous callers.
+ * The two have separate capped pools, so a flood of anonymous keys can never evict or lock out a real subject (V2-03).
+ */
 export class RateLimiter {
-  readonly #buckets = new Map<string, Bucket>();
-  #lastSweep: number;
+  readonly #auth: BucketPool;
+  readonly #anon: BucketPool;
 
   constructor(readonly options: RateLimiterOptions) {
-    this.#lastSweep = options.clock();
+    this.#auth = new BucketPool(options.maxKeys, options.windowMs);
+    this.#anon = new BucketPool(options.maxKeys, options.windowMs);
   }
 
-  /** Number of keys held now (for the bounded-memory test and the metrics; never the keys themselves). */
+  /** Number of keys held now (for the bounded-memory test; never the keys themselves). */
   get size(): number {
-    return this.#buckets.size;
-  }
-
-  #sweep(now: number): void {
-    for (const [key, bucket] of this.#buckets) {
-      if (now - bucket.start >= this.options.windowMs) this.#buckets.delete(key);
-    }
-    this.#lastSweep = now;
+    return this.#auth.size + this.#anon.size;
   }
 
   hit(kind: RateKind, subject: string, address: string): { allowed: boolean; retryAfterSeconds: number } {
     const now = this.options.clock();
-    // Evict expired keys once per window (or once a second when the map is full and a new key arrives).
-    if (now - this.#lastSweep >= Math.min(this.options.windowMs, 1000) && (this.#buckets.size >= this.options.maxKeys || now - this.#lastSweep >= this.options.windowMs)) {
-      this.#sweep(now);
-    }
-    let key = `${kind}\u0000${subject}\u0000${address}`;
-    let bucket = this.#buckets.get(key);
-    if (!bucket) {
-      if (this.#buckets.size >= this.options.maxKeys) key = `${kind}${OVERFLOW_KEY}`;
-      bucket = this.#buckets.get(key);
-    }
-    if (!bucket || now - bucket.start >= this.options.windowMs) {
-      bucket = { start: now, count: 0 };
-      this.#buckets.set(key, bucket);
-    }
+    const anonymous = subject === "anon";
+    const pool = anonymous ? this.#anon : this.#auth;
+    (anonymous ? this.#auth : this.#anon).sweep(now);
+    const bucket = pool.touch(anonymous ? `${kind}\u0000${addressKey(address)}` : `${kind}\u0000${subject}\u0000${addressKey(address)}`, now);
     bucket.count++;
     const budget = kind === "read" ? this.options.readPerWindow : this.options.writePerWindow;
     if (bucket.count <= budget) return { allowed: true, retryAfterSeconds: 0 };
@@ -133,8 +160,13 @@ const KNOWN_METHODS = new Set(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", 
 /** The matched route template, for example `POST /api/jobs/:id/cancel`, or a fixed template for an unmatched path. */
 export function routeTemplate(methodInput: string | undefined, rawUrl: string | undefined): string {
   const method = KNOWN_METHODS.has(methodInput ?? "") ? methodInput! : "OTHER";
-  const queryAt = (rawUrl ?? "").search(/[?#]/);
-  const path = queryAt === -1 ? (rawUrl ?? "/") : (rawUrl ?? "/").slice(0, queryAt);
+  // The same normalisation the router applies (WHATWG URL: dot segments and %2e collapse), so the template is the route that was served.
+  let path: string;
+  try {
+    path = new URL(rawUrl ?? "/", "http://127.0.0.1").pathname;
+  } catch {
+    path = "/api/";
+  }
   const lookup = method === "HEAD" ? "GET" : method;
   for (const c of COMPILED) if (c.method === lookup && c.re.test(path)) return `${method} ${c.template.split(" ")[1]}`;
   if (path === "/api" || path.startsWith("/api/")) return `${method} /api/:unmatched`;
@@ -162,7 +194,7 @@ export class ServerMetrics {
     this.#limits.set(key, (this.#limits.get(key) ?? 0) + 1);
   }
 
-  snapshot(jobs: { activeTotal: number; queuedTotal: number; byDomain: Record<string, { active: number; queued: number }> }) {
+  snapshot(jobs: { activeTotal: number; queuedTotal: number; byDomain?: Record<string, { active: number; queued: number }> }) {
     const limitOutcomes = [...this.#limits.entries()]
       .map(([key, count]) => {
         const [outcome, limit] = key.split("\u0000") as [LimitOutcome, string];

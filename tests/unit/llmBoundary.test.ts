@@ -39,9 +39,32 @@ describe("suggestMappings refuses in server mode", () => {
     await expect(suggestMappings("k", project)).rejects.toBeInstanceOf(LlmDisabledError);
   });
 
-  it("without a server, a build with the flag off still says it is turned off (no network)", async () => {
-    const fetchMock = vi.fn(async () => new Response("<!doctype html>", { status: 200, headers: { "content-type": "text/html" } }));
-    vi.stubGlobal("fetch", fetchMock);
+  it("fails closed: an error, a 404, an HTML shell, a non-JSON body or a malformed health answer all refuse", async () => {
+    const answers: Array<[string, () => Promise<Response>]> = [
+      ["network error", async () => Promise.reject(new TypeError("Failed to fetch"))],
+      ["404", async () => new Response("not found", { status: 404 })],
+      ["500", async () => new Response("{}", { status: 500, headers: { "content-type": "application/json" } })],
+      ["html shell", async () => new Response("<!doctype html>", { status: 200, headers: { "content-type": "text/html" } })],
+      ["non-json body with a json type", async () => new Response("<<<", { status: 200, headers: { "content-type": "application/json" } })],
+      ["malformed health", async () => new Response("{}", { status: 200, headers: { "content-type": "application/json" } })],
+      ["empty 204", async () => new Response(null, { status: 204 })],
+    ];
+    for (const [name, answer] of answers) {
+      vi.resetModules();
+      vi.stubEnv("VITE_ENABLE_LLM", "true");
+      const fetchMock = vi.fn(async (url: string | URL | Request) => {
+        expect(String(url)).toBe("/api/health"); // never an LLM host
+        return answer();
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const { suggestMappings, LlmDisabledError } = await import("../../src/llm/suggest");
+      await expect(suggestMappings("k", project), name).rejects.toBeInstanceOf(LlmDisabledError);
+      expect(fetchMock, name).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("with no network API at all there is no server to protect, and the flag decides", async () => {
+    vi.stubGlobal("fetch", undefined);
     const { suggestMappings, LlmDisabledError, LlmError } = await import("../../src/llm/suggest");
     const err = await suggestMappings("k", project).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(LlmError);

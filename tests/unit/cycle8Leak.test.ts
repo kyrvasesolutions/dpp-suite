@@ -437,7 +437,7 @@ describe("generated-file scan", () => {
 
   it("nothing a route denies appears in that route's output (the disclosure invariant over every generated file)", async () => {
     for (const f of releaseFiles) {
-      if (!(ROUTES as readonly string[]).includes(f.route)) continue;
+      expect(ROUTES as readonly string[], `a file for an unknown route "${f.route}" would be skipped by the scan`).toContain(f.route);
       assertNoLeakText(await textOf(f), f.route as (typeof ROUTES)[number], record, pack);
     }
   });
@@ -448,11 +448,29 @@ describe("generated-file scan", () => {
     for (const t of texts) for (const c of never) expect(t, c).not.toContain(c);
   });
 
-  it("file names, evidence links and the correction reason stay out of the customer PDF and the registry draft", async () => {
-    for (const f of releaseFiles.filter((x) => x.route !== "erp-staging-csv")) {
+  it("every route of the pack has a generated file, and every one is scanned (the list comes from the pack, not from a typo-prone name list)", () => {
+    expect([...ROUTES]).toEqual(Object.keys(pack.routes));
+    for (const route of ROUTES) expect(releaseFiles.map((f) => f.route), `no file generated for ${route}`).toContain(route);
+    for (const f of releaseFiles) expect(ROUTES as readonly string[]).toContain(f.route);
+  });
+
+  it("file names, evidence links and the correction reason stay out of every route's file", async () => {
+    for (const route of ROUTES) {
+      const f = releaseFiles.find((x) => x.route === route)!;
       const text = await textOf(f);
-      if (f.route === "customer-pdf" || f.route === "registry-draft-json") for (const c of [C.erpFile, C.labFile, C.evFile, C.evId, C.correction]) expect(text, `${f.route} ${c}`).not.toContain(c);
+      for (const c of [C.erpFile, C.labFile, C.evFile, C.correction]) expect(text, `${route} ${c}`).not.toContain(c);
+      if (route !== "erp-staging-csv") expect(text, `${route} evidence id`).not.toContain(C.evId);
     }
+  });
+
+  it("the customer projection, numbers included, passes the disclosure invariant (denied values never appear)", () => {
+    const projection = JSON.parse(customerProjection).projection;
+    assertNoLeakText(JSON.stringify(projection), "customer-pdf", record, pack);
+    // numeric restricted values by name: the tensile result, the composition and the recycled-content figures are not customer values
+    const denied = record.values.filter((v) => decide(pack, "customer-pdf", v.property) !== "permit");
+    expect(denied.length).toBeGreaterThan(0);
+    const shown = new Set(projection.values.map((v: { property: string }) => v.property));
+    for (const v of denied) expect(shown.has(v.property), `${v.property} is denied for the customer route`).toBe(false);
   });
 
   it("generated file names carry no canary from a request", () => {

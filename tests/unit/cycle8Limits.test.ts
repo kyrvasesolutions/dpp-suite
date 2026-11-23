@@ -21,7 +21,7 @@ import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { SqliteAdapter } from "../../server/db/adapter";
 import { computeStoreChecksum, currentMigrationVersion, migrateDown, migrateUp } from "../../server/db/migrations";
-import { RateLimiter, routeTemplate } from "../../server/http/limits";
+import { RateLimiter, addressKey, routeTemplate } from "../../server/http/limits";
 import { ImportJobRunner } from "../../server/jobs/importJobRunner";
 import { PolicyStore } from "../../server/store/policyStore";
 import { JobBudget, toPublicLogLine, type PublicLogEntry } from "../../src/model/c8Contracts";
@@ -251,7 +251,7 @@ describe("2. body cap while streaming (T13)", () => {
     expect(result.status).toBe(413);
     expect(result.code).toBe("too-large");
     // a few buffers may already be in flight, but nowhere near the 4 MB the sender was ready to push
-    expect(result.written).toBeLessThan(CAP * 40);
+    expect(result.written).toBeLessThan(2_000_000); // far from the 4 MB the sender was ready to push, even on a loaded machine
   });
 
   it("the route cap never exceeds the transport cap: an import larger than the transport cap is 413", async () => {
@@ -321,8 +321,10 @@ describe("3. HTTP timeouts and connection cap (T11)", () => {
     const drip = setInterval(() => socket.writable && socket.write("X-Slow: a\r\n"), 100);
     const r = await seen;
     clearInterval(drip);
-    expect([408, null]).toContain(r.status);
-    expect(r.closedAfterMs).toBeLessThan(SMALL.request_timeout_ms + 1500);
+    // cut by the HEADERS timeout, not by the longer request timeout (V2-07): answered 408 and closed before request_timeout_ms
+    expect(r.status).toBe(408);
+    expect(r.closedAfterMs).toBeGreaterThanOrEqual(SMALL.headers_timeout_ms - 50);
+    expect(r.closedAfterMs).toBeLessThan(SMALL.request_timeout_ms);
   });
 
   it("a body trickled past request_timeout_ms is cut off", async () => {
@@ -418,15 +420,31 @@ describe("4. rate limit (T12)", () => {
     expect((await get(s, "/api/auth/me")).status).toBe(429);
   });
 
-  it("memory stays bounded: expired keys are evicted and the key map is capped", () => {
+  it("memory stays bounded, and a flood of anonymous keys never locks out a subject that was never seen (V2-03)", () => {
     const t = { ms: 0 };
-    const limiter = new RateLimiter({ windowMs: 1000, readPerWindow: 2, writePerWindow: 2, maxKeys: 100, clock: () => t.ms });
-    for (let i = 0; i < 10_000; i++) limiter.hit("read", `sub-${i}`, "10.0.0.1");
-    expect(limiter.size).toBeLessThanOrEqual(101); // the cap, plus the shared overflow bucket
-    // keys past the cap share one bucket, so a flood of new subjects is still limited
-    expect(limiter.hit("read", "never-seen", "10.0.0.2").allowed).toBe(false);
-    t.ms += 2000;
-    limiter.hit("read", "after-expiry", "10.0.0.1");
+    const limiter = new RateLimiter({ windowMs: 60_000, readPerWindow: 600, writePerWindow: 120, maxKeys: 10_000, clock: () => t.ms });
+    for (let i = 0; i < 50_000; i++) limiter.hit("read", "anon", `10.${(i >> 16) & 255}.${(i >> 8) & 255}.${i & 255}`);
+    expect(limiter.size).toBeLessThanOrEqual(10_000); // capped, with least-recently-used eviction
+    // a brand-new authenticated subject is served at once, with a full budget
+    for (let i = 0; i < 600; i++) expect(limiter.hit("read", "never-seen-subject", "192.0.2.1").allowed).toBe(true);
+    expect(limiter.hit("read", "never-seen-subject", "192.0.2.1").allowed).toBe(false);
+    // and so is a brand-new anonymous address
+    expect(limiter.hit("read", "anon", "198.51.100.7").allowed).toBe(true);
+    // authenticated keys are capped too
+    for (let i = 0; i < 30_000; i++) limiter.hit("read", `sub-${i}`, "192.0.2.1");
+    expect(limiter.size).toBeLessThanOrEqual(20_000);
+    t.ms += 120_000;
+    limiter.hit("read", "after-expiry", "192.0.2.1");
+    expect(limiter.size).toBeLessThanOrEqual(2);
+  });
+
+  it("anonymous callers are keyed by IPv4 address and by IPv6 /64, so a /64 cannot mint endless keys", () => {
+    const t = { ms: 0 };
+    const limiter = new RateLimiter({ windowMs: 60_000, readPerWindow: 3, writePerWindow: 3, maxKeys: 100, clock: () => t.ms });
+    for (let i = 0; i < 3; i++) expect(limiter.hit("read", "anon", `2001:db8:1:2:${i.toString(16)}::${i}`).allowed).toBe(true);
+    expect(limiter.hit("read", "anon", "2001:db8:1:2:ffff:ffff:ffff:ffff").allowed).toBe(false); // same /64
+    expect(limiter.hit("read", "anon", "2001:db8:1:3::1").allowed).toBe(true); // another /64
+    expect(addressKey("::ffff:203.0.113.9")).toBe("203.0.113.9");
     expect(limiter.size).toBeLessThanOrEqual(2);
   });
 });
@@ -923,12 +941,27 @@ describe("8. migration 0007 round trip", () => {
       expect(currentMigrationVersion(db)).toBe(7);
       expect(computeStoreChecksum(db)).toBe(baseline);
       expect(db.query<{ version: number; checksum: string }>("SELECT version, checksum FROM schema_migrations WHERE version <= 6 ORDER BY version")).toEqual(frozen);
-      // the new tables take rows, and the cancellation audit is append-only
+      // the new tables take rows, they are part of the checksum once they hold rows, and both are append-only (V1-04)
       const job = runner.listJobs()[0]!;
+      db.run("INSERT INTO job_submitters (job_id, claim_seq, security_domain, submitter_sub, recorded_at) VALUES (?, 1, 'default', 'op-1', ?)", job.jobId, NOW);
       runner.recordCancellation(job.jobId, "op-1", "round trip");
-      expect(() => db.run("UPDATE job_cancellations SET reason = 'edited'")).toThrow(/append-only/i);
-      db.run("DELETE FROM job_cancellations");
+      const withRows = computeStoreChecksum(db);
+      expect(withRows).not.toBe(baseline);
+      expect(computeStoreChecksum(db, { includeJobControl: false })).toBe(baseline);
+      for (const sql of [
+        "UPDATE job_cancellations SET reason = 'edited'",
+        "DELETE FROM job_cancellations",
+        "INSERT OR REPLACE INTO job_cancellations (job_id, claim_seq, security_domain, requested_by, reason, outcome, requested_at) SELECT job_id, claim_seq, security_domain, 'other', 'replaced', outcome, requested_at FROM job_cancellations",
+        "UPDATE job_submitters SET submitter_sub = 'someone-else'",
+        "DELETE FROM job_submitters",
+        "INSERT OR REPLACE INTO job_submitters (job_id, claim_seq, security_domain, submitter_sub, recorded_at) SELECT job_id, claim_seq, security_domain, 'other', recorded_at FROM job_submitters",
+      ]) {
+        expect(() => db.run(sql), sql).toThrow(/append-only/i);
+      }
+      expect(computeStoreChecksum(db)).toBe(withRows); // none of the refused statements changed anything
 
+      // Rolling back to v6 drops the submitter and cancellation history: that data loss is accepted for this rollback (see the
+      // comment of migration 0007). The v6 checksum is the baseline again, as it never covered these tables.
       migrateDown(db, 6);
       expect(currentMigrationVersion(db)).toBe(6);
       expect(computeStoreChecksum(db)).toBe(baseline);

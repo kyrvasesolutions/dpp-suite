@@ -1,6 +1,5 @@
 import { z } from "zod";
 import type { Project } from "../model/project";
-import { probeServer } from "../model/remoteStore";
 import { buildParentMap, pathNames } from "../model/tree";
 import type { Suggestion, TreeData } from "../model/types";
 
@@ -74,11 +73,28 @@ const loadSdk = LLM_ENABLED
   ? () => Promise.all([import("@anthropic-ai/sdk"), import("@anthropic-ai/sdk/helpers/beta/zod")])
   : null;
 
+/**
+ * True only when it is certain the app is not connected to the durable server. The only request made is to the same
+ * origin, never to an LLM host. Any doubt is "a server may be there": an answer of any kind (a 200 JSON health, a 404, an
+ * HTML app shell, a proxy error page), a thrown error or a timeout all return false. The only proof of absence is an
+ * environment with no network API at all.
+ */
+export async function provablyNoServer(): Promise<boolean> {
+  if (typeof fetch === "undefined") return true;
+  try {
+    const res = await fetch("/api/health", { headers: { Accept: "application/json" } });
+    await res.text().catch(() => "");
+  } catch {
+    /* an error is not proof of absence */
+  }
+  return false;
+}
+
 /** Asks Claude for new mappings. Runs in the browser with the user's own key. */
 export async function suggestMappings(apiKey: string, project: Project, signal?: AbortSignal): Promise<Suggestion[]> {
-  // Runtime refusal, whatever VITE_ENABLE_LLM says: the same-origin health probe is the app's own server-mode test
-  // (recordStore.tsx). The only request made here is to that same origin, never to an LLM host.
-  if (await probeServer("")) throw new LlmDisabledError();
+  // Runtime refusal, whatever VITE_ENABLE_LLM says. Fail closed (F5): the same-origin health probe must PROVE that there is
+  // no server; a server answer, a network error, a non-200 status or a non-JSON body all count as server mode.
+  if (!(await provablyNoServer())) throw new LlmDisabledError();
   if (!loadSdk) throw new LlmError("Claude suggestions are turned off in this build.");
   const [{ default: Anthropic }, { betaZodOutputFormat }] = await loadSdk();
   const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });

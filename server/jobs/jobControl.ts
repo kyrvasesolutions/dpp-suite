@@ -128,3 +128,28 @@ export class LiveJobs {
     return this.#jobs.size;
   }
 }
+
+/**
+ * A counting semaphore for the lane that reads and decodes import bodies (D8-10, V2-01): a body of about 30 MB is held as bytes,
+ * text and parsed values at once while it is decoded, so only a few are decoded at the same time, whatever the coordinator allows.
+ */
+export class Lane {
+  #free: number;
+  readonly #waiting: Array<() => void> = [];
+  constructor(size: number) {
+    this.#free = size;
+  }
+  /** Resolves with a release function (safe to call more than once) when a place is free. */
+  async acquire(): Promise<() => void> {
+    if (this.#free > 0) this.#free--;
+    else await new Promise<void>((resolve) => this.#waiting.push(resolve));
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const next = this.#waiting.shift();
+      if (next) next();
+      else this.#free++;
+    };
+  }
+}

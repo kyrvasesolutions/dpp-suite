@@ -5,6 +5,8 @@
  *   - any accepted risk whose `review_by` date has passed,
  *   - a malformed accepted-risk record or file,
  *   - a failed or unparseable `npm audit` (no network, registry error): it fails closed.
+ *   - an advisory whose current severity is higher than the severity recorded when it was accepted,
+ *   - an acceptance whose review_by is more than 180 days after its date (dates are real UTC calendar dates).
  * Records without an npm `advisory` (for example AR-CI-01, GitHub Actions pinning) are not matched against npm
  * advisories, but their fields and dates are still validated.
  *
@@ -18,6 +20,10 @@ import { pathToFileURL } from "node:url";
 
 const SEVERITIES = ["info", "low", "moderate", "high", "critical"];
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
+/** The longest an acceptance may run before it must be reviewed (V4-04). */
+export const MAX_REVIEW_WINDOW_DAYS = 180;
+const DAY_MS = 86_400_000;
+const days = (from, to) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY_MS);
 const REQUIRED = ["id", "package", "severity", "rationale", "accepted_by", "date", "review_by"];
 
 function validDate(s) {
@@ -61,6 +67,7 @@ export function validateRisks(file) {
     if (typeof r.severity === "string" && !SEVERITIES.includes(r.severity)) errors.push(`${at}: severity "${r.severity}" is not one of ${SEVERITIES.join(", ")}`);
     for (const k of ["date", "review_by"]) if (typeof r[k] === "string" && !validDate(r[k])) errors.push(`${at}: "${k}" must be a valid YYYY-MM-DD date`);
     if (validDate(r.date) && validDate(r.review_by) && r.review_by < r.date) errors.push(`${at}: review_by is before date`);
+    else if (validDate(r.date) && validDate(r.review_by) && days(r.date, r.review_by) > MAX_REVIEW_WINDOW_DAYS) errors.push(`${at}: review_by is ${days(r.date, r.review_by)} days after date; the maximum window is ${MAX_REVIEW_WINDOW_DAYS} days`);
     if (typeof r.id === "string") {
       if (seen.has(r.id)) errors.push(`${at}: duplicate id ${r.id}`);
       seen.add(r.id);
@@ -91,7 +98,12 @@ export function evaluateAudit(audit, risksFile, today) {
   const matched = new Set();
   for (const adv of collectAdvisories(audit)) {
     const risk = risks.find((r) => typeof r.advisory === "string" && r.advisory.toLowerCase() === adv.id.toLowerCase() && r.package === adv.package);
-    if (risk) {
+    if (risk && SEVERITIES.indexOf(adv.severity) > SEVERITIES.indexOf(risk.severity)) {
+      // the advisory got worse since it was accepted: the acceptance no longer covers it
+      matched.add(risk.id);
+      unaccepted.push(adv);
+      errors.push(`${risk.id}: advisory ${adv.id} in ${adv.package} is now ${adv.severity}, above the accepted ${risk.severity}; re-review it`);
+    } else if (risk) {
       matched.add(risk.id);
       accepted.push({ ...adv, risk: risk.id });
     } else unaccepted.push(adv);

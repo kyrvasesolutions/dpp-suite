@@ -14,6 +14,7 @@ execution:
   total_staging_max_bytes: 67108864
   execution_memory_max_bytes: 536870912
   cancellation_poll_max_ms: 100
+  forced_termination_max_ms: 1000
   retry_count: 0
 coordinator:
   max_active_jobs_per_security_domain: 2
@@ -36,4 +37,7 @@ targets:
   volume_committed_batches: 1000
   max_server_errors: 0
   max_rss_bytes: 536870912
+  record_bytes_typical: 8192
+  record_bytes_max: 20971520
+  max_size_burst_jobs: 10
 note: ARTIFICIAL-DEMO design values and targets, not measured limits. The execution values are the S4 contract values; the coordinator, http and targets values are design values for the demonstrator. Configurable by pinning a new version of this file.

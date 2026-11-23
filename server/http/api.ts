@@ -56,7 +56,8 @@ import { OidcVerifier, type OidcConfig } from "../auth/oidc";
 import type { DbAdapter } from "../db/adapter";
 import { currentMigrationVersion } from "../db/migrations";
 import { ImportJobRunner, type ImportEvidenceUpload, type ImportJobControl } from "../jobs/importJobRunner";
-import { JobCoordinator, LiveJobs, QueueFullError } from "../jobs/jobControl";
+import { IngressRunner } from "../jobs/ingressRunner";
+import { JobCoordinator, Lane, LiveJobs, QueueFullError } from "../jobs/jobControl";
 import { RateLimiter, ServerMetrics, routeTemplate } from "./limits";
 import { ConfigReleaseStore } from "../releases/configReleaseStore";
 import { sha256Sync } from "../store/sqlRepository";
@@ -108,7 +109,13 @@ export interface DppServerOptions {
    */
   log?: (entry: PublicLogEntry) => void;
   /** Test-only seams (like Cycle 6 crash injection): hold a stage open so a cancel or a deadline lands mid-stage. */
-  testHooks?: { stageHook?: ImportJobControl["stageHook"] };
+  testHooks?: {
+    stageHook?: ImportJobControl["stageHook"];
+    /** A synchronous busy loop (ms) inside the ingress worker, to prove a thread that never yields is terminated. */
+    workerSpinMs?: number;
+    /** The ingress runner to use, so a test can read its termination statistics. */
+    ingress?: IngressRunner;
+  };
 }
 
 const DEFAULT_SOFTWARE: SoftwareInfo = {
@@ -195,7 +202,9 @@ async function readJsonObject(req: IncomingMessage, maxBytes: number): Promise<R
     req.resume(); // discard what arrives; nothing is kept
     throw tooLarge();
   }
-  const chunks: Buffer[] = [];
+  // Each chunk is decoded to text as it arrives and dropped at once, so the body is held once (as text), not as chunks plus a joined copy.
+  const decoder = new TextDecoder("utf-8", { ignoreBOM: true });
+  const pieces: string[] = [];
   let total = 0;
   await new Promise<void>((resolveBody, rejectBody) => {
     const onData = (chunk: Buffer | string) => {
@@ -205,12 +214,12 @@ async function readJsonObject(req: IncomingMessage, maxBytes: number): Promise<R
         req.off("data", onData);
         req.off("end", onEnd);
         req.off("error", onError);
-        chunks.length = 0;
+        pieces.length = 0;
         req.resume(); // discard the rest of the body
         rejectBody(tooLarge());
         return;
       }
-      chunks.push(buf);
+      pieces.push(decoder.decode(buf, { stream: true }));
     };
     const onEnd = () => resolveBody();
     const onError = (e: Error) => rejectBody(e);
@@ -224,7 +233,9 @@ async function readJsonObject(req: IncomingMessage, maxBytes: number): Promise<R
     req.once("close", onClose);
   });
   if (total === 0) return {};
-  const text = Buffer.concat(chunks).toString("utf8");
+  pieces.push(decoder.decode());
+  const text = pieces.join("");
+  pieces.length = 0;
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -255,7 +266,11 @@ function toBytes(input: unknown, field: string): Uint8Array {
     throw Object.assign(new Error(`${field} must be an object with base64 or text content`), { statusCode: 400, code: "invalid-payload" });
   }
   const obj = input as { base64?: unknown; text?: unknown };
-  if (typeof obj.base64 === "string") return new Uint8Array(Buffer.from(obj.base64, "base64"));
+  if (typeof obj.base64 === "string") {
+    const b = Buffer.from(obj.base64, "base64");
+    delete obj.base64; // the base64 text is not kept next to the bytes
+    return new Uint8Array(b.buffer, b.byteOffset, b.byteLength); // a view, not a copy
+  }
   if (typeof obj.text === "string") return new TextEncoder().encode(obj.text);
   throw Object.assign(new Error(`${field} must provide base64 or text content`), { statusCode: 400, code: "invalid-payload" });
 }
@@ -268,9 +283,9 @@ function parseOptionalVersion(value: unknown): number | undefined {
   return value;
 }
 
-function mapError(err: unknown): { status: number; code: string; message: string; extraHeaders?: Record<string, string>; limit?: string } {
+function mapErrorRaw(err: unknown): { status: number; code: string; message: string; extraHeaders?: Record<string, string>; limit?: string } {
   if (err instanceof QueueFullError) {
-    return { status: 429, code: "queue-full", message: err.message, limit: "queue_full", extraHeaders: { "Retry-After": String(err.retryAfterSeconds) } };
+    return { status: 429, code: "queue-full", message: err.message, limit: "queue_full", extraHeaders: { "Retry-After": String(err.retryAfterSeconds), Connection: "close" } };
   }
   if (err instanceof LimitError) {
     if (err.outcome === "CANCELLED") return { status: 409, code: "cancelled", message: err.message };
@@ -330,6 +345,29 @@ function mapError(err: unknown): { status: number; code: string; message: string
     return { status: 409, code: "retention-active", message: "The stored data is protected and cannot be changed" };
   }
   return { status: 500, code: "internal-error", message: "Internal server error" };
+}
+
+/** Fixed text for codes whose store-level message interpolates ids, versions, digests, keys or roles (D8-09, F3). */
+const FIXED_TEXT: Record<string, string> = {
+  "version-conflict": "The record changed since the version that was stated.",
+  "idempotency-conflict": "The idempotency key is already claimed for a different payload, or the job is not in a state that allows this.",
+  "idempotency-in-progress": "The idempotency key is being processed by another server process.",
+  "retention-active": "The stored data is protected and cannot be changed.",
+  "legal-hold-active": "The evidence is under legal hold and cannot be deleted.",
+  "legal-hold-forbidden": "The retention policy does not permit a legal hold here.",
+  "policy-conflict": "The retention policy conflicts with the one already held.",
+  "policy-invalid": "The retention policy is not valid.",
+  "digest-mismatch": "A declared digest does not match the content.",
+  "repository-error": "The record store refused the change.",
+  "user-not-found": "User not found.",
+  "invalid-role": "The role is not one of the known roles.",
+};
+
+function mapError(err: unknown): ReturnType<typeof mapErrorRaw> {
+  const m = mapErrorRaw(err);
+  if (Object.hasOwn(FIXED_TEXT, m.code)) return { ...m, message: FIXED_TEXT[m.code]! };
+  if (m.code === "correction-invalid" && /no record/i.test(m.message)) return { ...m, message: "There is no record to correct." };
+  return m;
 }
 
 /**
@@ -405,6 +443,10 @@ export function createDppServer(options: DppServerOptions): Server {
   const metrics = new ServerMetrics();
   const coordinator = new JobCoordinator(limits);
   const liveJobs = new LiveJobs();
+  /** One import body is read and decoded at a time (about 100 MB of transient copies for a body of 30 MB). */
+  const bodyLane = new Lane(1);
+  /** Each import's ingress runs in a worker thread that the main thread can terminate (D8-10). */
+  const ingress = options.testHooks?.ingress ?? new IngressRunner({ limits });
   const REASON_MAX = 500;
   /** A generated output over `max_output_bytes_per_route` is refused before anything is logged or returned (no partial success). */
   const assertOutputWithin = (files: ReadonlyArray<{ bytes: Uint8Array }>): void => {
@@ -946,8 +988,11 @@ export function createDppServer(options: DppServerOptions): Server {
 
       // GET /api/admin/metrics (Cycle 8, T23): counters only. No subject, id, value or path appears in it.
       if (method === "GET" && pathname === "/api/admin/metrics") {
-        requireAuth("metrics:read");
-        sendJson(res, 200, metrics.snapshot(coordinator.snapshot()), allowedOrigin, undefined, allowMethods);
+        const viewer = requireAuth("metrics:read");
+        const jobs = coordinator.snapshot();
+        // Domain names are tenant information: only an ADMIN sees the per-domain split; an AUDITOR sees totals (V2-04).
+        const visible = viewer.roles.includes("ADMIN") ? jobs : { activeTotal: jobs.activeTotal, queuedTotal: jobs.queuedTotal };
+        sendJson(res, 200, metrics.snapshot(visible), allowedOrigin, undefined, allowMethods);
         return;
       }
 
@@ -1099,77 +1144,9 @@ export function createDppServer(options: DppServerOptions): Server {
       if (method === "POST" && pathname === "/api/jobs/import") {
         const submitter = requireAuth("import-submit");
         const { maxBodyBytes, runner } = await loadRuntime();
-        const body = await readBody(req, maxBodyBytes);
 
-        if (body.idempotencyKey !== undefined && typeof body.idempotencyKey !== "string") {
-          sendJson(res, 400, { code: "invalid-payload", message: "idempotencyKey must be a string" }, allowedOrigin, undefined, allowMethods);
-          return;
-        }
-        const idemHeader = typeof req.headers["x-idempotency-key"] === "string" ? req.headers["x-idempotency-key"].trim() : "";
-        const idempotencyKey = ((body.idempotencyKey as string | undefined) ?? idemHeader).trim();
-        if (!idempotencyKey) {
-          sendJson(res, 400, { code: "idempotency-key-missing", message: "idempotencyKey (or X-Idempotency-Key header) is required" }, allowedOrigin, undefined, allowMethods);
-          return;
-        }
-        if (!body.erp || typeof body.erp !== "object" || Array.isArray(body.erp)) {
-          sendJson(res, 400, { code: "missing-erp", message: "erp payload object is required" }, allowedOrigin, undefined, allowMethods);
-          return;
-        }
-        if (body.evidence !== undefined && !Array.isArray(body.evidence)) {
-          sendJson(res, 400, { code: "invalid-payload", message: "evidence must be an array" }, allowedOrigin, undefined, allowMethods);
-          return;
-        }
-
-        const erpObj = body.erp as { name?: unknown; type?: unknown; base64?: unknown; text?: unknown };
-        const erpBytes = toBytes(erpObj, "erp");
-
-        let labPayload: { bytes: Uint8Array; name: string; type: string } | undefined;
-        if (body.lab !== undefined) {
-          if (!body.lab || typeof body.lab !== "object" || Array.isArray(body.lab)) {
-            sendJson(res, 400, { code: "invalid-payload", message: "lab must be an object" }, allowedOrigin, undefined, allowMethods);
-            return;
-          }
-          const labObj = body.lab as { name?: unknown; type?: unknown; base64?: unknown; text?: unknown };
-          labPayload = {
-            bytes: toBytes(labObj, "lab"),
-            name: typeof labObj.name === "string" ? labObj.name : "lab-assessment.json",
-            type: typeof labObj.type === "string" ? labObj.type : "application/json",
-          };
-        }
-
-        const evidence: ImportEvidenceUpload[] | undefined = (body.evidence as unknown[] | undefined)?.map((rawEv, idx) => {
-          if (!rawEv || typeof rawEv !== "object" || Array.isArray(rawEv)) {
-            throw Object.assign(new Error(`evidence[${idx}] must be an object`), { statusCode: 400, code: "invalid-payload" });
-          }
-          const e = rawEv as Record<string, unknown>;
-          if (
-            typeof e.evidenceId !== "string" ||
-            typeof e.issuer !== "string" ||
-            typeof e.revision !== "string" ||
-            typeof e.recordKind !== "string"
-          ) {
-            throw Object.assign(new Error(`evidence[${idx}] requires string evidenceId, issuer, revision, and recordKind`), {
-              statusCode: 400,
-              code: "invalid-payload",
-            });
-          }
-          return {
-            evidenceId: e.evidenceId,
-            issuer: e.issuer,
-            revision: e.revision,
-            recordKind: e.recordKind,
-            dataset: typeof e.dataset === "string" ? e.dataset : undefined,
-            statedClassification:
-              typeof e.statedClassification === "string" || e.statedClassification === null
-                ? e.statedClassification
-                : undefined,
-            declaredSha256: typeof e.declaredSha256 === "string" ? e.declaredSha256 : undefined,
-            mediaType: typeof e.mediaType === "string" ? e.mediaType : undefined,
-            contentBytes: toBytes(e, `evidence[${idx}]`),
-            legalHold: typeof e.legalHold === "boolean" ? e.legalHold : undefined,
-          };
-        });
-
+        // Cycle 8 (D8-10, V2-01): the place in the coordinator is reserved BEFORE the body is read. A full queue is refused at once
+        // and a queued request is not read until it is admitted, so memory is bounded by the active jobs, not by the clients.
         // Cycle 8: a slot of the coordinator (per-domain active slots, a finite FIFO queue, a global cap), then a budget.
         // A full queue is refused at once with 429 + Retry-After. The slot is freed on every way out (commit, fail, rollback,
         // cancel, timeout, exception, client disconnect). The server never retries on its own.
@@ -1183,6 +1160,7 @@ export function createDppServer(options: DppServerOptions): Server {
           if (!started) slot.release(); // still queued: leave the queue now
         });
         let outcome: Awaited<ReturnType<typeof runner.runImportJob>>;
+        let laneRelease: (() => void) | null = null;
         try {
           try {
             await slot.ready;
@@ -1190,6 +1168,79 @@ export function createDppServer(options: DppServerOptions): Server {
             return; // abandoned while queued: the client is gone
           }
           started = true;
+          laneRelease = await bodyLane.acquire();
+          const body = await readBody(req, maxBodyBytes);
+
+          if (body.idempotencyKey !== undefined && typeof body.idempotencyKey !== "string") {
+            sendJson(res, 400, { code: "invalid-payload", message: "idempotencyKey must be a string" }, allowedOrigin, undefined, allowMethods);
+            return;
+          }
+          const idemHeader = typeof req.headers["x-idempotency-key"] === "string" ? req.headers["x-idempotency-key"].trim() : "";
+          const idempotencyKey = ((body.idempotencyKey as string | undefined) ?? idemHeader).trim();
+          if (!idempotencyKey) {
+            sendJson(res, 400, { code: "idempotency-key-missing", message: "idempotencyKey (or X-Idempotency-Key header) is required" }, allowedOrigin, undefined, allowMethods);
+            return;
+          }
+          if (!body.erp || typeof body.erp !== "object" || Array.isArray(body.erp)) {
+            sendJson(res, 400, { code: "missing-erp", message: "erp payload object is required" }, allowedOrigin, undefined, allowMethods);
+            return;
+          }
+          if (body.evidence !== undefined && !Array.isArray(body.evidence)) {
+            sendJson(res, 400, { code: "invalid-payload", message: "evidence must be an array" }, allowedOrigin, undefined, allowMethods);
+            return;
+          }
+
+          const erpObj = body.erp as { name?: unknown; type?: unknown; base64?: unknown; text?: unknown };
+          const erpBytes = toBytes(erpObj, "erp");
+
+          let labPayload: { bytes: Uint8Array; name: string; type: string } | undefined;
+          if (body.lab !== undefined) {
+            if (!body.lab || typeof body.lab !== "object" || Array.isArray(body.lab)) {
+              sendJson(res, 400, { code: "invalid-payload", message: "lab must be an object" }, allowedOrigin, undefined, allowMethods);
+              return;
+            }
+            const labObj = body.lab as { name?: unknown; type?: unknown; base64?: unknown; text?: unknown };
+            labPayload = {
+              bytes: toBytes(labObj, "lab"),
+              name: typeof labObj.name === "string" ? labObj.name : "lab-assessment.json",
+              type: typeof labObj.type === "string" ? labObj.type : "application/json",
+            };
+          }
+
+          const evidence: ImportEvidenceUpload[] | undefined = (body.evidence as unknown[] | undefined)?.map((rawEv, idx) => {
+            if (!rawEv || typeof rawEv !== "object" || Array.isArray(rawEv)) {
+              throw Object.assign(new Error(`evidence[${idx}] must be an object`), { statusCode: 400, code: "invalid-payload" });
+            }
+            const e = rawEv as Record<string, unknown>;
+            if (
+              typeof e.evidenceId !== "string" ||
+              typeof e.issuer !== "string" ||
+              typeof e.revision !== "string" ||
+              typeof e.recordKind !== "string"
+            ) {
+              throw Object.assign(new Error(`evidence[${idx}] requires string evidenceId, issuer, revision, and recordKind`), {
+                statusCode: 400,
+                code: "invalid-payload",
+              });
+            }
+            return {
+              evidenceId: e.evidenceId,
+              issuer: e.issuer,
+              revision: e.revision,
+              recordKind: e.recordKind,
+              dataset: typeof e.dataset === "string" ? e.dataset : undefined,
+              statedClassification:
+                typeof e.statedClassification === "string" || e.statedClassification === null
+                  ? e.statedClassification
+                  : undefined,
+              declaredSha256: typeof e.declaredSha256 === "string" ? e.declaredSha256 : undefined,
+              mediaType: typeof e.mediaType === "string" ? e.mediaType : undefined,
+              contentBytes: toBytes(e, `evidence[${idx}]`),
+              legalHold: typeof e.legalHold === "boolean" ? e.legalHold : undefined,
+            };
+          });
+          laneRelease(); // the body is decoded: its transient copies are gone, the next body may be read
+          laneRelease = null;
           const budget = new JobBudget({ deadlineMs: limits.execution.job_deadline_ms, now: clock, token });
           const control: ImportJobControl = {
             budget,
@@ -1200,6 +1251,8 @@ export function createDppServer(options: DppServerOptions): Server {
               liveJobs.register(jobId, { budget, token, securityDomain: domain, submitterSub: submitter.sub });
             },
             stageHook: options.testHooks?.stageHook,
+            ingress,
+            ...(options.testHooks?.workerSpinMs ? { spinMs: options.testHooks.workerSpinMs } : {}),
           };
           outcome = await runner.runImportJob({
             control,
@@ -1226,6 +1279,7 @@ export function createDppServer(options: DppServerOptions): Server {
           });
 
         } finally {
+          laneRelease?.();
           if (claimedJobId) liveJobs.unregister(claimedJobId);
           slot.release();
         }

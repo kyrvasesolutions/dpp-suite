@@ -117,8 +117,15 @@ export function parseStrictJson(text: string, options: ParseOptions = {}): JsonV
           i += 2;
         } else if (isLow(u)) fail("unpaired surrogate", path);
         else {
-          out += c;
-          i++;
+          // a run of plain characters is copied with one slice: a 10 MiB string would otherwise build ten million pieces
+          let j = i + 1;
+          while (j < text.length) {
+            const d = text.charCodeAt(j);
+            if (d === 0x22 || d === 0x5c || d < 0x20 || (d >= 0xd800 && d <= 0xdfff)) break;
+            j++;
+          }
+          out += text.slice(i, j);
+          i = j;
         }
       }
       if (out.length > maxString) fail(`a string is longer than ${maxString} characters`, path);

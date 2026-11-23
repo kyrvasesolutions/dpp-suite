@@ -17,14 +17,17 @@ const nodeExternals = new Set([
 
 export default defineConfig({
   build: {
-    ssr: "server/index.ts",
+    ssr: true,
     outDir: "dist-server",
     emptyOutDir: true,
     target: "node24",
     rollupOptions: {
       external: (id) => nodeExternals.has(id),
+      // The server and the ingress worker it spawns (D8-10) are two entries of one build: dist-server/server.mjs and ingressWorker.mjs.
+      input: { server: "server/index.ts", ingressWorker: "server/jobs/ingressWorker.ts" },
       output: {
-        entryFileNames: "server.mjs",
+        entryFileNames: "[name].mjs",
+        chunkFileNames: "chunk-[hash].mjs",
         format: "es",
       },
     },

@@ -61,7 +61,7 @@ describe("check-audit policy", () => {
   });
 
   it("expiry applies to non-npm records too", () => {
-    const r = evaluate(audit(), file(risk({ id: "AR-CI-01", advisory: null, package: "github-actions", review_by: "2026-01-01", date: "2025-01-01" })), TODAY);
+    const r = evaluate(audit(), file(risk({ id: "AR-CI-01", advisory: null, package: "github-actions", review_by: "2026-01-01", date: "2025-08-01" })), TODAY);
     expect(r.ok).toBe(false);
     expect(r.errors.join()).toMatch(/AR-CI-01: acceptance expired/);
   });
@@ -103,6 +103,31 @@ describe("check-audit policy", () => {
 
   it("fails on an invalid --today", () => {
     expect(evaluate(audit(), file(), "yesterday").ok).toBe(false);
+  });
+
+  it("fails when the advisory is now more severe than the accepted severity, and passes at or below it (V4-04)", () => {
+    const worse = audit(advisory("left-pad", "GHSA-aaaa-bbbb-cccc", "high"));
+    const r = evaluate(worse, file(risk({ severity: "moderate" })), TODAY);
+    expect(r.ok).toBe(false);
+    expect(r.errors.join("\n")).toMatch(/now high, above the accepted moderate/);
+    expect(evaluate(audit(advisory("left-pad", "GHSA-aaaa-bbbb-cccc", "high")), file(risk({ severity: "high" })), TODAY).ok).toBe(true);
+    expect(evaluate(audit(advisory("left-pad", "GHSA-aaaa-bbbb-cccc", "low")), file(risk({ severity: "high" })), TODAY).ok).toBe(true);
+    expect(evaluate(audit(advisory("left-pad", "GHSA-aaaa-bbbb-cccc", "critical")), file(risk({ severity: "high" })), TODAY).ok).toBe(false);
+  });
+
+  it("fails when review_by is more than 180 days after date, and passes at exactly 180", () => {
+    expect(validate(file(risk({ date: "2026-11-23", review_by: "2027-05-22" })))).toEqual([]); // 180 days
+    expect(validate(file(risk({ date: "2026-11-23", review_by: "2027-05-23" }))).join()).toMatch(/181 days after date; the maximum window is 180/);
+    expect(validate(file(risk({ date: "2026-01-01", review_by: "2030-01-01" }))).join()).toMatch(/maximum window/);
+  });
+
+  it("accepts only real UTC calendar dates", () => {
+    for (const bad of ["2027-02-30", "2027-02-29", "2026-04-31", "2027-13-01", "2027-00-10", "2027-02-00", "2027-2-3", "2027-02-03T00:00:00Z", "27-02-03", " 2027-02-03", "2027-02-03 "]) {
+      expect(validate(file(risk({ review_by: bad }))).length, bad).toBeGreaterThan(0);
+      expect(validate(file(risk({ date: bad }))).length, bad).toBeGreaterThan(0);
+    }
+    expect(validate(file(risk({ date: "2028-02-29", review_by: "2028-03-29" })))).toEqual([]); // a leap day
+    expect(evaluate(audit(), file(risk()), "2027-02-30").ok).toBe(false);
   });
 
   it("the tracked accepted-risks file is valid and carries AR-CI-01", () => {

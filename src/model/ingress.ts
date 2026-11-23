@@ -23,6 +23,8 @@ export type IngressCode =
   | "byte-order-mark"
   | "wrong-encoding"
   | "control-character"
+  | "unsafe-identifier"
+  | "execution-failed"
   | "empty-file"
   | "csv-syntax"
   | "ragged-row"
@@ -59,6 +61,8 @@ export type IngressCode =
 export const ERROR_TEXT: Record<IngressCode, string> = {
   "media-type": "The file is not of the expected type. Use the ERP extract as .csv and the laboratory file as .json.",
   "byte-order-mark": "The file starts with a byte order mark. Save it as UTF-8 without BOM.",
+  "unsafe-identifier": "An identifier or code contains a control, direction or invisible character, or is longer than the declared limit.",
+  "execution-failed": "The import could not be processed and was stopped. Nothing is imported.",
   "control-character": "The file contains a control character (for example a NUL) inside a value. Remove it and export the file again.",
   "wrong-encoding": "The file is not valid UTF-8. Export it again with UTF-8 encoding.",
   "empty-file": "The file is empty.",
@@ -262,6 +266,34 @@ function effectiveLimits(pinned: ProfilePack["policy"]["limits"], over: IngressL
 /** An ingress issue built from a code, for a caller outside this file (a job-level budget stop). */
 export const ingressIssue = (stage: Stage, code: IngressCode, location: string, detail?: string): IngressIssue => issue(stage, code, location, detail);
 
+/** The offset of the first byte that is not part of a valid UTF-8 sequence, in one pass. */
+export function firstInvalidUtf8(b: Uint8Array): number {
+  let i = 0;
+  const n = b.length;
+  while (i < n) {
+    const c = b[i];
+    if (c < 0x80) {
+      i++;
+      continue;
+    }
+    let need: number;
+    let min: number;
+    let cp: number;
+    if (c >= 0xc2 && c <= 0xdf) [need, min, cp] = [1, 0x80, c & 0x1f];
+    else if (c >= 0xe0 && c <= 0xef) [need, min, cp] = [2, 0x800, c & 0x0f];
+    else if (c >= 0xf0 && c <= 0xf4) [need, min, cp] = [3, 0x10000, c & 0x07];
+    else return i;
+    for (let k = 1; k <= need; k++) {
+      const x = b[i + k];
+      if (x === undefined || (x & 0xc0) !== 0x80) return i;
+      cp = (cp << 6) | (x & 0x3f);
+    }
+    if (cp < min || cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff)) return i;
+    i += need + 1;
+  }
+  return n;
+}
+
 async function bytesStage(bytes: Uint8Array, name: string, declaredType: string, role: SourceFile["role"], maxBytes: number) {
   const expected = role === "erp" ? { type: "text/csv", ext: ".csv" } : { type: "application/json", ext: ".json" };
   // Browsers often send no type, or an Excel type for .csv, so the extension decides when the type is absent.
@@ -277,15 +309,7 @@ async function bytesStage(bytes: Uint8Array, name: string, declaredType: string,
   try {
     text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch {
-    let at = 0;
-    for (let n = 1; n <= bytes.length; n++) {
-      try {
-        new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, n));
-        at = n;
-      } catch {
-        if (n - at > 4) break;
-      }
-    }
+    const at = firstInvalidUtf8(bytes); // one pass: never a quadratic search, so a bad byte at the end of a 10 MiB file costs the same as one at the start
     throw new StageFailure("bytes", [issue("bytes", "wrong-encoding", `${name}, byte ${at}`)]);
   }
   const file: SourceFile = { name, role, mediaType: expected.type, sha256: await sha256Hex(text), size: bytes.length };
@@ -303,6 +327,15 @@ function csvRows(text: string, delimiter: string, name: string, tick: () => void
   const rows: string[][] = [];
   let row: string[] = [];
   let field = "";
+  // A run of plain characters is copied with one slice when it ends, not character by character: a 10 MiB cell would otherwise
+  // build ten million string pieces before it is flattened.
+  let runStart = -1;
+  const flush = (end: number) => {
+    if (runStart >= 0) {
+      field += text.slice(runStart, end);
+      runStart = -1;
+    }
+  };
   let quoted = false;
   let wasQuoted = false;
   let line = 1;
@@ -315,9 +348,11 @@ function csvRows(text: string, delimiter: string, name: string, tick: () => void
     }
     if (quoted) {
       if (c === '"' && text[i + 1] === '"') {
+        flush(i);
         field += '"';
         i++;
       } else if (c === '"') {
+        flush(i);
         quoted = false;
         const next = text[i + 1];
         if (next !== undefined && next !== delimiter && next !== "\n" && next !== "\r") {
@@ -325,17 +360,19 @@ function csvRows(text: string, delimiter: string, name: string, tick: () => void
         }
       } else {
         if (c === "\n") line++;
-        field += c;
+        if (runStart < 0) runStart = i;
       }
     } else if (c === '"') {
-      if (field !== "") throw new StageFailure("parse", [issue("parse", "csv-syntax", `${name}, line ${line}`, "Quote inside an unquoted field.")]);
+      if (field !== "" || runStart >= 0) throw new StageFailure("parse", [issue("parse", "csv-syntax", `${name}, line ${line}`, "Quote inside an unquoted field.")]);
       quoted = true;
       wasQuoted = true;
     } else if (c === delimiter) {
+      flush(i);
       row.push(field);
       field = "";
       wasQuoted = false;
     } else if (c === "\n" || c === "\r") {
+      flush(i);
       if (c === "\r" && text[i + 1] === "\n") i++;
       row.push(field);
       rows.push(row);
@@ -343,10 +380,11 @@ function csvRows(text: string, delimiter: string, name: string, tick: () => void
       field = "";
       wasQuoted = false;
       line++;
-    } else {
-      field += c;
+    } else if (runStart < 0) {
+      runStart = i;
     }
   }
+  flush(text.length);
   if (quoted) throw new StageFailure("parse", [issue("parse", "csv-syntax", `${name}, line ${line}`, "A quote is never closed.")]);
   if (field !== "" || wasQuoted || row.length) {
     row.push(field);
@@ -368,7 +406,16 @@ const HAS_INVISIBLE = /[\u200B-\u200D\u2060\uFEFF\u00AD]/;
  * Whether a number literal survives as a double without changing: at most 15 significant digits, and no
  * nonzero literal that underflows to 0. Longer numbers would be silently rounded (re-assessment R2-5).
  */
+/** The longest number literal that is looked at; anything longer cannot be exact in a double and is refused as precision-loss without further work. */
+const MAX_NUMBER_LITERAL = 64;
+/** The longest identifier or code accepted in a cell or a JSON identifier field. */
+export const MAX_IDENTIFIER_LENGTH = 128;
+/** C1 controls, DEL, bidirectional controls and isolates: never part of an identifier. */
+const UNSAFE_IDENTIFIER = /[\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/;
+const unsafeIdentifier = (raw: string) => raw.length > MAX_IDENTIFIER_LENGTH || UNSAFE_IDENTIFIER.test(raw);
+
 function exact(raw: string) {
+  if (raw.length > MAX_NUMBER_LITERAL) return false;
   const mantissa = raw.replace(/^-/, "").split(/[eE]/)[0].replace(".", "").replace(/^0+/, "");
   const digits = mantissa.replace(/0+$/, "").length;
   return digits <= 15 && !(Number(raw) === 0 && /[1-9]/.test(mantissa));
@@ -460,6 +507,10 @@ export async function importErpCsv(
         const [property, member] = c.maps_to.split("/");
         if ((c.code_list || member?.startsWith("FLD-Identifier-")) && (raw !== raw.trim() || HAS_INVISIBLE.test(raw))) {
           errors.push(issue("semantics", "padded-identifier", loc, JSON.stringify(raw)));
+          continue;
+        }
+        if ((c.code_list || member?.startsWith("FLD-Identifier-")) && unsafeIdentifier(raw)) {
+          errors.push(issue("semantics", "unsafe-identifier", loc));
           continue;
         }
         const flags: Flag[] = ["declared"];
@@ -633,6 +684,10 @@ export async function importLabJson(
         errors.push(issue("semantics", "padded-identifier", `${name}, /product/${key}`, JSON.stringify(raw)));
         return;
       }
+      if (key !== "alloy" && unsafeIdentifier(raw)) {
+        errors.push(issue("semantics", "unsafe-identifier", `${name}, /product/${key}`));
+        return;
+      }
       assertions.push({ property, ...(member ? { member } : {}), raw, value: raw, unit: null, source: src(`/product/${key}`), flags: ["declared"] });
     };
     reference("model_id", byRole(pack, "model"), "FLD-Identifier-value");
@@ -646,6 +701,7 @@ export async function importLabJson(
       const seen = new Map<string, number>();
       items.forEach((x, i) => {
         const id = str(get(x, key));
+        if (unsafeIdentifier(id)) errors.push(issue("semantics", "unsafe-identifier", `${name}, ${path}/${i}/${key}`));
         if (seen.has(id)) errors.push(issue("semantics", "duplicate-id", `${name}, ${path}/${i}/${key}`, `"${id}" also at ${path}/${seen.get(id)}.`));
         seen.set(id, i);
       });

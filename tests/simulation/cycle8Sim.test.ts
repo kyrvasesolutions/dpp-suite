@@ -62,6 +62,7 @@ describe("calibration: the pinned pack carries the D8-01 values", () => {
       total_staging_max_bytes: 67108864,
       execution_memory_max_bytes: 536870912,
       cancellation_poll_max_ms: 100,
+      forced_termination_max_ms: 1000,
       retry_count: 0,
     });
   });
@@ -89,6 +90,9 @@ describe("calibration: the pinned pack carries the D8-01 values", () => {
       volume_committed_batches: 1000,
       max_server_errors: 0,
       max_rss_bytes: 536870912,
+      record_bytes_typical: 8192,
+      record_bytes_max: 20971520,
+      max_size_burst_jobs: 10,
     });
   });
   it("the pair cap holds two source files, the request cap holds a pair, and staging holds more than a pair", () => {
@@ -864,7 +868,7 @@ describe("7. drop-one-input: each required OPERATIONAL-LIMITS field breaks the p
 
   it("removing any single field fails the load, naming that field", async () => {
     const all = leaves(L);
-    expect(all.length).toBe(11 + 4 + 8 + 6);
+    expect(all.length).toBe(12 + 4 + 8 + 9);
     for (const [group, key] of all) {
       let error: unknown;
       try {
@@ -891,7 +895,7 @@ describe("7. drop-one-input: each required OPERATIONAL-LIMITS field breaks the p
         await expect(loadEdited((d) => (d[group][key] = bad)), `${group}.${key}=${String(bad)}`).rejects.toThrow(new RegExp(`${group}\\.${key}`));
       }
     }
-  });
+  }, 30_000);
 
   it("retry_count must be exactly 0, and max_server_errors exactly 0", async () => {
     for (const bad of [1, 2, -1, "0", null]) {

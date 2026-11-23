@@ -74,6 +74,21 @@ export function readOperationalLimits(pack = join(ROOT, "contracts/n")) {
   return out;
 }
 
+/**
+ * A source pair of about `totalBytes` bytes (both files together) for batch number `n`: the clean pair with its free-text fields padded
+ * (the product name in the ERP row, the method of the first observation in the lab file), so the import still commits (D8-10, V2-02).
+ */
+export function sizedVariant(n, totalBytes, fixtures = join(ROOT, "fixtures/n")) {
+  const v = variant(n, fixtures);
+  const cap = 10 * 1024 * 1024 - 4096; // one source file stays under source_file_max_bytes
+  const extra = Math.max(0, totalBytes - v.erp.length - v.lab.length);
+  const erpPad = Math.min(cap, Math.floor(extra / 2));
+  const labPad = Math.min(cap, extra - erpPad);
+  const erp = v.erp.toString("utf8").replace("Aluminium sheet EN AW-5754 H111, 2.0 mm", (m) => m + "x".repeat(erpPad));
+  const lab = v.lab.toString("utf8").replace('"method": "EN 485-4 thickness measurement"', (m) => `${m.slice(0, -1)}${"x".repeat(labPad)}"`);
+  return { batch: v.batch, erp: Buffer.from(erp, "utf8"), lab: Buffer.from(lab, "utf8") };
+}
+
 /** One source pair for batch number `n`: the clean fixtures with their batch identifier replaced. */
 export function variant(n, fixtures = join(ROOT, "fixtures/n")) {
   const batch = `B-2026-${String(n).padStart(4, "0")}`;
@@ -222,18 +237,33 @@ export async function runLoad(cfg) {
 
   // ---- RSS and health probes ----
   let peakRss = 0;
+  let phasePeak = 0;
   const rssSamples = [];
+  const phases = {};
+  /** Runs one phase and records its payload bytes, its peak server RSS and its 5xx count. */
+  let inMaxPhase = false;
+  const track = async (name, payloadBytes, fn) => {
+    const errors0 = counters.serverErrors;
+    phasePeak = 0;
+    if (name.startsWith("max-size")) inMaxPhase = true; // from here on the process holds what the 20 MB records left: not the typical-size peak
+    await probe();
+    const result = await fn();
+    await probe();
+    phases[name] = { payloadBytes, peakRssBytes: phasePeak, serverErrors: counters.serverErrors - errors0 };
+    return result;
+  };
   const probe = async () => {
     const r = await api.call(metricsSub, "GET", "/api/admin/metrics", { domain: domA });
     if (r.status === 200) {
       const rss = r.json.process.rssBytes;
-      peakRss = Math.max(peakRss, rss);
+      if (!inMaxPhase) peakRss = Math.max(peakRss, rss); // the max-size phases are judged on their own target
+      phasePeak = Math.max(phasePeak, rss);
       rssSamples.push(rss);
       return r.json;
     }
     return null;
   };
-  const rssTimer = setInterval(() => void probe().catch(() => undefined), 500);
+  const rssTimer = setInterval(() => void probe().catch(() => undefined), 250);
   await probe();
 
   // ---- seed volume: committed batches spread over the domains ----
@@ -267,10 +297,12 @@ export async function runLoad(cfg) {
   // ---- (a) complete import workloads ----
   const importMs = [];
   const workloadMs = [];
+  const typicalBytes = limits.targets.record_bytes_typical;
+  await track("typical", typicalBytes, async () => {
   for (let i = 0; i < params.timedRuns; i++) {
     const n = nextBatch();
     const sub = users.timed[i % users.timed.length];
-    const pair = variant(n);
+    const pair = sizedVariant(n, typicalBytes);
     const evidence = [
       {
         evidenceId: `EV-LOAD-${n}`,
@@ -293,6 +325,7 @@ export async function runLoad(cfg) {
     importMs.push(tImport);
     workloadMs.push(total);
   }
+  });
   log(`import jobs: p50 ${percentile(importMs, 50).toFixed(0)} ms, p95 ${percentile(importMs, 95).toFixed(0)} ms (${importMs.length} runs)`);
 
   // ---- (b) read mix at the target concurrency ----
@@ -448,6 +481,49 @@ export async function runLoad(cfg) {
   }
   log(`revocation: next request ${revocation.nextRequestStatus}, next import ${revocation.nextImportStatus}`);
 
+  // ---- (e) records at the agreed maximum size, then a max-size burst (D8-10, C8-01); last, because a record of 20 MB leaves the server holding memory the earlier phases should not inherit ----
+  const maxBytes = limits.targets.record_bytes_max;
+  const maxMs = [];
+  let maxCommitted = 0;
+  let maxPayloadBytes = 0;
+  await track("max-size runs", maxBytes, async () => {
+    for (let i = 0; i < params.maxRuns; i++) {
+      const n = nextBatch();
+      const sub = users.timed[i % users.timed.length];
+      const pair = sizedVariant(n, maxBytes);
+      maxPayloadBytes = pair.erp.length + pair.lab.length;
+      const t0 = performance.now();
+      const r = await api.call(sub, "POST", "/api/jobs/import", { body: api.importBody(`max-${run}-${n}`, pair), domain: domA });
+      maxMs.push(performance.now() - t0);
+      if (r.status === 200 && r.json?.ok) maxCommitted++;
+      else throw new Error(`max-size import ${i} failed with ${r.status} ${JSON.stringify(r.json?.errors?.[0]?.code ?? r.json?.code)}`);
+    }
+  });
+  log(`max-size records (${maxPayloadBytes} B): p95 ${percentile(maxMs, 95).toFixed(0)} ms over ${maxMs.length} runs, peak RSS ${(phases["max-size runs"].peakRssBytes / 2 ** 20).toFixed(0)} MiB`);
+  const maxBurst = { statuses: {}, committed: 0, retryRounds: 0, durationMs: 0, missingRetryAfter: 0 };
+  await track("max-size burst", maxBytes, async () => {
+    const jobs = Array.from({ length: params.maxBurst }, (_, i) => {
+      const n = nextBatch();
+      return { key: `maxburst-${run}-${n}`, pair: sizedVariant(n, maxBytes), sub: users.burst[i % users.burst.length], final: null };
+    });
+    const t0 = performance.now();
+    const fireMax = async (j) => {
+      const r = await api.call(j.sub, "POST", "/api/jobs/import", { body: api.importBody(j.key, j.pair), domain: domA });
+      maxBurst.statuses[r.status] = (maxBurst.statuses[r.status] ?? 0) + 1;
+      if (r.status === 429 && !(Number(r.retryAfter) >= 1)) maxBurst.missingRetryAfter++;
+      if (r.status === 200 && r.json?.ok) j.final = r.json;
+    };
+    await Promise.all(jobs.map(fireMax));
+    while (jobs.some((j) => !j.final) && maxBurst.retryRounds < 40) {
+      maxBurst.retryRounds++;
+      await sleep(limits.coordinator.retry_after_seconds * 1000);
+      await Promise.all(jobs.filter((j) => !j.final).map(fireMax));
+    }
+    maxBurst.committed = jobs.filter((j) => j.final).length;
+    maxBurst.durationMs = performance.now() - t0;
+  });
+  log(`max-size burst of ${params.maxBurst}: ${JSON.stringify(maxBurst.statuses)}, committed ${maxBurst.committed}, peak RSS ${(phases["max-size burst"].peakRssBytes / 2 ** 20).toFixed(0)} MiB`);
+
   clearInterval(rssTimer);
   await probe();
   const finalMetrics = await probe();
@@ -457,13 +533,22 @@ export async function runLoad(cfg) {
   const importP95 = percentile(importMs, 95);
   const readP95 = percentile(readMs, 95);
   const healthP95 = percentile(healthMs, 95);
+  // Every target is compared with the PINNED value (`limits.targets`), never with a command-line parameter. A bounded in-process run
+  // (`scaledDown`) is smaller than the pinned volume and client count, and says so: only those two targets are scaled, and reported as such.
+  const scaled = cfg.scaledDown === true;
+  const readAll2xx = Object.keys(readStatuses).length > 0 && Object.keys(readStatuses).every((k) => k.startsWith("2"));
+  const maxP95 = percentile(maxMs, 95);
   const checks = [
-    { target: "import_job_p95_ms", limit: t.import_job_p95_ms, measured: round(importP95), pass: importP95 <= t.import_job_p95_ms, note: `p95 of ${importMs.length} complete import jobs (ERP + lab + evidence, committed), at ${committedCount} committed batches` },
+    { target: "import_job_p95_ms", limit: t.import_job_p95_ms, measured: round(importP95), pass: importP95 <= t.import_job_p95_ms, note: `p95 of ${importMs.length} complete import jobs at ${typicalBytes} B (ERP + lab + evidence, committed), at ${committedCount} committed batches` },
+    { target: "import_job_p95_ms_at_record_bytes_max", limit: t.import_job_p95_ms, measured: round(maxP95), pass: maxCommitted === params.maxRuns && maxP95 <= t.import_job_p95_ms, note: `p95 of ${maxMs.length} committed imports of ${maxPayloadBytes} B of source files (record_bytes_max ${maxBytes})` },
     { target: "read_p95_ms", limit: t.read_p95_ms, measured: round(readP95), pass: readP95 <= t.read_p95_ms, note: `p95 of ${readMs.length} reads (records list, record detail, customer PDF) at ${users.read.length} concurrent clients` },
-    { target: "concurrent_clients", limit: t.concurrent_clients, measured: users.read.length, pass: users.read.length >= Math.min(t.concurrent_clients, params.clients), note: "clients that ran the read mix at the same time" },
-    { target: "volume_committed_batches", limit: params.volume, measured: committedCount, pass: committedCount >= params.volume, note: `committed batches across ${domains.length} security domains before measuring` },
+    { target: "reads_all_2xx", limit: "2xx", measured: readStatuses, pass: readAll2xx, note: "every read of the mix answered 2xx; a refused read is a failed read, not a fast one" },
+    { target: "concurrent_clients", limit: t.concurrent_clients, measured: users.read.length, pass: scaled ? users.read.length > 0 : users.read.length >= t.concurrent_clients, note: scaled ? "scaled down (bounded in-process run)" : "clients that ran the read mix at the same time" },
+    { target: "volume_committed_batches", limit: t.volume_committed_batches, measured: committedCount, pass: scaled ? committedCount >= params.volume : committedCount >= t.volume_committed_batches, note: `${scaled ? "scaled down (bounded in-process run); " : ""}committed batches across ${domains.length} security domains before measuring` },
     { target: "max_server_errors", limit: t.max_server_errors, measured: counters.serverErrors, pass: counters.serverErrors <= t.max_server_errors && counters.transportErrors === 0, note: `5xx answers over ${counters.requests} requests; transport errors ${counters.transportErrors}` },
-    { target: "max_rss_bytes", limit: t.max_rss_bytes, measured: peakRss, pass: peakRss > 0 && peakRss <= t.max_rss_bytes, note: "peak resident set size of the server, sampled every 500 ms" },
+    { target: "max_rss_bytes", limit: t.max_rss_bytes, measured: peakRss, pass: peakRss > 0 && peakRss <= t.max_rss_bytes, note: "peak resident set size of the server over the run at typical sizes (volume, timed imports, read mix, burst, revocation), sampled every 250 ms" },
+    { target: "max_rss_bytes_during_max_size_runs", limit: t.max_rss_bytes, measured: Math.max(phases["max-size runs"].peakRssBytes, phases["max-size burst"].peakRssBytes), pass: Math.max(phases["max-size runs"].peakRssBytes, phases["max-size burst"].peakRssBytes) > 0 && Math.max(phases["max-size runs"].peakRssBytes, phases["max-size burst"].peakRssBytes) <= t.max_rss_bytes, note: "peak server RSS while records of record_bytes_max were imported, one after the other and in a burst" },
+    { target: "max_size_burst", limit: params.maxBurst, measured: maxBurst.committed, pass: maxBurst.committed === params.maxBurst && Object.keys(maxBurst.statuses).every((k) => k === "200" || k === "429") && maxBurst.missingRetryAfter === 0 && phases["max-size burst"].serverErrors === 0, note: `${params.maxBurst} concurrent imports of ${maxBytes} B (pinned max_size_burst_jobs ${t.max_size_burst_jobs}): only 200 or 429 with Retry-After, all committed, no 5xx` },
     { target: "burst_only_2xx_or_429", limit: "2xx or 429 with Retry-After", measured: burstStatuses, pass: unexpected.length === 0 && missingRetryAfter === 0 && nonJson === 0 && (firstRound["429"] ?? 0) > 0, note: `${params.burst} concurrent imports into one domain: the first round was refused with 429 for the overflow` },
     { target: "burst_retries_commit_exactly_once", limit: params.burst, measured: committedKeys.size, pass: committedKeys.size === params.burst && lostOrDuplicated === 0, note: `lost or duplicated: ${lostOrDuplicated}; retry rounds ${rounds}` },
     { target: "health_p95_during_burst_ms", limit: t.read_p95_ms, measured: round(healthP95), pass: healthP95 !== null && healthP95 <= t.read_p95_ms, note: `p95 of ${healthMs.length} health probes while the burst ran` },
@@ -483,6 +568,7 @@ export async function runLoad(cfg) {
     note: "ARTIFICIAL-DEMO stand-in for the unnamed customer host (D8-03). Container cgroup enforcement and the real host stay pre-production holds.",
     params,
     measurements: {
+      sizes: { typicalBytes, maxBytes, maxPayloadBytes, phases, maxImportMs: stats(maxMs.length ? maxMs : [0]), maxBurst },
       seed: { batches: seeded.length, durationMs: round(seedMs), perSecond: round(seeded.length / (seedMs / 1000)) },
       importJobMs: stats(importMs),
       importWorkloadMs: stats(workloadMs),
@@ -539,6 +625,8 @@ async function main() {
     clients: Number(arg("clients", limits.targets.concurrent_clients)),
     burst: Number(arg("burst", 64)),
     readIterations: Number(arg("read-iterations", 48)),
+    maxRuns: Number(arg("max-runs", 3)),
+    maxBurst: Number(arg("max-burst", limits.targets.max_size_burst_jobs)),
     revokeAfterMs: 400,
   };
 

@@ -9,11 +9,21 @@ import http from "node:http";
 import http2 from "node:http2";
 import https from "node:https";
 import net, { type AddressInfo } from "node:net";
+import { mkdtempSync, rmSync } from "node:fs";
+import os, { tmpdir } from "node:os";
+import { join } from "node:path";
 import tls from "node:tls";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import allow from "../../config/egress-allowlist.json";
 import { allowlistHosts, egressGuardInstalled, EgressRefusedError, installEgressGuard, type EgressGuardHandle } from "../../server/security/egressGuard";
 import { MONITOR_KEY } from "../support/noEgress";
+import { SqliteAdapter } from "../../server/db/adapter";
+import { migrateUp } from "../../server/db/migrations";
+import { createDppServer } from "../../server/http/api";
+import { PolicyStore } from "../../server/store/policyStore";
+import { createTestIdp } from "../support/oidc";
+import { loadPack } from "../support/records";
+import { TEST_SOFTWARE } from "../support/release";
 
 const HOSTS = ["example.com", "8.8.8.8", "::ffff:8.8.8.8", "0.0.0.0", "169.254.169.254", "2001:4860:4860::8888", "::"];
 const inUrl = (h: string) => (h.includes(":") ? `[${h}]` : h);
@@ -232,6 +242,132 @@ describe("installation is layered, idempotent and reversible", () => {
       // put the monitor and this file's own refuse layer back for the remaining tests and the afterAll hooks
       (globalThis as unknown as Record<symbol, EgressGuardHandle>)[MONITOR_KEY] = installEgressGuard({ allowlist: [], mode: "record" });
       guard = installEgressGuard({ allowlist: [], mode: "refuse" });
+    }
+  });
+});
+
+describe("listening on any local interface still works under the guard (F2)", () => {
+  const lan = Object.values(os.networkInterfaces()).flat().find((i) => i && i.family === "IPv4" && !i.internal)?.address;
+  const hosts = ["0.0.0.0", "127.0.0.1", "localhost", "::", ...(lan ? [lan] : [])];
+
+  it.each(hosts)("a plain server listens on %s and answers over loopback", async (host) => {
+    const server = http.createServer((_q, r) => r.end("up"));
+    try {
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(0, host, resolve);
+      });
+      const { port } = server.address() as AddressInfo;
+      expect(port).toBeGreaterThan(0);
+      // a LAN address is not reachable from here without an outbound connection (which the guard refuses): listening is the proof
+      if (host !== lan) expect(await (await fetch(`http://${host === "localhost" ? "localhost" : "127.0.0.1"}:${port}/`)).text()).toBe("up");
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+    }
+  });
+
+  it("the DPP server in OIDC mode starts on 0.0.0.0 with the guard in refuse mode, and health is 200 over 127.0.0.1", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "dpp-egress-listen-"));
+    const pack = await loadPack();
+    const db = new SqliteAdapter({ path: join(dir, "l.sqlite") });
+    migrateUp(db);
+    new PolicyStore(db).activate(pack.policy.retention);
+    const idp = createTestIdp();
+    const server = createDppServer({ db, pack, software: TEST_SOFTWARE, authMode: "oidc", oidc: idp.oidcConfig, host: "0.0.0.0" });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(0, "0.0.0.0", resolve);
+      });
+      const { port } = server.address() as AddressInfo;
+      const res = await fetch(`http://127.0.0.1:${port}/api/health`);
+      expect(res.status).toBe(200);
+      // outbound is still refused while the server is up
+      refusedSync(() => net.connect({ host: "example.com", port: 80 }));
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+      db.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("the resolved address is checked, not only the host name (F1)", () => {
+  const LAN = "10.255.255.1";
+  /** A custom lookup that points any name at an address. Asynchronous, so a test can destroy the socket before it is used. */
+  const pointTo = (address: string) =>
+    ((_h: string, o: { all?: boolean }, cb: (e: null, a: unknown, f?: number) => void) =>
+      process.nextTick(() => (o?.all ? cb(null, [{ address, family: address.includes(":") ? 6 : 4 }]) : cb(null, address, address.includes(":") ? 6 : 4)))) as never;
+  const error = (emitter: { once(e: "error", f: (x: unknown) => void): unknown }) => new Promise<unknown>((resolve) => emitter.once("error", resolve));
+
+  it.each([LAN, "192.168.1.5", "169.254.169.254", "8.8.8.8", "0.0.0.0", "::ffff:10.0.0.1", "fe80::1", "2001:4860:4860::8888"])("refuse: net.connect to localhost resolved to %s fails closed", async (addr) => {
+    const s = net.connect({ host: "localhost", port: 9, lookup: pointTo(addr) });
+    expect(await error(s)).toBeInstanceOf(EgressRefusedError);
+    const s2 = new net.Socket().connect({ host: "localhost", port: 9, lookup: pointTo(addr) });
+    expect(await error(s2)).toBeInstanceOf(EgressRefusedError);
+  });
+
+  it("refuse: http.get and http.request with a custom lookup to a LAN address fail closed", async () => {
+    const req = http.get({ host: "localhost", port: 9, lookup: pointTo(LAN) });
+    expect(await error(req)).toBeInstanceOf(EgressRefusedError);
+    const req2 = http.request({ hostname: "localhost", port: 9, lookup: pointTo(LAN), agent: false });
+    req2.end();
+    expect(await error(req2)).toBeInstanceOf(EgressRefusedError);
+    const req3 = https.get({ host: "localhost", port: 9, lookup: pointTo(LAN) });
+    expect(await error(req3)).toBeInstanceOf(EgressRefusedError);
+  });
+
+  it("refuse: tls.connect with a custom lookup to a LAN address fails closed", async () => {
+    const s = tls.connect({ host: "localhost", port: 9, lookup: pointTo(LAN) });
+    expect(await error(s)).toBeInstanceOf(EgressRefusedError);
+  });
+
+  it("refuse: a lookup that returns several addresses is refused when any one is external", async () => {
+    const mixed = ((_h: string, _o: unknown, cb: (e: null, a: unknown) => void) => process.nextTick(() => cb(null, [{ address: "127.0.0.1", family: 4 }, { address: LAN, family: 4 }]))) as never;
+    const s = net.connect({ host: "localhost", port: 9, lookup: mixed });
+    expect(await error(s)).toBeInstanceOf(EgressRefusedError);
+  });
+
+  it("a loopback answer from a custom lookup is fine, and an allow-listed name may resolve anywhere", async () => {
+    const server = net.createServer((c) => c.end());
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    const { port } = server.address() as AddressInfo;
+    await new Promise<void>((resolve, reject) => {
+      const s = net.connect({ host: "localhost", port, lookup: pointTo("127.0.0.1") }, () => {
+        s.destroy();
+        resolve();
+      });
+      s.on("error", reject);
+    });
+    await new Promise<void>((r) => server.close(() => r()));
+    const allowed = installEgressGuard({ allowlist: ["allowed.example"], mode: "refuse" });
+    try {
+      const s = net.connect({ host: "allowed.example", port: 9, lookup: pointTo(LAN) });
+      s.on("error", () => undefined);
+      s.destroy(); // before the lookup answers: nothing is sent
+      await new Promise((r) => setTimeout(r, 20));
+      expect(allowed.attempts).toEqual([]);
+    } finally {
+      allowed();
+    }
+  });
+
+  it("record mode (the Vitest monitor): the dialled address is recorded; the socket is destroyed before it can connect", async () => {
+    const rec = installEgressGuard({ allowlist: [], mode: "record" });
+    try {
+      const s = net.connect({ host: "localhost", port: 9, lookup: pointTo(LAN) });
+      s.on("error", () => undefined);
+      s.destroy();
+      const req = http.get({ host: "localhost", port: 9, lookup: pointTo("192.168.7.7") });
+      req.on("error", () => undefined);
+      req.destroy();
+      await new Promise((r) => setTimeout(r, 30));
+      const hosts = rec.attempts.map((a) => a.host);
+      expect(hosts).toContain(LAN);
+      expect(hosts).toContain("192.168.7.7");
+      expect(rec.attempts.every((a) => a.api.startsWith("net."))).toBe(true);
+    } finally {
+      rec();
     }
   });
 });

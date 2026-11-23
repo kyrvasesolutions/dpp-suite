@@ -37,6 +37,8 @@ export const OperationalLimitsSchema = z
         total_staging_max_bytes: PosInt,
         execution_memory_max_bytes: PosInt,
         cancellation_poll_max_ms: PosInt,
+        /** A job stopped by TIMEOUT or CANCELLED is terminated (its worker is killed) within this time (D8-10). */
+        forced_termination_max_ms: PosInt,
         /** The server never retries on its own; clients retry with the same idempotency key. */
         retry_count: z.literal(0),
       })
@@ -69,6 +71,10 @@ export const OperationalLimitsSchema = z
         volume_committed_batches: PosInt,
         max_server_errors: z.literal(0),
         max_rss_bytes: PosInt,
+        /** Agreed record sizes for the load run (D8-10): a typical record and the largest one the pair cap allows. */
+        record_bytes_typical: PosInt,
+        record_bytes_max: PosInt,
+        max_size_burst_jobs: PosInt,
       })
       .strict(),
     note: z.string().min(1),
@@ -93,6 +99,7 @@ export const LIMIT_NAMES = [
   "max_parser_nodes_per_job",
   "max_output_bytes_per_route",
   "total_staging_max_bytes",
+  "execution_memory_max_bytes",
   "max_request_body_bytes",
   "queue_full",
   "rate_window",

@@ -67,11 +67,13 @@ interface Layer {
 interface State {
   layers: Layer[];
   restore: Array<() => void>;
+  /** Depth of `net.Server.listen` calls in progress on this thread: their lookups resolve a LOCAL bind address, not a destination. */
+  listening: number;
 }
 
 const KEY = Symbol.for("dpp.egressGuard.state");
 const g = globalThis as unknown as Record<symbol, State | undefined>;
-const state = (): State => (g[KEY] ??= { layers: [], restore: [] });
+const state = (): State => (g[KEY] ??= { layers: [], restore: [], listening: 0 });
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyFn = (...args: any[]) => any;
@@ -88,9 +90,86 @@ function check(api: string, host: unknown): void {
   if (layer.mode === "refuse") throw new EgressRefusedError(api, h);
 }
 
+const declaredAllowlisted = (layer: Layer, declared: string) => layer.allowlist.some((a) => typeof a === "string" && a.toLowerCase() === declared.toLowerCase());
+
+/**
+ * Checks an address a connection resolved to or is dialling (F1). A name on the allow-list may resolve anywhere; any other
+ * destination must resolve to loopback or an allowed address, so a custom `lookup` cannot send "localhost" to a LAN host.
+ * Returns the refusal (refuse mode) or null (allowed, or recorded in record mode).
+ */
+function checkResolved(api: string, declared: string, address: unknown): EgressRefusedError | null {
+  const s = state();
+  const layer = s.layers[s.layers.length - 1];
+  if (!layer || declaredAllowlisted(layer, declared)) return null;
+  const addr = typeof address === "string" && address.length > 0 ? address : "(none)";
+  if (decideEgress(addr, layer.allowlist) === "allow") return null;
+  layer.attempts.push({ api, host: addr.slice(0, 120) });
+  return layer.mode === "refuse" ? new EgressRefusedError(api, addr) : null;
+}
+
+type LookupFn = (host: string, opts: unknown, cb: (...r: unknown[]) => void) => unknown;
+
+/** Wraps a `lookup` function so every address it returns is checked; a denied address fails the lookup. */
+function guardLookup(inner: LookupFn | undefined, declared: string): LookupFn {
+  const base: LookupFn = inner ?? ((h, o, cb) => (dns.lookup as unknown as LookupFn)(h, o, cb));
+  return (host, opts, cb) => {
+    let options = opts;
+    let done = cb;
+    if (typeof opts === "function") {
+      done = opts as typeof cb;
+      options = {};
+    }
+    return base(host, options, (...r: unknown[]) => {
+      const [err, address] = r;
+      if (!err) {
+        const list = Array.isArray(address) ? address.map((x) => (x && typeof x === "object" ? (x as { address?: unknown }).address : x)) : [address];
+        for (const a of list) {
+          const refusal = checkResolved("net.lookup", declared, a);
+          if (refusal) return done(refusal);
+        }
+      }
+      return done(...r);
+    });
+  };
+}
+
+/** Rewrites Socket#connect arguments so the connection resolves through the guarded lookup. */
+function withGuardedLookup(args: unknown[], declared: string): unknown[] {
+  const a0 = args[0];
+  if (Array.isArray(a0) && a0[0] !== null && typeof a0[0] === "object") {
+    // already normalised by net.createConnection: keep the marker symbols
+    const opts = { ...(a0[0] as Bag) };
+    opts.lookup = guardLookup(opts.lookup as LookupFn | undefined, declared);
+    const n = [opts, ...a0.slice(1)] as unknown[] & Bag;
+    for (const sym of Object.getOwnPropertySymbols(a0)) (n as unknown as Record<symbol, unknown>)[sym] = (a0 as unknown as Record<symbol, unknown>)[sym];
+    return [n, ...args.slice(1)];
+  }
+  if (a0 !== null && typeof a0 === "object") {
+    const opts = { ...(a0 as Bag) };
+    opts.lookup = guardLookup(opts.lookup as LookupFn | undefined, declared);
+    return [opts, ...args.slice(1)];
+  }
+  // (port[, host][, cb]) form
+  const rest = args.slice(1);
+  const host = typeof rest[0] === "string" ? (rest.shift() as string) : undefined;
+  return [{ port: a0, ...(host !== undefined ? { host } : {}), lookup: guardLookup(undefined, declared) }, ...rest];
+}
+
+/** Last line of defence: the address a socket is actually dialling or connected to. */
+function watchSocket(socket: net.Socket, declared: string): void {
+  socket.on("connectionAttempt", (ip: string) => {
+    const refusal = checkResolved("net.connectionAttempt", declared, ip);
+    if (refusal) socket.destroy(refusal);
+  });
+  socket.on("connect", () => {
+    const refusal = checkResolved("net.remoteAddress", declared, socket.remoteAddress);
+    if (refusal) socket.destroy(refusal);
+  });
+}
+
 /** net.connect argument normalisation (same rules as Node): returns the host, or null for a local IPC path. */
 function netTarget(args: unknown[]): string | null | undefined {
-  const a0 = args[0];
+  const a0 = Array.isArray(args[0]) ? (args[0] as unknown[])[0] : args[0];
   if (a0 !== null && typeof a0 === "object") {
     const o = a0 as { path?: unknown; host?: unknown; port?: unknown };
     if (typeof o.path === "string" && o.path.length > 0 && o.port === undefined) return null;
@@ -178,10 +257,24 @@ function applyPatches(): void {
     if (t !== null) check("net.createConnection", t);
     return orig.apply(this, a);
   });
-  patch(net.Socket.prototype, "connect", (orig) => function (this: unknown, ...a: unknown[]) {
+  patch(net.Socket.prototype, "connect", (orig) => function (this: net.Socket, ...a: unknown[]) {
     const t = netTarget(a);
-    if (t !== null) check("net.Socket.connect", t);
-    return orig.apply(this, a);
+    if (t === null) return orig.apply(this, a);
+    check("net.Socket.connect", t);
+    const host = t ?? "localhost";
+    const result = orig.apply(this, withGuardedLookup(a, host));
+    watchSocket(this, host);
+    return result;
+  });
+  // A listening server resolves its own bind address (any local interface, 0.0.0.0, a LAN IP): that is not a destination.
+  patch(net.Server.prototype, "listen", (orig) => function (this: unknown, ...a: unknown[]) {
+    const st = state();
+    st.listening++;
+    try {
+      return orig.apply(this, a);
+    } finally {
+      st.listening--;
+    }
   });
   patch(tls, "connect", (orig) => function (this: unknown, ...a: unknown[]) {
     const a0 = a[0];
@@ -206,7 +299,7 @@ function applyPatches(): void {
 
   // name resolution
   patch(dns, "lookup", (orig) => function (this: unknown, ...a: unknown[]) {
-    check("dns.lookup", a[0]);
+    if (state().listening === 0) check("dns.lookup", a[0]);
     return orig.apply(this, a);
   });
   patch(dns.promises, "lookup", (orig) => async function (this: unknown, ...a: unknown[]) {

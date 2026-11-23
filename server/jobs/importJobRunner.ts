@@ -55,6 +55,7 @@ import { OPERATOR, REASON_FIRST, REASON_REIMPORT, type Snapshot } from "../../sr
 import type { DbAdapter, SqlParam } from "../db/adapter";
 import { PolicyStore } from "../store/policyStore";
 import { SqlEvidenceStore, type PutEvidenceRequest } from "../store/sqlEvidenceStore";
+import { IngressExecutionError, type IngressRunner } from "./ingressRunner";
 import { SqlLogStore } from "../store/sqlLogStore";
 import { CLASSIFICATIONS } from "../../src/model/classification";
 import { recordDigestSync, sha256Sync, SqlRecordRepository } from "../store/sqlRepository";
@@ -116,6 +117,10 @@ export interface ImportJobControl {
   /** The pinned OPERATIONAL-LIMITS execution budgets. */
   limits: OperationalLimits["execution"];
   submitterSub: string;
+  /** Runs the ingress of the job in a worker thread (D8-10). Absent: in-process, as the in-process callers of Cycles 6 and 7 do. */
+  ingress?: IngressRunner;
+  /** Test-only seam: a synchronous busy loop inside the worker before ingress, in ms. */
+  spinMs?: number;
   /** Called once the job exists (claimed), so a cancel request can find it. */
   onClaimed?: (jobId: string) => void;
   /**
@@ -589,7 +594,9 @@ export class ImportJobRunner {
     if (claimed.kind === "inflight") return claimed.promise;
     if (req.control) {
       this.db.run(
-        "INSERT OR IGNORE INTO job_submitters (job_id, security_domain, submitter_sub, recorded_at) VALUES (?, ?, ?, ?)",
+        `INSERT INTO job_submitters (job_id, claim_seq, security_domain, submitter_sub, recorded_at)
+         VALUES (?, COALESCE((SELECT MAX(claim_seq) FROM job_submitters WHERE job_id = ?), 0) + 1, ?, ?, ?)`,
+        claimed.jobId,
         claimed.jobId,
         this.securityDomain,
         req.control.submitterSub,
@@ -670,6 +677,18 @@ export class ImportJobRunner {
     control.budget.check(stage);
   }
 
+  /** The ingress worker died: the job fails with the fixed `execution-failed` code (OVER_LIMIT when it ran out of memory) and commits nothing. */
+  private failJobExecution(jobId: string, inputKey: string, e: IngressExecutionError): ImportJobOutcome {
+    this.failJob(jobId, inputKey, "execution-failed", "parse");
+    return {
+      ok: false,
+      job: this.getJob(jobId)!,
+      events: this.getJobEvents(jobId),
+      errors: [ingressIssue("parse", "execution-failed", "job")],
+      ...(e.kind === "oom" ? { outcome: "OVER_LIMIT" as const, limit: "execution_memory_max_bytes" as const } : {}),
+    };
+  }
+
   /** A job-level budget refusal: the job fails with the given code and nothing is written to the log or the store. */
   private refuseOverLimit(jobId: string, inputKey: string, limit: LimitName, stage: Stage, location: string): ImportJobOutcome {
     this.failJob(jobId, inputKey, "too-large", stage);
@@ -686,8 +705,9 @@ export class ImportJobRunner {
   // ---- cancellation record (access-controlled; never in the public log) ----
 
   getSubmitter(jobId: string): string | null {
+    // The submitter of the current run (the latest claim) of the job.
     const row = this.db.get<{ submitter_sub: string }>(
-      "SELECT submitter_sub FROM job_submitters WHERE security_domain = ? AND job_id = ?",
+      "SELECT submitter_sub FROM job_submitters WHERE security_domain = ? AND job_id = ? ORDER BY claim_seq DESC LIMIT 1",
       this.securityDomain,
       jobId,
     );
@@ -696,9 +716,11 @@ export class ImportJobRunner {
 
   /** Records the first cancel request of a job. A repeat changes nothing and keeps the first reason. */
   recordCancellation(jobId: string, requestedBy: string, reason: string): void {
+    if (this.getCancellation(jobId)) return; // append-only: the first cancel of a run keeps its reason
     this.db.run(
-      `INSERT OR IGNORE INTO job_cancellations (job_id, security_domain, requested_by, reason, outcome, requested_at)
-       VALUES (?, ?, ?, ?, 'CANCELLED', ?)`,
+      `INSERT INTO job_cancellations (job_id, claim_seq, security_domain, requested_by, reason, outcome, requested_at)
+       VALUES (?, COALESCE((SELECT MAX(claim_seq) FROM job_submitters WHERE job_id = ?), 1), ?, ?, ?, 'CANCELLED', ?)`,
+      jobId,
       jobId,
       this.securityDomain,
       requestedBy,
@@ -709,7 +731,10 @@ export class ImportJobRunner {
 
   getCancellation(jobId: string): { requestedBy: string; reason: string; requestedAt: string; outcome: "CANCELLED" } | null {
     const row = this.db.get<{ requested_by: string; reason: string; requested_at: string; outcome: "CANCELLED" }>(
-      "SELECT requested_by, reason, requested_at, outcome FROM job_cancellations WHERE security_domain = ? AND job_id = ?",
+      // Only the cancel of the current run: a retry that committed does not show the cancel of an earlier run.
+      `SELECT requested_by, reason, requested_at, outcome FROM job_cancellations
+       WHERE security_domain = ? AND job_id = ?
+         AND claim_seq = COALESCE((SELECT MAX(claim_seq) FROM job_submitters WHERE job_id = job_cancellations.job_id), 1)`,
       this.securityDomain,
       jobId,
     );
@@ -758,30 +783,55 @@ export class ImportJobRunner {
     const envelope = resolveCallerTimeEnvelope(req.timeEnvelope, this.now());
     // One monotonic clock for the job's start and for the ingress deadline that is measured against it.
     const startedAt = this.clock();
-    const ingressControl = control
-      ? {
-          budget: control.budget,
-          limits: {
-            maxFileBytes: control.limits.source_file_max_bytes,
-            maxJsonDepth: control.limits.max_nesting_depth,
-            maxRows: control.limits.max_records_per_job,
-            maxParserNodes: control.limits.max_parser_nodes_per_job,
-            deadlineMs: control.limits.job_deadline_ms,
+    let erpRes: ImportResult;
+    let labRes: ImportResult | undefined;
+    let prebuilt: Awaited<ReturnType<typeof buildRecords>> | undefined;
+    if (control?.ingress) {
+      // Ingress runs in a worker thread: the main thread can terminate it on TIMEOUT or CANCELLED (D8-10).
+      try {
+        const out = await control.ingress.run(
+          {
+            pack: this.pack,
+            actor,
+            erp: req.erp,
+            ...(req.lab ? { lab: req.lab } : {}),
+            limits: {
+              maxFileBytes: control.limits.source_file_max_bytes,
+              maxJsonDepth: control.limits.max_nesting_depth,
+              maxRows: control.limits.max_records_per_job,
+              maxParserNodes: control.limits.max_parser_nodes_per_job,
+            },
+            ...(control.spinMs ? { spinMs: control.spinMs } : {}),
           },
-        }
-      : {};
-    const erpRes: ImportResult = await importErpCsv(
-      this.pack,
-      { bytes: req.erp.bytes, name: req.erp.name, type: req.erp.type, startedAt, now: this.clock, ...ingressControl },
-      actor,
-    );
-    const labRes: ImportResult | undefined = req.lab
-      ? await importLabJson(
-          this.pack,
-          { bytes: req.lab.bytes, name: req.lab.name, type: req.lab.type, startedAt, now: this.clock, ...ingressControl },
-          actor,
-        )
-      : undefined;
+          control.budget,
+        );
+        ({ erpRes, labRes, built: prebuilt } = out);
+      } catch (e) {
+        if (e instanceof IngressExecutionError) return this.failJobExecution(jobId, inputKey, e);
+        throw e;
+      }
+    } else {
+      const ingressControl = control
+        ? {
+            budget: control.budget,
+            limits: {
+              maxFileBytes: control.limits.source_file_max_bytes,
+              maxJsonDepth: control.limits.max_nesting_depth,
+              maxRows: control.limits.max_records_per_job,
+              maxParserNodes: control.limits.max_parser_nodes_per_job,
+              deadlineMs: control.limits.job_deadline_ms,
+            },
+          }
+        : {};
+      erpRes = await importErpCsv(
+        this.pack,
+        { bytes: req.erp.bytes, name: req.erp.name, type: req.erp.type, startedAt, now: this.clock, ...ingressControl },
+        actor,
+      );
+      labRes = req.lab
+        ? await importLabJson(this.pack, { bytes: req.lab.bytes, name: req.lab.name, type: req.lab.type, startedAt, now: this.clock, ...ingressControl }, actor)
+        : undefined;
+    }
 
     if (!erpRes.ok || (labRes && !labRes.ok)) {
       const errors: IngressIssue[] = [
@@ -801,7 +851,7 @@ export class ImportJobRunner {
       };
     }
 
-    const built = await buildRecords(labRes ? [erpRes, labRes] : [erpRes]);
+    const built = prebuilt ?? (await buildRecords(labRes ? [erpRes, labRes] : [erpRes]));
     const incoming = built.records[0];
     if (!incoming) {
       this.failJob(jobId, inputKey, "no-rows", "structure");
@@ -935,7 +985,7 @@ export class ImportJobRunner {
       try {
         // before-commit crashes INSIDE the commit transaction, after every row is written and before COMMIT:
         // everything rolls back and only the staged payload remains.
-        const outcome = this.commitStagedJob(jobId, false, req.injectCrashAt === "before-commit", control?.budget);
+        const outcome = this.commitStagedJob(jobId, false, req.injectCrashAt === "before-commit", control?.budget, staged);
         if (req.injectCrashAt === "after-commit") {
           throw new SimulatedCrashError("after-commit");
         }
@@ -978,7 +1028,7 @@ export class ImportJobRunner {
    * Atomically commits a job currently in `stage = 'staged'` inside a single `BEGIN IMMEDIATE`
    * transaction. Used both for normal completion and for crash recovery (`recovered = true`).
    */
-  private commitStagedJob(jobId: string, recovered: boolean, crashBeforeCommit = false, budget?: JobBudget): ImportJobOutcome {
+  private commitStagedJob(jobId: string, recovered: boolean, crashBeforeCommit = false, budget?: JobBudget, inMemory?: StagedPayload): ImportJobOutcome {
     const activePolicy = this.policies.requireActive();
 
     let committed;
@@ -987,8 +1037,16 @@ export class ImportJobRunner {
         // Promotion is revoked once a cancel or the deadline has tripped: a stopped job never commits (D8-02).
         // The whole commit runs synchronously inside this transaction, so no cancel can land between this check and the COMMIT.
         budget?.assertMayCommit();
+        // The normal path commits the payload it has just staged, so it neither reads the durable copy back (a second copy of a record that
+        // can be 20 MB) nor parses it. Recovery has no in-memory copy and reads and verifies the durable one.
         const row = this.db.get<JobRow>(
-          "SELECT * FROM import_jobs WHERE security_domain = ? AND job_id = ?",
+          inMemory
+            ? `SELECT job_id, security_domain, idempotency_key, actor, state, stage, classification, retention_policy_pin, erp_sha256, lab_sha256,
+                      input_key, owner, model, batch, expected_version, result_version, result_snapshot_digest, error_code, error_stage,
+                      created_at, updated_at, committed_at,
+                      CASE WHEN staged_payload_json IS NULL THEN NULL ELSE 'staged' END AS staged_payload_json
+               FROM import_jobs WHERE security_domain = ? AND job_id = ?`
+            : "SELECT * FROM import_jobs WHERE security_domain = ? AND job_id = ?",
           this.securityDomain,
           jobId,
         );
@@ -1000,9 +1058,9 @@ export class ImportJobRunner {
           );
         }
 
-        const staged = JSON.parse(row.staged_payload_json) as StagedPayload;
-        // Integrity verify the staged record before committing
-        if (recordDigestSync(staged.record) !== staged.record.digest) {
+        const staged = inMemory ?? (JSON.parse(row.staged_payload_json) as StagedPayload);
+        // Integrity verify the durable staged record before committing (the in-memory one was built a moment ago, by this code)
+        if (!inMemory && recordDigestSync(staged.record) !== staged.record.digest) {
           throw new Error(`STAGED_DIGEST_MISMATCH:${jobId}`);
         }
 

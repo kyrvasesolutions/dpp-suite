@@ -5,6 +5,8 @@ export interface LoadParams {
   clients: number;
   burst: number;
   readIterations: number;
+  maxRuns: number;
+  maxBurst: number;
   revokeAfterMs?: number;
 }
 
@@ -35,10 +37,13 @@ export interface LoadConfig {
   limits: any;
   params: LoadParams;
   mode?: string;
+  /** A bounded run smaller than the pinned volume and client count; only those two targets are scaled, and the report says so. */
+  scaledDown?: boolean;
   log?(message: string): void;
 }
 
 export function runLoad(cfg: LoadConfig): Promise<LoadReport>;
 export function percentile(values: number[], p: number): number | null;
 export function readOperationalLimits(pack?: string): any;
+export function sizedVariant(n: number, totalBytes: number, fixtures?: string): { batch: string; erp: Buffer; lab: Buffer };
 export function variant(n: number, fixtures?: string): { batch: string; erp: Buffer; lab: Buffer };

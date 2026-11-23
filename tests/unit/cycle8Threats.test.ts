@@ -21,7 +21,7 @@ import { PolicyStore } from "../../server/store/policyStore";
 import { PUBLIC_LOG_FIELDS, toPublicLogLine, type PublicLogEntry } from "../../src/model/c8Contracts";
 import { importErpCsv, importLabJson } from "../../src/model/ingress";
 import { buildErpCsv, csvCell } from "../../src/model/outputs/erpCsv";
-import { safeName } from "../../src/model/outputs/types";
+import { safeName, safePart, SAFE_NAME_MAX } from "../../src/model/outputs/types";
 import type { ProfilePack } from "../../src/model/profile";
 import { JsonSyntaxError, parseStrictJson, toPlain } from "../../src/model/strictJson";
 import { fixtureBytes } from "../support/fixtures";
@@ -660,6 +660,20 @@ describe("path traversal", () => {
     }
     expect(snapshot()).toEqual(before);
     for (const p of [join(tmp, "pwned.csv"), join(tmp, "..", "pwned.csv"), "/tmp/pwned.csv"]) expect(() => readdirSync(p)).toThrow();
+  });
+
+  it("safeName is linear and capped: a 60k-dash identifier takes milliseconds and gives a short name (V4-02)", () => {
+    for (const hostile of ["-".repeat(60_000) + "x", "a" + "-".repeat(60_000), "-".repeat(60_000), ("!-").repeat(60_000), "x".repeat(60_000), "é".repeat(60_000)]) {
+      const started = performance.now();
+      const n = safeName("erp-staging", hostile, hostile);
+      expect(performance.now() - started).toBeLessThan(100);
+      expect(n.length).toBeLessThanOrEqual(SAFE_NAME_MAX);
+      expect(n).toMatch(/^[A-Za-z0-9._-]*$/);
+    }
+    expect(safePart("-".repeat(60_000) + "x" + "-".repeat(60_000))).toBe("x");
+    // normal identifiers are unchanged, so the golden file names stay identical
+    expect(safeName("erp-staging", "PM-5754-H111-2000", "B-2026-0417")).toBe("erp-staging_PM-5754-H111-2000_B-2026-0417");
+    expect(safePart("--a b--c--")).toBe("a-b--c");
   });
 
   it("generated file names are reduced to safe characters and never contain a separator or dot-dot segment", () => {

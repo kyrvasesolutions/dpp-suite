@@ -1005,7 +1005,7 @@
       "holds": [],
       "mediaType": "application/pdf",
       "route": "customer-pdf",
-      "sha256": "5925613d15b9f91da9b2c1c5db6fa32c1850999d8300f3349c82bd6a6898ea9a",
+      "sha256": "452df5608721804d7c67ae6190743455fd4398ee5586188797e1595ffd271420",
       "status": "ready"
     },
     {
@@ -1031,7 +1031,7 @@
     }
   ],
   "pack": {
-    "manifestDigest": "af68adcafcb52ce080a8038a30252a89e3d60a29d801c5caa8a68b4175437eb6",
+    "manifestDigest": "f947ec684409959625f8d9c482d88e39e9962d474fef48d2e5b85486cd11e38b",
     "pins": {
       "codeLists": [
         {
@@ -1131,7 +1131,7 @@
           "ref": "EXCEPTIONS@1.0.0"
         },
         {
-          "digest": "cb3f281daedb4728203e2e173a1e35966a5c3b48665e06110799cdb30c4841b3",
+          "digest": "a8c327c1f0c019b840f56d4c0939312c4374831de554baa2e064fb5c3033e4c4",
           "path": "policy/OPERATIONAL-LIMITS@1.0.0.yaml",
           "ref": "OPERATIONAL-LIMITS@1.0.0"
         }
@@ -1188,6 +1188,6 @@
     "name": "dpp-traceability",
     "version": "0.0.0-golden"
   },
-  "substantiveDigest": "286613032ed741000d29d3bf1a4e00ad7f036277a4c85f4a1362be56235dc5f9",
+  "substantiveDigest": "13d96fdd05709f83e8c7d89a9fc5b76d1167dc998619ee31dbd1bc9f319c6712",
   "version": 1
 }
