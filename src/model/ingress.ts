@@ -902,7 +902,7 @@ const same = (a: Assertion, b: Assertion) => (typeof a.value === "number" && typ
  * Combines accepted imports into one record per product model and batch (FUNC-065 references). When two
  * sources state different values for the same property, both stay and the value is challenged (C2-05).
  */
-export async function buildRecords(results: ImportResult[]): Promise<RecordState> {
+export async function buildRecords(results: ImportResult[], digestOf: (state: object) => string | Promise<string> = (state) => sha256Hex(canonical(state))): Promise<RecordState> {
   const accepted = results.filter((r): r is Extract<ImportResult, { ok: true }> => r.ok);
   const erp = accepted.filter((r) => r.file.role === "erp");
   const lab = accepted.filter((r) => r.file.role === "lab");
@@ -927,7 +927,7 @@ export async function buildRecords(results: ImportResult[]): Promise<RecordState
         });
       const sources = [e.file, ...labs.map((l) => l.file)];
       const state = { model: ref.model, batch: ref.batch, sources, values };
-      records.push({ ...state, digest: await sha256Hex(canonical(state)) });
+      records.push({ ...state, digest: await digestOf(state) });
     }
   }
   for (const l of lab) if (!attachedLab.has(l)) unattached.push(...l.assertions);

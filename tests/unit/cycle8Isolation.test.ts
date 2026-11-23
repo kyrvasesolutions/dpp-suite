@@ -43,6 +43,14 @@ function maxPairBody(key: string): string {
   });
 }
 
+/**
+ * The records of this suite's worker tests are the S4 maximum (20 MiB), which the server pinned at `server_record_max_bytes` refuses (D8-11).
+ * They are about the isolation of a large parse, not about the pin, so their server is configured for that size.
+ */
+const MAX_RECORD_SERVER: Parameters<typeof startC8Server>[0] = {
+  patch: { coordinator: { server_record_max_bytes: 20971520, max_inflight_record_bytes: 2 * 20971520 } as never },
+};
+
 const OP = [{ sub: "op-1", roles: ["ACT-01" as const] }, { sub: "op-2", roles: ["ACT-01" as const] }, { sub: "admin-1", roles: ["ADMIN" as const] }];
 
 describe("1. worker isolation of ingress (D8-10)", () => {
@@ -50,7 +58,7 @@ describe("1. worker isolation of ingress (D8-10)", () => {
 
   it("cancel during a real max-size synchronous parse terminates the worker within forced_termination_max_ms", async () => {
     const ingress = new IngressRunner({ limits: limitsWith(await loadPack()) });
-    const s = await start({ mode: "oidc", users: OP, extra: { testHooks: { ingress } } });
+    const s = await start({ ...MAX_RECORD_SERVER, mode: "oidc", users: OP, extra: { testHooks: { ingress } } });
     const op = s.token("op-1");
     const body = maxPairBody("real-parse");
     const t0 = performance.now();
@@ -90,7 +98,9 @@ describe("1. worker isolation of ingress (D8-10)", () => {
   it("a worker that runs out of memory fails the job with execution-failed and outcome OVER_LIMIT; the slot is free and nothing is committed", async () => {
     const s = await start({ patch: { execution: { execution_memory_max_bytes: 64 * 1024 * 1024 } as never } });
     const before = s.state();
-    const body = maxPairBody("oom");
+    // A file of the pinned record size (2 MiB) made only of line breaks: two million rows, each an array in the worker's heap. The worker's
+    // heap is a quarter of the execution memory (32 MB here), so the parse runs out of memory long before any row limit is looked at.
+    const body = JSON.stringify({ idempotencyKey: "oom", erp: { name: "d03a-erp-extract.csv", type: "text/csv", base64: Buffer.from(`model\n${"\n".repeat(2 * 1024 * 1024 - 8)}`).toString("base64") } });
     const res = await post(s, "/api/jobs/import", body);
     const answer = await json(res);
     expect(res.status).toBe(422);
@@ -171,12 +181,16 @@ describe("2. memory before admission (V2-01)", () => {
     return { statuses, base, peak };
   }
 
+  // The largest body at which the coordinator still runs two jobs at once: half the in-flight byte budget (D8-11), so the slots and the queue
+  // of one domain (2 + 8) are all usable, as they are for 29 MB bodies before the budget existed.
+  const readableBody = async () => Math.floor((await loadPack()).operationalLimits.coordinator.max_inflight_record_bytes / 2);
+
   for (const n of [1, 4, 8, 12]) {
-    it(`${n} concurrent 29 MB bodies keep the server's RSS inside max_rss_bytes (the place is taken before the body is read)`, async () => {
+    it(`${n} concurrent bodies of half the in-flight budget keep the server's RSS inside max_rss_bytes (the place is taken before the body is read)`, async () => {
       // a fresh server process per N, so each peak is that run's own and not what earlier runs left behind
       const child: Child = await startChild({ admin: "admin-1", users: [1, 2, 3, 4].map((i) => ({ sub: `op-${i}`, roles: ["ACT-01"] })) });
       try {
-        const { statuses, base, peak } = await flood(child, n, 29 * 1024 * 1024);
+        const { statuses, base, peak } = await flood(child, n, await readableBody());
         const tally = statuses.reduce((a: Record<string, number>, x) => ((a[x] = (a[x] ?? 0) + 1), a), {});
         out(`N=${n}: ${JSON.stringify(tally)} server baseline ${(base / 2 ** 20).toFixed(0)} MiB, peak ${(peak / 2 ** 20).toFixed(0)} MiB`);
         expect(peak).toBeLessThanOrEqual(536870912); // targets.max_rss_bytes
@@ -187,6 +201,21 @@ describe("2. memory before admission (V2-01)", () => {
         await child.stop();
       }
     }, 120_000);
+  }
+
+  for (const n of [1, 4, 12]) {
+    it(`${n} concurrent 29 MB bodies are refused 413 before a byte of them is read, and the server's RSS stays flat (D8-11)`, async () => {
+      const child: Child = await startChild({ admin: "admin-1", users: [1, 2, 3, 4].map((i) => ({ sub: `op-${i}`, roles: ["ACT-01"] })) });
+      try {
+        const { statuses, base, peak } = await flood(child, n, 29 * 1024 * 1024);
+        out(`29 MB x ${n} refused: ${JSON.stringify(statuses)} baseline ${(base / 2 ** 20).toFixed(0)} MiB, peak ${(peak / 2 ** 20).toFixed(0)} MiB`);
+        // a refused upload that is still sending may see its connection reset before it reads the answer; one that reads it sees 413
+        for (const st of statuses) expect(st, st).toMatch(/^(error|HTTP\/1\.1 413.*)$/);
+        expect(peak - base).toBeLessThan(64 * 1024 * 1024); // nothing of the 29 MB bodies was buffered
+      } finally {
+        await child.stop();
+      }
+    }, 60_000);
   }
 
   it("a queue-full import is refused before its body is read", async () => {
@@ -201,7 +230,7 @@ describe("2. memory before admission (V2-01)", () => {
       const c = connect(s.port, "127.0.0.1");
       let d = "";
       c.on("data", (x) => ((d += x.toString()), resolve(d.split("\r\n")[0]!), c.destroy()));
-      c.on("connect", () => c.write(`POST /api/jobs/import HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer ${op}\r\nContent-Type: application/json\r\nContent-Length: 20000000\r\n\r\n`));
+      c.on("connect", () => c.write(`POST /api/jobs/import HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer ${op}\r\nContent-Type: application/json\r\nContent-Length: 2000000\r\n\r\n`));
     });
     expect(status).toContain("429");
     expect((await first).status).toBe(200);

@@ -263,7 +263,7 @@ describe("2. body cap while streaming (T13)", () => {
 });
 
 /** POSTs headers that declare a huge body, trickles a little, and returns the first status line seen. */
-function rawPost(port: number, o: { contentLength: number; chunkBytes: number; chunks: number }): Promise<{ status: number; sentBeforeAnswer: number }> {
+function rawPost(port: number, o: { contentLength: number; chunkBytes: number; chunks: number; path?: string }): Promise<{ status: number; sentBeforeAnswer: number }> {
   return new Promise((resolve, reject) => {
     const socket = connect(port, "127.0.0.1");
     let sent = 0;
@@ -280,7 +280,7 @@ function rawPost(port: number, o: { contentLength: number; chunkBytes: number; c
     });
     socket.on("error", (e) => (done ? undefined : reject(e)));
     socket.on("connect", () => {
-      socket.write(`POST /api/jobs/JOB-none/cancel HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: ${o.contentLength}\r\n\r\n`);
+      socket.write(`POST ${o.path ?? "/api/jobs/JOB-none/cancel"} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: ${o.contentLength}\r\n\r\n`);
       let i = 0;
       const timer = setInterval(() => {
         if (done || i++ >= o.chunks) {
@@ -1028,5 +1028,170 @@ describe("10. the ingress deadline runs on one injectable monotonic clock", () =
       db.close();
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// 11. Server-admitted record size and the in-flight budget (D8-11)
+// ---------------------------------------------------------------------------------------------
+
+describe("11. server_record_max_bytes and max_inflight_record_bytes (D8-11)", () => {
+  const pair = fixtureSize(CLEAN.erp) + fixtureSize(CLEAN.lab);
+  const envelope = 256 * 1024;
+  const base64Length = (n: number) => Math.ceil(n / 3) * 4;
+  const limitPatch = (serverMax: number, extra: Record<string, number> = {}): LimitsPatch => ({
+    coordinator: { server_record_max_bytes: serverMax, max_inflight_record_bytes: Math.max(serverMax * 2, 1024 * 1024), ...extra } as never,
+  });
+
+  it("the pinned values: the server limit is the load target and never above the browser limit, and one record always fits the budget", async () => {
+    const pack = await loadPack();
+    const l = pack.operationalLimits;
+    expect(l.coordinator.server_record_max_bytes).toBe(l.targets.record_bytes_max);
+    expect(l.coordinator.server_record_max_bytes).toBeLessThanOrEqual(l.execution.source_pair_max_bytes);
+    expect(l.coordinator.max_inflight_record_bytes).toBeGreaterThanOrEqual(l.coordinator.server_record_max_bytes);
+    // a power of two, in MiB
+    expect(l.coordinator.server_record_max_bytes % (1024 * 1024)).toBe(0);
+    expect(Math.log2(l.coordinator.server_record_max_bytes / (1024 * 1024)) % 1).toBe(0);
+  });
+
+  it("a pair of exactly server_record_max_bytes is imported, one byte more is 413 OVER_LIMIT server_record_max_bytes, and nothing is committed", async () => {
+    const at = await start({ patch: limitPatch(pair) });
+    const ok = await post(at, "/api/jobs/import", importBody({ key: "rec-at" }));
+    expect(ok.status).toBe(200);
+    expect((await json(ok)).ok).toBe(true);
+
+    const over = await start({ patch: limitPatch(pair - 1) });
+    const before = over.state();
+    const refused = await post(over, "/api/jobs/import", importBody({ key: "rec-over" }));
+    expect(refused.status).toBe(413);
+    expect(await json(refused)).toMatchObject({ code: "too-large", outcome: "OVER_LIMIT", limit: "server_record_max_bytes" });
+    expect(over.state()).toEqual(before); // no job, no snapshot, no log entry
+  });
+
+  it("an ERP file alone is measured too, and the lab file counts toward the pair", async () => {
+    const erp = fixtureSize(CLEAN.erp);
+    const s = await start({ patch: limitPatch(erp) });
+    expect((await post(s, "/api/jobs/import", importBody({ key: "erp-only", lab: null }))).status).toBe(200);
+    const t = await start({ patch: limitPatch(erp) });
+    const both = await post(t, "/api/jobs/import", importBody({ key: "erp-lab" }));
+    expect(both.status).toBe(413);
+    expect(await json(both)).toMatchObject({ limit: "server_record_max_bytes", outcome: "OVER_LIMIT" });
+  });
+
+  it("a declared length over the record body cap is refused before a byte of it is read", async () => {
+    const s = await start({ patch: limitPatch(pair) });
+    const cap = base64Length(pair) + envelope;
+    const over = await rawPost(s.port, { contentLength: cap + 1, chunkBytes: 1024, chunks: 3, path: "/api/jobs/import" });
+    expect(over.status).toBe(413);
+    expect(over.sentBeforeAnswer).toBeLessThan(8 * 1024);
+  });
+
+  it("an undeclared (chunked) import body is cut off at the record body cap, not buffered", async () => {
+    const s = await start({ patch: limitPatch(pair) });
+    const cap = base64Length(pair) + envelope;
+    const result = await new Promise<{ status: number; written: number; body: Record<string, unknown> }>((resolve, reject) => {
+      let written = 0;
+      let answered = false;
+      const req = httpRequest(
+        { host: "127.0.0.1", port: s.port, method: "POST", path: "/api/jobs/import", headers: { "Content-Type": "application/json", "Transfer-Encoding": "chunked" } },
+        (res) => {
+          answered = true;
+          let data = "";
+          res.on("data", (d) => (data += d));
+          res.on("end", () => resolve({ status: res.statusCode ?? 0, written, body: JSON.parse(data) }));
+        },
+      );
+      req.on("error", (e) => (answered ? undefined : reject(e)));
+      req.write('{"idempotencyKey":"chunked","erp":{"base64":"');
+      const timer = setInterval(() => {
+        if (answered || written > cap * 8) {
+          clearInterval(timer);
+          req.destroy();
+          return;
+        }
+        written += 16 * 1024;
+        req.write("A".repeat(16 * 1024));
+      }, 1);
+    });
+    expect(result.status).toBe(413);
+    expect(result.body).toMatchObject({ code: "too-large", outcome: "OVER_LIMIT", limit: "server_record_max_bytes" });
+    expect(result.written).toBeLessThan(cap * 4);
+  });
+
+  it("the in-flight budget serialises two max-size jobs although the coordinator has free slots; they commit in arrival order", async () => {
+    const body = importBody({ key: "inflight-1" });
+    const one = Buffer.byteLength(body);
+    const order: string[] = [];
+    const gates = new Map<string, ReturnType<typeof gate>>();
+    const s = await start({
+      mode: "oidc",
+      users: [{ sub: "admin-1", roles: ["ADMIN"] }, { sub: "op-1", roles: ["ACT-01"] }, { sub: "op-2", roles: ["ACT-01"] }],
+      // two active slots per domain and in total, and a budget for one record and a half: only the byte budget can hold the second back
+      patch: limitPatch(pair, { max_active_jobs_per_security_domain: 2, max_active_jobs_total: 4, max_inflight_record_bytes: Math.floor(one * 1.5) }),
+      extra: {
+        testHooks: {
+          stageHook: async (stage, { jobId }) => {
+            if (stage !== "received") return;
+            order.push(jobId);
+            const g = gate();
+            gates.set(jobId, g);
+            await g.promise;
+          },
+        },
+      },
+    });
+    const [admin, op1, op2] = ["admin-1", "op-1", "op-2"].map((u) => s.token(u));
+    const metrics = async () => json(await get(s, "/api/admin/metrics", admin));
+    const r1 = post(s, "/api/jobs/import", importBody({ key: "inflight-1" }), op1);
+    await until(() => order.length === 1);
+    const r2 = post(s, "/api/jobs/import", importBody({ key: "inflight-2" }), op2);
+    await until(async () => (await metrics()).jobs.queuedTotal === 1);
+    const m = await metrics();
+    expect(m.jobs).toMatchObject({ activeTotal: 1, queuedTotal: 1 }); // a second slot was free, the byte budget held the job back
+    await sleep(50);
+    expect(order.length).toBe(1); // the queued job's body was not read and it did not start
+    gates.get(order[0]!)!.open();
+    expect((await r1).status).toBe(200);
+    await until(() => order.length === 2);
+    gates.get(order[1]!)!.open();
+    expect((await r2).status).toBe(200);
+    expect((await metrics()).jobs).toMatchObject({ activeTotal: 0, queuedTotal: 0 });
+  });
+
+  it("a budget that holds two records runs them side by side, and a full queue is still 429", async () => {
+    const one = Buffer.byteLength(importBody({ key: "inflight-a" }));
+    const order: string[] = [];
+    const gates = new Map<string, ReturnType<typeof gate>>();
+    const s = await start({
+      mode: "oidc",
+      users: [{ sub: "admin-1", roles: ["ADMIN"] }, { sub: "op-1", roles: ["ACT-01"] }, { sub: "op-2", roles: ["ACT-01"] }, { sub: "op-3", roles: ["ACT-01"] }, { sub: "op-4", roles: ["ACT-01"] }],
+      patch: limitPatch(pair, { max_active_jobs_per_security_domain: 2, max_queued_jobs_per_security_domain: 1, max_inflight_record_bytes: one * 2 + 10 }),
+      extra: {
+        testHooks: {
+          stageHook: async (stage, { jobId }) => {
+            if (stage !== "received") return;
+            order.push(jobId);
+            const g = gate();
+            gates.set(jobId, g);
+            await g.promise;
+          },
+        },
+      },
+    });
+    const [admin, op1, op2, op3, op4] = ["admin-1", "op-1", "op-2", "op-3", "op-4"].map((u) => s.token(u));
+    const a = post(s, "/api/jobs/import", importBody({ key: "inflight-a" }), op1);
+    const b = post(s, "/api/jobs/import", importBody({ key: "inflight-b" }), op2);
+    await until(() => order.length === 2); // both started together
+    const c = post(s, "/api/jobs/import", importBody({ key: "inflight-c" }), op3); // waits: the budget and the slots are taken
+    await until(async () => (await json(await get(s, "/api/admin/metrics", admin))).jobs.queuedTotal === 1);
+    const d = await post(s, "/api/jobs/import", importBody({ key: "inflight-d" }), op4); // the queue holds one
+    expect(d.status).toBe(429);
+    expect(await json(d)).toMatchObject({ code: "queue-full", outcome: "OVER_LIMIT", limit: "queue_full" });
+    for (const g of gates.values()) g.open();
+    expect((await a).status).toBe(200);
+    expect((await b).status).toBe(200);
+    await until(() => order.length === 3);
+    gates.get(order[2]!)!.open();
+    expect((await c).status).toBe(200);
   });
 });

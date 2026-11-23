@@ -72,6 +72,8 @@ describe("calibration: the pinned pack carries the D8-01 values", () => {
       max_queued_jobs_per_security_domain: 8,
       max_active_jobs_total: 4,
       retry_after_seconds: 2,
+      server_record_max_bytes: 2097152,
+      max_inflight_record_bytes: 4194304,
     });
     expect(L.http).toEqual({
       headers_timeout_ms: 10000,
@@ -91,7 +93,7 @@ describe("calibration: the pinned pack carries the D8-01 values", () => {
       max_server_errors: 0,
       max_rss_bytes: 536870912,
       record_bytes_typical: 8192,
-      record_bytes_max: 20971520,
+      record_bytes_max: 2097152,
       max_size_burst_jobs: 10,
     });
   });
@@ -100,6 +102,17 @@ describe("calibration: the pinned pack carries the D8-01 values", () => {
     expect(L.http.max_request_body_bytes).toBeGreaterThan(L.execution.source_pair_max_bytes);
     expect(L.execution.total_staging_max_bytes).toBeGreaterThan(L.execution.source_pair_max_bytes);
     expect(L.http.request_timeout_ms).toBeGreaterThan(L.http.headers_timeout_ms);
+  });
+  it("D8-11: the server record limit is a whole power of two in MiB, within the browser limit, equal to the load target, and fits the budget", () => {
+    const mib = L.coordinator.server_record_max_bytes / 1048576;
+    expect(Number.isInteger(mib) && Math.log2(mib) % 1 === 0, "power of two in MiB").toBe(true);
+    expect(L.coordinator.server_record_max_bytes).toBeLessThanOrEqual(L.execution.source_pair_max_bytes);
+    expect(L.targets.record_bytes_max).toBe(L.coordinator.server_record_max_bytes);
+    expect(L.coordinator.max_inflight_record_bytes).toBeGreaterThanOrEqual(L.coordinator.server_record_max_bytes);
+    // the budget holds one record of the maximum size, with its base64 and JSON, and not two: large jobs are serialised
+    const body = Math.ceil(L.coordinator.server_record_max_bytes / 3) * 4;
+    expect(L.coordinator.max_inflight_record_bytes).toBeGreaterThanOrEqual(body);
+    expect(L.coordinator.max_inflight_record_bytes).toBeLessThan(2 * body);
   });
 });
 
@@ -144,6 +157,7 @@ describe("1. budgets: exactly OVER_LIMIT at limit+1, with no partial success", (
       { name: "max_output_bytes_per_route", code: "too-large", limit: L.execution.max_output_bytes_per_route },
       { name: "total_staging_max_bytes", code: "too-large", limit: L.execution.total_staging_max_bytes },
       { name: "max_request_body_bytes", code: "too-large", limit: L.http.max_request_body_bytes },
+      { name: "server_record_max_bytes", code: "too-large", limit: L.coordinator.server_record_max_bytes },
     ] as const;
 
   it("passes at the limit and promotes every staged row", () => {
@@ -404,7 +418,7 @@ describe("4. job coordinator", () => {
   const make = () => new JobCoordinatorModel(coordinatorConfigFrom(L));
 
   it("calibrates to 2 active per domain, 8 queued per domain, 4 active in total", () => {
-    expect(make().config).toEqual({ maxActivePerDomain: 2, maxQueuedPerDomain: 8, maxActiveTotal: 4, retryAfterSeconds: 2 });
+    expect(make().config).toEqual({ maxActivePerDomain: 2, maxQueuedPerDomain: 8, maxActiveTotal: 4, retryAfterSeconds: 2, maxInflightBytes: 4194304 });
   });
 
   it("starts two jobs per domain, queues eight, and refuses the next with OVER_LIMIT queue_full and Retry-After", () => {
@@ -541,6 +555,90 @@ describe("4. job coordinator", () => {
     const c = make();
     c.admit("a1", "A");
     expect(() => c.admit("a1", "B")).toThrow();
+  });
+
+  describe("D8-11 in-flight record bytes", () => {
+    const budget = () => L.coordinator.max_inflight_record_bytes;
+    const body = () => Math.ceil(L.coordinator.server_record_max_bytes / 3) * 4;
+
+    it("a job that would exceed the budget waits in the queue although slots are free, and starts when bytes are freed", () => {
+      const c = make();
+      expect(c.admit("a1", "A", body())).toEqual({ kind: "started", jobId: "a1" });
+      expect(c.admit("b1", "B", body())).toEqual({ kind: "queued", jobId: "b1", position: 1 }); // domain B and the global cap have room
+      expect(c.activeCount()).toBe(1);
+      expect(c.inflightBytes).toBe(body());
+      expect(c.finish("a1")).toEqual({ kind: "finished", jobId: "a1", started: ["b1"] });
+      expect(c.inflightBytes).toBe(body());
+      c.finish("b1");
+      expect(c.inflightBytes).toBe(0);
+    });
+
+    it("exactly the budget fits, one byte more waits", () => {
+      const c = make();
+      expect(c.admit("a1", "A", budget() - 10).kind).toBe("started");
+      expect(c.admit("a2", "A", 10).kind).toBe("started"); // exactly the budget
+      expect(c.inflightBytes).toBe(budget());
+      expect(c.admit("a3", "A", 1).kind).toBe("queued");
+      const d = make();
+      d.admit("a1", "A", budget() - 10);
+      expect(d.admit("a2", "A", 11).kind).toBe("queued"); // one byte over
+    });
+
+    it("is strict FIFO for bytes: a small job behind a waiting big job does not overtake it", () => {
+      const c = make();
+      c.admit("a1", "A", body());
+      expect(c.admit("b1", "B", body()).kind).toBe("queued");
+      expect(c.admit("c1", "C", 100).kind).toBe("queued"); // it would fit, but b1 is first in line
+      expect(c.queuedIds()).toEqual(["b1", "c1"]);
+      expect(c.finish("a1")).toEqual({ kind: "finished", jobId: "a1", started: ["b1", "c1"] }); // in arrival order: b1 first, then c1 fits behind it
+    });
+
+    it("a record larger than the whole budget still runs, alone", () => {
+      const c = make();
+      expect(c.admit("a1", "A", budget() * 3).kind).toBe("started");
+      expect(c.admit("a2", "A", 1).kind).toBe("queued");
+      c.finish("a1");
+      expect(c.stateOf("a2")).toBe("active");
+    });
+
+    it("a full queue is still queue_full, whatever the bytes", () => {
+      const c = make();
+      c.admit("a1", "A", body());
+      for (let i = 2; i <= 9; i++) expect(c.admit(`a${i}`, "A", body()).kind).toBe("queued");
+      expect(c.admit("a10", "A", body())).toMatchObject({ kind: "rejected", limit: "queue_full" });
+    });
+
+    it("cancelling a queued or an active job returns its bytes, and bytes never go negative over a random workload", () => {
+      const c = make();
+      c.admit("a1", "A", body());
+      c.admit("a2", "A", body());
+      c.cancel("a2"); // queued: holds nothing
+      expect(c.inflightBytes).toBe(body());
+      c.cancel("a1");
+      expect(c.inflightBytes).toBe(0);
+      let seed = 8110;
+      const rnd = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32;
+      const live: string[] = [];
+      for (let i = 0; i < 3000; i++) {
+        if (rnd() < 0.55) {
+          const id = `r${i}`;
+          if (c.admit(id, ["A", "B", "C"][Math.floor(rnd() * 3)]!, Math.floor(rnd() * body())).kind !== "rejected") live.push(id);
+        } else if (live.length) {
+          const id = live.splice(Math.floor(rnd() * live.length), 1)[0]!;
+          if (rnd() < 0.5) c.finish(id);
+          else c.cancel(id);
+        }
+        expect(c.inflightBytes).toBeGreaterThanOrEqual(0);
+        const active = live.filter((x) => c.stateOf(x) === "active");
+        // more than one job only while their bytes fit the budget
+        if (active.length > 1) expect(c.inflightBytes).toBeLessThanOrEqual(budget());
+      }
+    });
+
+    it("refuses a negative or fractional byte count", () => {
+      expect(() => make().admit("a1", "A", -1)).toThrow();
+      expect(() => make().admit("a1", "A", 1.5)).toThrow();
+    });
   });
 
   it("the new server actions map to the intended roles, and every other Cycle 7 grant is untouched", () => {
@@ -868,7 +966,7 @@ describe("7. drop-one-input: each required OPERATIONAL-LIMITS field breaks the p
 
   it("removing any single field fails the load, naming that field", async () => {
     const all = leaves(L);
-    expect(all.length).toBe(12 + 4 + 8 + 9);
+    expect(all.length).toBe(12 + 6 + 8 + 9);
     for (const [group, key] of all) {
       let error: unknown;
       try {
@@ -896,6 +994,25 @@ describe("7. drop-one-input: each required OPERATIONAL-LIMITS field breaks the p
       }
     }
   }, 30_000);
+
+  it("D8-11 cross-field rules: the server limit stays within the browser limit, the load target equals it, and one record fits the budget", async () => {
+    const l = L.coordinator;
+    // the pinned values pass (control), and each boundary is exact: at the limit it loads, one more or one less does not
+    await expect(loadEdited((d) => {
+      d.coordinator.server_record_max_bytes = L.execution.source_pair_max_bytes;
+      d.targets.record_bytes_max = L.execution.source_pair_max_bytes;
+      d.coordinator.max_inflight_record_bytes = L.execution.source_pair_max_bytes;
+    })).resolves.toBeDefined(); // exactly the browser limit passes
+    await expect(loadEdited((d) => {
+      d.coordinator.server_record_max_bytes = L.execution.source_pair_max_bytes + 1;
+      d.targets.record_bytes_max = L.execution.source_pair_max_bytes + 1;
+      d.coordinator.max_inflight_record_bytes = L.execution.source_pair_max_bytes + 1;
+    })).rejects.toThrow(/server_record_max_bytes/); // one byte over the browser limit
+    await expect(loadEdited((d) => (d.targets.record_bytes_max = l.server_record_max_bytes + 1))).rejects.toThrow(/targets\.record_bytes_max/);
+    await expect(loadEdited((d) => (d.targets.record_bytes_max = l.server_record_max_bytes - 1))).rejects.toThrow(/targets\.record_bytes_max/);
+    await expect(loadEdited((d) => (d.coordinator.max_inflight_record_bytes = l.server_record_max_bytes))).resolves.toBeDefined(); // exactly one record fits
+    await expect(loadEdited((d) => (d.coordinator.max_inflight_record_bytes = l.server_record_max_bytes - 1))).rejects.toThrow(/max_inflight_record_bytes/);
+  });
 
   it("retry_count must be exactly 0, and max_server_errors exactly 0", async () => {
     for (const bad of [1, 2, -1, "0", null]) {

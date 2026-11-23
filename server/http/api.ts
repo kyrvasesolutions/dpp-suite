@@ -56,6 +56,7 @@ import { OidcVerifier, type OidcConfig } from "../auth/oidc";
 import type { DbAdapter } from "../db/adapter";
 import { currentMigrationVersion } from "../db/migrations";
 import { ImportJobRunner, type ImportEvidenceUpload, type ImportJobControl } from "../jobs/importJobRunner";
+import { trimMemory, TRIM_AFTER_BYTES } from "../jobs/trimMemory";
 import { IngressRunner } from "../jobs/ingressRunner";
 import { JobCoordinator, Lane, LiveJobs, QueueFullError } from "../jobs/jobControl";
 import { RateLimiter, ServerMetrics, routeTemplate } from "./limits";
@@ -185,20 +186,35 @@ function sendJson(
   res.end(payload);
 }
 
+/** 413 for a body over a declared byte budget: fixed text, the limit name, the connection closed so the rest is not read. */
+function bodyTooLarge(limitName: string): Error {
+  return Object.assign(new Error("Request body exceeds the declared maximum size"), {
+    statusCode: 413,
+    code: "too-large",
+    limit: limitName,
+    closeConnection: true,
+  });
+}
+
+/** The declared Content-Length as a whole number, or undefined when it is absent or not one (a chunked or lying request is bounded while streaming). */
+function declaredLength(req: IncomingMessage): number | undefined {
+  const declared = req.headers["content-length"];
+  return typeof declared === "string" && /^\d+$/.test(declared) ? Number(declared) : undefined;
+}
+
+/** Base64 text length of `bytes` bytes. */
+const base64Length = (bytes: number): number => Math.ceil(bytes / 3) * 4;
+/** Room for the JSON around the base64 of one import request (names, types, keys, small evidence). */
+const IMPORT_ENVELOPE_BYTES = 256 * 1024;
+
 /**
  * Reads a JSON object body under a byte cap that is enforced while the body streams (T13): a declared length over the cap is refused
  * before a byte is read, and an undeclared or understated one is refused as soon as the cap is crossed. The rest is discarded, never buffered.
  */
-async function readJsonObject(req: IncomingMessage, maxBytes: number): Promise<Record<string, unknown>> {
-  const tooLarge = () =>
-    Object.assign(new Error("Request body exceeds the declared maximum size"), {
-      statusCode: 413,
-      code: "too-large",
-      limit: "max_request_body_bytes",
-      closeConnection: true,
-    });
-  const declared = req.headers["content-length"];
-  if (typeof declared === "string" && /^\d+$/.test(declared) && Number(declared) > maxBytes) {
+async function readJsonObject(req: IncomingMessage, maxBytes: number, limitName: string = "max_request_body_bytes"): Promise<Record<string, unknown>> {
+  const tooLarge = () => bodyTooLarge(limitName);
+  const declared = declaredLength(req);
+  if (declared !== undefined && declared > maxBytes) {
     req.resume(); // discard what arrives; nothing is kept
     throw tooLarge();
   }
@@ -514,6 +530,12 @@ export function createDppServer(options: DppServerOptions): Server {
   /** The body cap of a route: its own cap, never above the transport cap (`max_request_body_bytes`). */
   const readBody = (req: IncomingMessage, routeMaxBytes: number) =>
     readJsonObject(req, Math.min(routeMaxBytes, limits.http.max_request_body_bytes));
+  /**
+   * The body cap of an import (D8-11): the base64 of the largest record the server admits, plus the JSON around it. It is what the
+   * coordinator reserves for a request that does not declare its length, and never above the transport cap.
+   */
+  const importBodyCap = Math.min(base64Length(limits.coordinator.server_record_max_bytes) + IMPORT_ENVELOPE_BYTES, limits.http.max_request_body_bytes);
+  const importCapLimit = importBodyCap < limits.http.max_request_body_bytes ? "server_record_max_bytes" : "max_request_body_bytes";
 
   const headersTimeout = limits.http.headers_timeout_ms;
   const requestTimeout = limits.http.request_timeout_ms;
@@ -1144,16 +1166,26 @@ export function createDppServer(options: DppServerOptions): Server {
       if (method === "POST" && pathname === "/api/jobs/import") {
         const submitter = requireAuth("import-submit");
         const { maxBodyBytes, runner } = await loadRuntime();
+        const importCap = Math.min(maxBodyBytes, importBodyCap);
+        const importLimit = importBodyCap <= maxBodyBytes ? importCapLimit : "max_request_body_bytes";
+        // A declared length over the cap is refused before a queue place is taken and before a byte is read (D8-11).
+        const declaredBytes = declaredLength(req);
+        if (declaredBytes !== undefined && declaredBytes > importCap) {
+          req.resume();
+          throw bodyTooLarge(importLimit);
+        }
 
         // Cycle 8 (D8-10, V2-01): the place in the coordinator is reserved BEFORE the body is read. A full queue is refused at once
         // and a queued request is not read until it is admitted, so memory is bounded by the active jobs, not by the clients.
         // Cycle 8: a slot of the coordinator (per-domain active slots, a finite FIFO queue, a global cap), then a budget.
         // A full queue is refused at once with 429 + Retry-After. The slot is freed on every way out (commit, fail, rollback,
         // cancel, timeout, exception, client disconnect). The server never retries on its own.
-        const slot = coordinator.admit(domain);
+        // The record bytes it will hold count against the global in-flight budget: a request that does not fit waits in the queue (D8-11).
+        const slot = coordinator.admit(domain, declaredBytes ?? importCap);
         const token = new CancellationToken();
         let started = false;
         let claimedJobId: string | null = null;
+        const large = (declaredBytes ?? importCap) >= TRIM_AFTER_BYTES;
         res.once("close", () => {
           if (res.writableFinished) return;
           token.cancel("client-disconnected"); // the client left: the job stops at its next check and nothing is committed
@@ -1169,7 +1201,7 @@ export function createDppServer(options: DppServerOptions): Server {
           }
           started = true;
           laneRelease = await bodyLane.acquire();
-          const body = await readBody(req, maxBodyBytes);
+          const body = await readJsonObject(req, importCap, importLimit);
 
           if (body.idempotencyKey !== undefined && typeof body.idempotencyKey !== "string") {
             sendJson(res, 400, { code: "invalid-payload", message: "idempotencyKey must be a string" }, allowedOrigin, undefined, allowMethods);
@@ -1239,6 +1271,10 @@ export function createDppServer(options: DppServerOptions): Server {
               legalHold: typeof e.legalHold === "boolean" ? e.legalHold : undefined,
             };
           });
+          // The pair of source files may not exceed what the server admits (D8-11): exactly the limit passes, one byte more is 413.
+          if (erpBytes.byteLength + (labPayload?.bytes.byteLength ?? 0) > limits.coordinator.server_record_max_bytes) {
+            throw Object.assign(new Error("The source files are larger than the declared maximum size"), { statusCode: 413, code: "too-large", limit: "server_record_max_bytes" });
+          }
           laneRelease(); // the body is decoded: its transient copies are gone, the next body may be read
           laneRelease = null;
           const budget = new JobBudget({ deadlineMs: limits.execution.job_deadline_ms, now: clock, token });
@@ -1281,7 +1317,23 @@ export function createDppServer(options: DppServerOptions): Server {
         } finally {
           laneRelease?.();
           if (claimedJobId) liveJobs.unregister(claimedJobId);
-          slot.release();
+          // A large record keeps its place until its response has left and the memory of the job is given back, so the next large record
+          // is not read while this one is still held (D8-11). A small one frees its place at once.
+          if (!large) slot.release();
+          else {
+            let freed = false;
+            const free = () => {
+              if (freed) return;
+              freed = true;
+              trimMemory();
+              slot.release();
+            };
+            if (res.destroyed || res.closed) free();
+            else {
+              res.once("close", free);
+              res.once("finish", free);
+            }
+          }
         }
 
         // A refusal tells its own submitter where the problem is (file name and row or JSON pointer) and what kind it is, with the

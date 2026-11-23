@@ -49,8 +49,16 @@ export const OperationalLimitsSchema = z
         max_queued_jobs_per_security_domain: PosInt,
         max_active_jobs_total: PosInt,
         retry_after_seconds: PosInt,
+        /** Largest source pair (decoded bytes of both files) the server accepts, set from the memory measured at that size (D8-11). The browser keeps the S4 `source_pair_max_bytes`. */
+        server_record_max_bytes: PosInt,
+        /** Global budget of record bytes (request body bytes) of the imports running now; a job that would exceed it waits in the queue (D8-11). */
+        max_inflight_record_bytes: PosInt,
       })
-      .strict(),
+      .strict()
+      .refine((c) => c.max_inflight_record_bytes >= c.server_record_max_bytes, {
+        message: "max_inflight_record_bytes must admit at least one record of server_record_max_bytes",
+        path: ["max_inflight_record_bytes"],
+      }),
     http: z
       .object({
         headers_timeout_ms: PosInt,
@@ -79,7 +87,16 @@ export const OperationalLimitsSchema = z
       .strict(),
     note: z.string().min(1),
   })
-  .strict();
+  .strict()
+  // D8-11: the server admits no more than the browser limit, the load target is the server limit, and one such record fits the budget.
+  .superRefine((l, ctx) => {
+    if (l.coordinator.server_record_max_bytes > l.execution.source_pair_max_bytes) {
+      ctx.addIssue({ code: "custom", path: ["coordinator", "server_record_max_bytes"], message: "must not exceed execution.source_pair_max_bytes" });
+    }
+    if (l.targets.record_bytes_max !== l.coordinator.server_record_max_bytes) {
+      ctx.addIssue({ code: "custom", path: ["targets", "record_bytes_max"], message: "must equal coordinator.server_record_max_bytes" });
+    }
+  });
 
 export type OperationalLimits = z.infer<typeof OperationalLimitsSchema>;
 
@@ -100,6 +117,8 @@ export const LIMIT_NAMES = [
   "max_output_bytes_per_route",
   "total_staging_max_bytes",
   "execution_memory_max_bytes",
+  "server_record_max_bytes",
+  "max_inflight_record_bytes",
   "max_request_body_bytes",
   "queue_full",
   "rate_window",
@@ -256,6 +275,8 @@ export interface CoordinatorConfig {
   maxQueuedPerDomain: number;
   maxActiveTotal: number;
   retryAfterSeconds: number;
+  /** Budget of record bytes of the jobs running at once (D8-11). Absent: no byte budget (the browser model and plain tests). */
+  maxInflightBytes?: number;
 }
 
 export function coordinatorConfigFrom(limits: OperationalLimits): CoordinatorConfig {
@@ -265,6 +286,7 @@ export function coordinatorConfigFrom(limits: OperationalLimits): CoordinatorCon
     maxQueuedPerDomain: c.max_queued_jobs_per_security_domain,
     maxActiveTotal: c.max_active_jobs_total,
     retryAfterSeconds: c.retry_after_seconds,
+    maxInflightBytes: c.max_inflight_record_bytes,
   };
 }
 
@@ -285,6 +307,8 @@ interface JobEntry {
   jobId: string;
   domain: string;
   state: JobState;
+  /** Record bytes this job holds against the in-flight budget once it is active (D8-11). */
+  bytes: number;
 }
 
 /**
@@ -297,6 +321,7 @@ export class JobCoordinatorModel {
   readonly #entries = new Map<string, JobEntry>();
   readonly #activeByDomain = new Map<string, number>();
   #activeTotal = 0;
+  #activeBytes = 0;
   /** Arrival order of waiting jobs. */
   #queue: string[] = [];
 
@@ -309,8 +334,13 @@ export class JobCoordinatorModel {
   get size(): number {
     return this.#entries.size;
   }
+  /** Record bytes held by the active jobs. */
+  get inflightBytes(): number {
+    return this.#activeBytes;
+  }
   #deactivate(e: JobEntry): void {
     this.#activeTotal--;
+    this.#activeBytes -= e.bytes;
     const n = (this.#activeByDomain.get(e.domain) ?? 1) - 1;
     if (n <= 0) this.#activeByDomain.delete(e.domain);
     else this.#activeByDomain.set(e.domain, n);
@@ -325,17 +355,27 @@ export class JobCoordinatorModel {
     return this.#entries.get(jobId)?.state ?? "unknown";
   }
 
-  #canStart(domain: string): boolean {
-    return this.activeCount(domain) < this.config.maxActivePerDomain && this.activeCount() < this.config.maxActiveTotal;
+  /** A job always fits when nothing else holds bytes, so a record as large as the whole budget still runs (alone). */
+  #fitsBytes(bytes: number): boolean {
+    const budget = this.config.maxInflightBytes;
+    return budget === undefined || this.#activeBytes === 0 || this.#activeBytes + bytes <= budget;
   }
 
-  /** Admits a job: starts it, queues it, or refuses it with OVER_LIMIT `queue_full` (HTTP 429 with Retry-After). */
-  admit(jobId: string, domain: string): AdmitDecision {
+  #canStart(domain: string, bytes: number): boolean {
+    return this.activeCount(domain) < this.config.maxActivePerDomain && this.activeCount() < this.config.maxActiveTotal && this.#fitsBytes(bytes);
+  }
+
+  /**
+   * Admits a job: starts it, queues it, or refuses it with OVER_LIMIT `queue_full` (HTTP 429 with Retry-After).
+   * `bytes` is the record size the job will hold in memory (D8-11); a job that does not fit the in-flight budget waits in the queue.
+   */
+  admit(jobId: string, domain: string, bytes = 0): AdmitDecision {
     if (this.#entries.has(jobId)) throw new Error("job id already admitted");
-    if (!this.#canStart(domain) && this.queuedCount(domain) >= this.config.maxQueuedPerDomain) {
+    if (!Number.isSafeInteger(bytes) || bytes < 0) throw new Error("record bytes must be a non-negative whole number");
+    if (!this.#canStart(domain, bytes) && this.queuedCount(domain) >= this.config.maxQueuedPerDomain) {
       return { kind: "rejected", outcome: "OVER_LIMIT", limit: "queue_full", code: "queue-full", retryAfterSeconds: this.config.retryAfterSeconds };
     }
-    this.#entries.set(jobId, { jobId, domain, state: "queued" });
+    this.#entries.set(jobId, { jobId, domain, state: "queued", bytes });
     this.#queue.push(jobId);
     const started = this.start();
     if (started.includes(jobId)) return { kind: "started", jobId };
@@ -349,8 +389,11 @@ export class JobCoordinatorModel {
       if (this.activeCount() >= this.config.maxActiveTotal) break;
       const e = this.#entries.get(id)!;
       if (this.activeCount(e.domain) >= this.config.maxActivePerDomain) continue;
+      // Strict arrival order for the byte budget: a record that does not fit yet holds back the jobs behind it, so it cannot starve (D8-11).
+      if (!this.#fitsBytes(e.bytes)) break;
       e.state = "active";
       this.#activeTotal++;
+      this.#activeBytes += e.bytes;
       this.#activeByDomain.set(e.domain, (this.#activeByDomain.get(e.domain) ?? 0) + 1);
       this.#queue = this.#queue.filter((q) => q !== id);
       started.push(id);

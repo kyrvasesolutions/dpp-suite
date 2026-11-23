@@ -48,10 +48,14 @@ export class JobCoordinator {
     this.#model = new JobCoordinatorModel(this.#config);
   }
 
-  /** Admits a job of a security domain: starts it, queues it in arrival order, or refuses it with `QueueFullError`. */
-  admit(domain: string): JobSlot {
+  /**
+   * Admits a job of a security domain: starts it, queues it in arrival order, or refuses it with `QueueFullError`.
+   * `recordBytes` is what the job will hold in memory (its declared request body, D8-11): while the running jobs hold the in-flight
+   * budget, a job that would exceed it waits in the queue.
+   */
+  admit(domain: string, recordBytes = 0): JobSlot {
     const ticket = randomUUID();
-    const decision = this.#model.admit(ticket, domain);
+    const decision = this.#model.admit(ticket, domain, recordBytes);
     if (decision.kind === "rejected") throw new QueueFullError(decision.retryAfterSeconds);
     this.#domains.set(ticket, domain);
     let ready: Promise<void>;

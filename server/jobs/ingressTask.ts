@@ -6,6 +6,7 @@
  */
 import { buildRecords, importErpCsv, importLabJson, type ImportResult, type IngressLimits, type RecordState } from "../../src/model/ingress";
 import type { ProfilePack } from "../../src/model/profile";
+import { canonicalSha256Sync } from "../store/streamDigest";
 
 export interface IngressTask {
   pack: ProfilePack;
@@ -39,7 +40,7 @@ export async function runIngressTask(task: IngressTask): Promise<IngressTaskResu
     ? await importLabJson(task.pack, { bytes: task.lab.bytes, name: task.lab.name, type: task.lab.type, startedAt, limits }, task.actor)
     : undefined;
   if (!erpRes.ok || (labRes && !labRes.ok)) return { erpRes, labRes };
-  const built = await buildRecords(labRes ? [erpRes, labRes] : [erpRes]);
+  const built = await buildRecords(labRes ? [erpRes, labRes] : [erpRes], canonicalSha256Sync); // streamed digest: no canonical text of a large record
   // The main thread needs the files and the verdicts (for the log) and the built record, not a second copy of every assertion.
   const slim = (r: ImportResult): ImportResult => (r.ok ? { ok: true, file: r.file, assertions: [], records: r.records } : r);
   return { erpRes: slim(erpRes), labRes: labRes ? slim(labRes) : undefined, built };

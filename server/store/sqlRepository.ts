@@ -7,6 +7,7 @@
  * security-domain scoping, and pinned classification/retention policy enforcement (C6-02, LEAN-DEF-05).
  */
 import { createHash } from "node:crypto";
+import { canonicalSha256Sync } from "./streamDigest";
 import { canonical } from "../../src/model/canonical";
 import {
   baseAssertion,
@@ -97,12 +98,12 @@ export function sha256Sync(text: string | Uint8Array): string {
 
 export function recordDigestSync(record: ProductRecord): string {
   const { digest: _digest, ...state } = record;
-  return sha256Sync(canonical(state));
+  return canonicalSha256Sync(state); // streamed: the canonical text of a large record is never built
 }
 
 export function snapshotDigestSync(snapshot: Omit<Snapshot, "digest"> | Snapshot): string {
   const { digest: _digest, origin: _origin, ...rest } = snapshot as Snapshot;
-  return sha256Sync(canonical(rest));
+  return canonicalSha256Sync(rest);
 }
 
 export function verifySnapshotSync(snapshot: Snapshot): void {

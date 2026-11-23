@@ -21,6 +21,8 @@ coordinator:
   max_queued_jobs_per_security_domain: 8
   max_active_jobs_total: 4
   retry_after_seconds: 2
+  server_record_max_bytes: 2097152
+  max_inflight_record_bytes: 4194304
 http:
   headers_timeout_ms: 10000
   request_timeout_ms: 60000
@@ -38,6 +40,6 @@ targets:
   max_server_errors: 0
   max_rss_bytes: 536870912
   record_bytes_typical: 8192
-  record_bytes_max: 20971520
+  record_bytes_max: 2097152
   max_size_burst_jobs: 10
 note: ARTIFICIAL-DEMO design values and targets, not measured limits. The execution values are the S4 contract values; the coordinator, http and targets values are design values for the demonstrator. Configurable by pinning a new version of this file.

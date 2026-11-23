@@ -245,7 +245,7 @@ export async function runLoad(cfg) {
   const track = async (name, payloadBytes, fn) => {
     const errors0 = counters.serverErrors;
     phasePeak = 0;
-    if (name.startsWith("max-size")) inMaxPhase = true; // from here on the process holds what the 20 MB records left: not the typical-size peak
+    if (name.startsWith("max-size")) inMaxPhase = true; // from here on the process holds what the largest records left: not the typical-size peak
     await probe();
     const result = await fn();
     await probe();
@@ -481,7 +481,7 @@ export async function runLoad(cfg) {
   }
   log(`revocation: next request ${revocation.nextRequestStatus}, next import ${revocation.nextImportStatus}`);
 
-  // ---- (e) records at the agreed maximum size, then a max-size burst (D8-10, C8-01); last, because a record of 20 MB leaves the server holding memory the earlier phases should not inherit ----
+  // ---- (e) records at the agreed maximum size, then a max-size burst (D8-10, C8-01); last, because a record of the maximum size leaves the server holding memory the earlier phases should not inherit ----
   const maxBytes = limits.targets.record_bytes_max;
   const maxMs = [];
   let maxCommitted = 0;
@@ -547,7 +547,7 @@ export async function runLoad(cfg) {
     { target: "volume_committed_batches", limit: t.volume_committed_batches, measured: committedCount, pass: scaled ? committedCount >= params.volume : committedCount >= t.volume_committed_batches, note: `${scaled ? "scaled down (bounded in-process run); " : ""}committed batches across ${domains.length} security domains before measuring` },
     { target: "max_server_errors", limit: t.max_server_errors, measured: counters.serverErrors, pass: counters.serverErrors <= t.max_server_errors && counters.transportErrors === 0, note: `5xx answers over ${counters.requests} requests; transport errors ${counters.transportErrors}` },
     { target: "max_rss_bytes", limit: t.max_rss_bytes, measured: peakRss, pass: peakRss > 0 && peakRss <= t.max_rss_bytes, note: "peak resident set size of the server over the run at typical sizes (volume, timed imports, read mix, burst, revocation), sampled every 250 ms" },
-    { target: "max_rss_bytes_during_max_size_runs", limit: t.max_rss_bytes, measured: Math.max(phases["max-size runs"].peakRssBytes, phases["max-size burst"].peakRssBytes), pass: Math.max(phases["max-size runs"].peakRssBytes, phases["max-size burst"].peakRssBytes) > 0 && Math.max(phases["max-size runs"].peakRssBytes, phases["max-size burst"].peakRssBytes) <= t.max_rss_bytes, note: "peak server RSS while records of record_bytes_max were imported, one after the other and in a burst" },
+    { target: "max_rss_bytes_during_max_size_runs", limit: t.max_rss_bytes, measured: Math.max(phases["max-size runs"].peakRssBytes, phases["max-size burst"].peakRssBytes), pass: Math.max(phases["max-size runs"].peakRssBytes, phases["max-size burst"].peakRssBytes) > 0 && Math.max(phases["max-size runs"].peakRssBytes, phases["max-size burst"].peakRssBytes) <= t.max_rss_bytes, note: `peak server RSS while records of record_bytes_max (= server_record_max_bytes, ${maxBytes} B) were imported, one after the other and in a burst; ${Math.round((Math.max(phases["max-size runs"].peakRssBytes, phases["max-size burst"].peakRssBytes) / t.max_rss_bytes) * 100)} % of max_rss_bytes (D8-11 pins the size so that this stays at or under 90 %)` },
     { target: "max_size_burst", limit: params.maxBurst, measured: maxBurst.committed, pass: maxBurst.committed === params.maxBurst && Object.keys(maxBurst.statuses).every((k) => k === "200" || k === "429") && maxBurst.missingRetryAfter === 0 && phases["max-size burst"].serverErrors === 0, note: `${params.maxBurst} concurrent imports of ${maxBytes} B (pinned max_size_burst_jobs ${t.max_size_burst_jobs}): only 200 or 429 with Retry-After, all committed, no 5xx` },
     { target: "burst_only_2xx_or_429", limit: "2xx or 429 with Retry-After", measured: burstStatuses, pass: unexpected.length === 0 && missingRetryAfter === 0 && nonJson === 0 && (firstRound["429"] ?? 0) > 0, note: `${params.burst} concurrent imports into one domain: the first round was refused with 429 for the overflow` },
     { target: "burst_retries_commit_exactly_once", limit: params.burst, measured: committedKeys.size, pass: committedKeys.size === params.burst && lostOrDuplicated === 0, note: `lost or duplicated: ${lostOrDuplicated}; retry rounds ${rounds}` },

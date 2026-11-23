@@ -265,7 +265,7 @@ if (profileFrozen) {
   if (opLimits) {
     for (const [group, keys] of Object.entries({
       execution: ["source_file_max_bytes", "source_pair_max_bytes", "max_nesting_depth", "max_records_per_job", "job_deadline_ms", "max_parser_nodes_per_job", "max_output_bytes_per_route", "total_staging_max_bytes", "execution_memory_max_bytes", "cancellation_poll_max_ms", "forced_termination_max_ms"],
-      coordinator: ["max_active_jobs_per_security_domain", "max_queued_jobs_per_security_domain", "max_active_jobs_total", "retry_after_seconds"],
+      coordinator: ["max_active_jobs_per_security_domain", "max_queued_jobs_per_security_domain", "max_active_jobs_total", "retry_after_seconds", "server_record_max_bytes", "max_inflight_record_bytes"],
       http: ["headers_timeout_ms", "request_timeout_ms", "keep_alive_timeout_ms", "max_connections", "max_request_body_bytes", "rate_limit_window_ms", "rate_limit_read_per_window", "rate_limit_write_per_window"],
       targets: ["import_job_p95_ms", "read_p95_ms", "concurrent_clients", "volume_committed_batches", "max_rss_bytes", "record_bytes_typical", "record_bytes_max", "max_size_burst_jobs"],
     })) {
@@ -273,6 +273,10 @@ if (profileFrozen) {
         if (!Number.isInteger(opLimits[group]?.[key]) || opLimits[group][key] < 1) fail(`OPERATIONAL-LIMITS: ${group}.${key} must be a positive whole number`);
       }
     }
+    // D8-11: the server admits no more than the browser limit, the load target is the server limit, and one such record always fits the in-flight budget.
+    if (opLimits.coordinator?.server_record_max_bytes > opLimits.execution?.source_pair_max_bytes) fail("OPERATIONAL-LIMITS: coordinator.server_record_max_bytes must not exceed execution.source_pair_max_bytes");
+    if (opLimits.targets?.record_bytes_max !== opLimits.coordinator?.server_record_max_bytes) fail("OPERATIONAL-LIMITS: targets.record_bytes_max must equal coordinator.server_record_max_bytes");
+    if (opLimits.coordinator?.max_inflight_record_bytes < opLimits.coordinator?.server_record_max_bytes) fail("OPERATIONAL-LIMITS: coordinator.max_inflight_record_bytes must admit at least one record of server_record_max_bytes");
     if (opLimits.execution?.retry_count !== 0) fail("OPERATIONAL-LIMITS: execution.retry_count must be 0 (the server never retries on its own)");
     if (opLimits.targets?.max_server_errors !== 0) fail("OPERATIONAL-LIMITS: targets.max_server_errors must be 0");
   }

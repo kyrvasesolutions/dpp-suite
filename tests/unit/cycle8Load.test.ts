@@ -41,11 +41,13 @@ afterAll(async () => {
 });
 
 describe("bounded load run (the CI gate of `npm run load`)", () => {
-  it("meets every target of the full run at the bounded size, except the RSS bound at the maximum record size (a recorded gap)", () => {
+  it("meets every target of the full run at the bounded size, including the RSS bound while records of record_bytes_max are imported (D8-11)", () => {
     const failed = report.results.filter((r) => !r.pass).map((r) => r.target);
-    // The maximum record (about 20 MB of source files) is buffered several times by the single-process design: its peak RSS is
-    // measured and reported, and it exceeds max_rss_bytes (see the report and the Cycle 8 findings). Every other target passes.
-    expect(failed.filter((t) => t !== "max_rss_bytes_during_max_size_runs"), JSON.stringify(report.results.filter((r) => !r.pass), null, 2)).toEqual([]);
+    expect(failed, JSON.stringify(report.results.filter((r) => !r.pass), null, 2)).toEqual([]);
+    const rssMax = report.results.find((r) => r.target === "max_rss_bytes_during_max_size_runs")!;
+    expect(rssMax.pass).toBe(true);
+    expect(Number(rssMax.measured)).toBeGreaterThan(0);
+    expect(Number(rssMax.measured)).toBeLessThanOrEqual(report.targets.max_rss_bytes);
     const max = report.measurements.sizes.phases;
     expect(max["max-size runs"].serverErrors + max["max-size burst"].serverErrors).toBe(0);
     process.stderr.write(
@@ -59,6 +61,7 @@ describe("bounded load run (the CI gate of `npm run load`)", () => {
     const sz = report.measurements.sizes;
     expect(sz.typicalBytes).toBe(report.targets.record_bytes_typical);
     expect(sz.maxBytes).toBe(report.targets.record_bytes_max);
+    expect(report.targets.record_bytes_max).toBe(readOperationalLimits().coordinator.server_record_max_bytes); // the load target is the size the server admits
     expect(sz.maxPayloadBytes).toBeGreaterThan(report.targets.record_bytes_max * 0.99);
     expect(sz.maxBurst.committed).toBe(4);
     expect(Object.keys(sz.maxBurst.statuses).every((s) => s === "200" || s === "429")).toBe(true);
