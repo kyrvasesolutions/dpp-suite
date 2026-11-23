@@ -23,6 +23,7 @@ import { b64, startC8Server, type C8Server } from "../support/c8Server";
 import { pdfText } from "../support/pdfText";
 import { assertNoLeakText } from "../support/leak";
 import { CLEAN } from "../support/records";
+import { ERROR_TEXT } from "../../src/model/ingress";
 
 const R = randomBytes(4).toString("hex");
 const C = {
@@ -302,23 +303,54 @@ describe("leak canary scan", () => {
     for (const l of crashLines) expect(JSON.parse(l)).toEqual({ event: "crash", error_class: "Error", code: expect.stringMatching(/^(E_BOOM|none)$/) });
   });
 
-  // BUG (server/http/api.ts + src/model/ingress.ts, Coder A's files): a refused import (422) echoes the uploaded file name
-  // and a fragment of the file (a JSON key) in `errors[].location` and `.message`, e.g. "CANARY-labfile-x.json, /CANARY-hostile-x".
-  // Every other error response is clean (next test). Echoing the file back to its own uploader is a leak of a file name
-  // and of file content into an error body, which C8-06 forbids.
+  // D8-09: a refused import tells its own submitter the file name and the row or JSON pointer (locators) and the fixed text of
+  // the code, and never a field value. Nobody else sees the locators, and no other view carries any value.
   const IMPORT_REFUSALS = ["hostile-lab", "hostile-erp", "hostile-name"];
-  // BUG (server/auth, Coder A's file): a 403 `user-unknown` echoes the subject and the security domain taken from the
-  // X-Security-Domain request header: `Authenticated subject "<sub>" has no provisioned user record in domain "<header>"`.
-  it.fails("(a) an unprovisioned-user 403 does not echo the subject or the domain header", () => {
+  it("(a) an unprovisioned-user 403 does not echo the subject or the domain header", () => {
     const s = seen.find((x) => x.label === "forbidden")!;
     expect(s.status).toBe(403);
     expect(s.body).not.toMatch(/CANARY/i);
   });
 
-  it.fails("(a) a refused import does not echo the file name or file content in its error body", () => {
-    for (const s of seen.filter((x) => IMPORT_REFUSALS.includes(x.label))) {
-      expect(`${s.body}\n${JSON.stringify(s.headers)}`, s.label).not.toMatch(/CANARY/i);
+  it("(a)(b)(c) a refused import returns locators to its submitter only, never a value, and no other view carries either", async () => {
+    const refusals = seen.filter((x) => IMPORT_REFUSALS.includes(x.label));
+    expect(refusals).toHaveLength(3);
+    const valueCanaries = allCanaries().filter((c) => c !== C.erpFile && c !== C.labFile);
+    const jobIds: string[] = [];
+    for (const r of refusals) {
+      // a JSON pointer may name the key of the submitter's own file (a locator); everything outside `location` is value-free
+      const stripped = JSON.parse(r.body) as { errors: Array<{ location?: string }> };
+      for (const e of stripped.errors) delete e.location;
+      const text = `${JSON.stringify(stripped)}\n${JSON.stringify(r.headers)}`;
+      // (a) no value canary: not the hostile JSON text, not a header value, not a claim
+      for (const c of valueCanaries) expect(text, `${r.label} ${c.slice(0, 20)}`).not.toContain(c);
+      const body = JSON.parse(r.body) as { errors: Array<{ stage: string; code: string; message: string; location: string }>; job: { jobId: string } };
+      expect(body.errors.length).toBeGreaterThan(0);
+      for (const e of body.errors) {
+        expect(Object.keys(e).sort()).toEqual(["code", "location", "message", "stage"]);
+        expect(e.message, r.label).toBe(ERROR_TEXT[e.code as keyof typeof ERROR_TEXT]); // fixed text, no detail
+      }
+      jobIds.push(body.job.jobId);
     }
+    // the submitter's own response does carry a locator: the file name
+    expect(refusals.map((r) => r.body).join("\n")).toContain(C.erpFile);
+    // (b)(c) the job record and its events, read by an administrator and by the submitter, hold codes and stages only
+    for (const who of [C.admin]) { // the submitter itself was revoked by this suite; the administrator is the other reader
+      const t = tokenFor(main, who);
+      for (const id of jobIds) {
+        const res = await call(main, "job-view", "GET", `/api/jobs/${encodeURIComponent(id)}`, t);
+        expect(res.status).toBe(200);
+        expect(res.body, id).not.toMatch(/CANARY/i);
+      }
+      const list = await call(main, "job-list", "GET", "/api/jobs", t);
+      expect(list.body).not.toContain(C.erpFile);
+      expect(list.body).not.toContain(C.labFile);
+      expect(list.body).not.toContain(C.hostile);
+    }
+    // the public log and the access-controlled execution log carry neither locators nor values
+    expect(logLines.join("\n")).not.toMatch(/CANARY/i);
+    expect(JSON.stringify(main.db.query("SELECT * FROM execution_log"))).not.toMatch(/CANARY/i);
+    expect(JSON.stringify(main.db.query("SELECT * FROM job_events"))).not.toMatch(/CANARY/i);
   });
 
   it("(a) no other error response body or header carries a canary", () => {

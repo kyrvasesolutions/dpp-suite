@@ -33,6 +33,7 @@ import {
 } from "../../src/model/c7Contracts";
 import { CorrectionError, type CorrectionRequest } from "../../src/model/correction";
 import { project } from "../../src/model/disclosure";
+import { ERROR_TEXT } from "../../src/model/ingress";
 import { LogError, releaseEvents } from "../../src/model/log";
 import { buildCustomerPdf } from "../../src/model/outputs/customerPdf";
 import { RouteRefusedError } from "../../src/model/outputs/items";
@@ -550,7 +551,7 @@ export function createDppServer(options: DppServerOptions): Server {
       sendJson(
         res,
         403,
-        { code: "surface-forbidden", message: `Route "${pathname}" is disabled on the dedicated customer deployment surface` },
+        { code: "surface-forbidden", message: "This route is disabled on the dedicated customer deployment surface" },
         allowedOrigin,
         undefined,
         allowMethods,
@@ -561,7 +562,7 @@ export function createDppServer(options: DppServerOptions): Server {
       sendJson(
         res,
         403,
-        { code: "surface-forbidden", message: `Customer route "${pathname}" is disabled on the internal-only deployment surface` },
+        { code: "surface-forbidden", message: "Customer routes are disabled on the internal-only deployment surface" },
         allowedOrigin,
         undefined,
         allowMethods,
@@ -1164,7 +1165,7 @@ export function createDppServer(options: DppServerOptions): Server {
                 : undefined,
             declaredSha256: typeof e.declaredSha256 === "string" ? e.declaredSha256 : undefined,
             mediaType: typeof e.mediaType === "string" ? e.mediaType : undefined,
-            contentBytes: toBytes(e, `evidence[${e.evidenceId}]`),
+            contentBytes: toBytes(e, `evidence[${idx}]`),
             legalHold: typeof e.legalHold === "boolean" ? e.legalHold : undefined,
           };
         });
@@ -1229,7 +1230,20 @@ export function createDppServer(options: DppServerOptions): Server {
           slot.release();
         }
 
-        sendJson(res, outcome.ok ? 200 : 422, outcome, allowedOrigin, undefined, allowMethods);
+        // A refusal tells its own submitter where the problem is (file name and row or JSON pointer) and what kind it is, with the
+        // fixed text of the code. It never carries a field value: the free-text detail of an ingress issue is dropped (D8-09).
+        const answer = outcome.errors
+          ? {
+              ...outcome,
+              errors: outcome.errors.map((e) => ({
+                stage: e.stage,
+                code: e.code,
+                message: ERROR_TEXT[e.code] ?? "The import was refused.",
+                location: e.location,
+              })),
+            }
+          : outcome;
+        sendJson(res, outcome.ok ? 200 : 422, answer, allowedOrigin, undefined, allowMethods);
         return;
       }
 

@@ -76,11 +76,11 @@ export function authenticateRequest(
     throw new AuthError(
       "user-unknown",
       403,
-      `Authenticated subject "${claims.sub}" has no provisioned user record in domain "${securityDomain}"`,
+      "The authenticated subject has no provisioned user record in this security domain",
     );
   }
   if (!user.active) {
-    throw new AuthError("user-inactive", 403, `User "${claims.sub}" has been deactivated`);
+    throw new AuthError("user-inactive", 403, "The user has been deactivated");
   }
   if (
     claims.grantEpoch !== undefined &&
@@ -89,7 +89,7 @@ export function authenticateRequest(
     throw new AuthError(
       "grant-revoked",
       403,
-      `Token grant_epoch (${claims.grantEpoch}) does not match live grant_epoch (${user.grantEpoch})`,
+      "The token grant epoch does not match the live grant epoch",
     );
   }
 
