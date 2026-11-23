@@ -139,7 +139,7 @@ export class SqlRecordRepository implements RecordRepository {
     if (!securityDomain.trim()) {
       throw new RetentionViolationError("domain-missing", "securityDomain is required for relational repository");
     }
-    this.policies = new PolicyStore(db);
+    this.policies = new PolicyStore(db, securityDomain);
   }
 
   /** Synchronous version history for `(securityDomain, model, batch)`, oldest first. */

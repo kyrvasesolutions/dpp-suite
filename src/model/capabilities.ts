@@ -10,8 +10,20 @@ export const CAPABILITY_LABELS = ["supported", "experimental", "disabled", "unte
 export type CapabilityLabel = (typeof CAPABILITY_LABELS)[number];
 
 export interface Capability {
-  /** The screen, as in the URL hash. */
-  id: "profile" | "import" | "record" | "readiness" | "outputs" | "requirements" | "prepare" | "validation" | "mapping" | "graph" | "server";
+  /** The screen, as in the URL hash, or a headless P-increment module id. */
+  id:
+    | "profile"
+    | "import"
+    | "record"
+    | "readiness"
+    | "outputs"
+    | "requirements"
+    | "prepare"
+    | "validation"
+    | "mapping"
+    | "graph"
+    | "server"
+    | "identity-releases";
   /**
    * The increment of the plan this entry labels: "N" (the narrow demonstrator, the default) or "P" (the durable server).
    * A function carries one label per increment, so the P slice of a function the N screens already deliver is labelled
@@ -129,6 +141,15 @@ export const CAPABILITIES: Capability[] = [
     screen: false,
     functions: ["FUNC-022", "FUNC-023", "FUNC-039", "FUNC-063", "FUNC-064", "FUNC-087", "FUNC-125"],
     basis: "Cycle 6 exit: the P increment, present only when the DPP server serves the app: durable storage, classification and retention, staged idempotent imports with update receipts, and recoverable job state. Real customer data, real operators and cryptographic signing remain dated holds. The N labels of the same functions on the screens above are unchanged.",
+  },
+  {
+    id: "identity-releases",
+    name: "Identity, access & config releases (P)",
+    label: "untested",
+    increment: "P",
+    screen: false,
+    functions: ["FUNC-001", "FUNC-018", "FUNC-019", "FUNC-027", "FUNC-046", "FUNC-085", "FUNC-134"],
+    basis: "Cycle 7 implementation (Untested until Cycle 7 exit): OIDC RS256/ES256 authentication, server-side role/field/action enforcement with live grant epochs, dedicated internal vs customer deployment surfaces, four-eyes configuration package releases and rollback, and checksum-verified forward/backward migrations. Connection to a real customer IdP tenant remains a dated hold.",
   },
 ];
 
