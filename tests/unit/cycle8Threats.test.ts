@@ -387,7 +387,7 @@ describe("hostile CSV", () => {
 
   // BUG (Coder A's file, src/model/ingress.ts): a NUL byte inside an ERP cell is accepted and stored as part of a value
   // (the identifier scheme "D\0EMO-PM" comes back as accepted). The CSV stage should refuse control characters in cells.
-  it.fails("an embedded NUL in a cell is refused", async () => {
+  it("an embedded NUL in a cell is refused", async () => {
     const r = await erp(`${header}\n${firstRow.replace("DE", "D\u0000E")}\n`);
     expect(r.ok).toBe(false);
   });

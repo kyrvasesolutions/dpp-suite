@@ -38,7 +38,7 @@ interface Waiter {
 }
 
 export class JobCoordinator {
-  #model: JobCoordinatorModel;
+  readonly #model: JobCoordinatorModel;
   readonly #waiters = new Map<string, Waiter>();
   readonly #domains = new Map<string, string>();
   readonly #config;
@@ -50,9 +50,6 @@ export class JobCoordinator {
 
   /** Admits a job of a security domain: starts it, queues it in arrival order, or refuses it with `QueueFullError`. */
   admit(domain: string): JobSlot {
-    // The model keeps one small entry per job it ever saw. When nothing is active or queued it holds only finished jobs,
-    // so a fresh model loses nothing and keeps counting cheap.
-    if (this.#domains.size === 0) this.#model = new JobCoordinatorModel(this.#config);
     const ticket = randomUUID();
     const decision = this.#model.admit(ticket, domain);
     if (decision.kind === "rejected") throw new QueueFullError(decision.retryAfterSeconds);

@@ -286,16 +286,27 @@ interface JobEntry {
  * blocked domain never holds back a job of a free domain (domains are isolated until the global cap).
  */
 export class JobCoordinatorModel {
+  /** Queued and active jobs only: a finished or cancelled job is dropped at once, so memory and counting stay bounded by live work. */
   readonly #entries = new Map<string, JobEntry>();
+  readonly #activeByDomain = new Map<string, number>();
+  #activeTotal = 0;
   /** Arrival order of waiting jobs. */
   #queue: string[] = [];
 
   constructor(readonly config: CoordinatorConfig) {}
 
   activeCount(domain?: string): number {
-    let n = 0;
-    for (const e of this.#entries.values()) if (e.state === "active" && (domain === undefined || e.domain === domain)) n++;
-    return n;
+    return domain === undefined ? this.#activeTotal : (this.#activeByDomain.get(domain) ?? 0);
+  }
+  /** Number of jobs the model still holds (queued plus active). */
+  get size(): number {
+    return this.#entries.size;
+  }
+  #deactivate(e: JobEntry): void {
+    this.#activeTotal--;
+    const n = (this.#activeByDomain.get(e.domain) ?? 1) - 1;
+    if (n <= 0) this.#activeByDomain.delete(e.domain);
+    else this.#activeByDomain.set(e.domain, n);
   }
   queuedCount(domain?: string): number {
     return this.#queue.filter((id) => domain === undefined || this.#entries.get(id)!.domain === domain).length;
@@ -332,6 +343,8 @@ export class JobCoordinatorModel {
       const e = this.#entries.get(id)!;
       if (this.activeCount(e.domain) >= this.config.maxActivePerDomain) continue;
       e.state = "active";
+      this.#activeTotal++;
+      this.#activeByDomain.set(e.domain, (this.#activeByDomain.get(e.domain) ?? 0) + 1);
       this.#queue = this.#queue.filter((q) => q !== id);
       started.push(id);
     }
@@ -342,16 +355,18 @@ export class JobCoordinatorModel {
   finish(jobId: string): FinishDecision {
     const e = this.#entries.get(jobId);
     if (!e || e.state !== "active") return { kind: "unknown", jobId };
-    e.state = "finished";
+    this.#deactivate(e);
+    this.#entries.delete(jobId);
     return { kind: "finished", jobId, started: this.start() };
   }
 
   /** Cancels a queued or active job. A finished or unknown job is not cancellable. */
   cancel(jobId: string): CancelDecision {
     const e = this.#entries.get(jobId);
-    if (!e || e.state === "finished" || e.state === "cancelled") return { kind: "not-cancellable", jobId };
+    if (!e) return { kind: "not-cancellable", jobId };
     const wasActive = e.state === "active";
-    e.state = "cancelled";
+    if (wasActive) this.#deactivate(e);
+    this.#entries.delete(jobId);
     this.#queue = this.#queue.filter((q) => q !== jobId);
     return { kind: "cancelled", jobId, wasActive, started: this.start() };
   }

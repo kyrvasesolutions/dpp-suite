@@ -22,6 +22,7 @@ export type IngressCode =
   | "media-type"
   | "byte-order-mark"
   | "wrong-encoding"
+  | "control-character"
   | "empty-file"
   | "csv-syntax"
   | "ragged-row"
@@ -58,6 +59,7 @@ export type IngressCode =
 export const ERROR_TEXT: Record<IngressCode, string> = {
   "media-type": "The file is not of the expected type. Use the ERP extract as .csv and the laboratory file as .json.",
   "byte-order-mark": "The file starts with a byte order mark. Save it as UTF-8 without BOM.",
+  "control-character": "The file contains a control character (for example a NUL) inside a value. Remove it and export the file again.",
   "wrong-encoding": "The file is not valid UTF-8. Export it again with UTF-8 encoding.",
   "empty-file": "The file is empty.",
   "csv-syntax": "The CSV text is malformed, for example a quote that is never closed.",
@@ -307,6 +309,10 @@ function csvRows(text: string, delimiter: string, name: string, tick: () => void
   for (let i = 0; i < text.length; i++) {
     if (i % 4096 === 0) tick();
     const c = text[i];
+    // C0 control characters are never part of a value: only the delimiter, CR and LF may appear below U+0020.
+    if (c < " " && c !== delimiter && c !== "\n" && c !== "\r") {
+      throw new StageFailure("parse", [issue("parse", "control-character", `${name}, line ${line}`)]);
+    }
     if (quoted) {
       if (c === '"' && text[i + 1] === '"') {
         field += '"';
@@ -596,6 +602,17 @@ export async function importLabJson(
       // The node-limit text never carries the offset or the path: neither is needed, and neither is echoed.
       throw new StageFailure("parse", [issue("parse", code, code === "too-many-nodes" ? name : `${name}, ${e.path || "/"}`, code === "too-many-nodes" ? undefined : e.message)]);
     }
+
+    // An escaped control character (\u0000) inside a string or key is refused like a raw one: the parser already refuses raw ones.
+    const hasControl = (v: JsonValue): boolean =>
+      v.kind === "string"
+        ? /[\u0000-\u001f]/.test(v.value)
+        : v.kind === "array"
+          ? v.items.some(hasControl)
+          : v.kind === "object"
+            ? [...v.entries].some(([k, x]) => /[\u0000-\u001f]/.test(k) || hasControl(x))
+            : false;
+    if (hasControl(doc)) throw new StageFailure("parse", [issue("parse", "control-character", name)]);
 
     deadline.check("structure");
     const structure: IngressIssue[] = [];

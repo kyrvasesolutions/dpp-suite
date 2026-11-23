@@ -942,3 +942,58 @@ describe("8. migration 0007 round trip", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------------------------
+// 9. Control characters and the ingress deadline clock (fix round)
+// ---------------------------------------------------------------------------------------------
+
+describe("9. control characters in source files", () => {
+  it("refuses NUL and other C0 characters in a CSV cell and in a JSON string, without echoing the value", async () => {
+    const { importErpCsv, importLabJson, ERROR_TEXT } = await import("../../src/model/ingress");
+    const pack = await loadPack();
+    const enc = (t: string) => new TextEncoder().encode(t);
+    const erp = text(CLEAN.erp);
+    for (const bad of ["\u0000", "\u0001", "\u001b"]) {
+      const r = await importErpCsv(pack, { bytes: enc(erp.replace("DEMO-PM", `D${bad}EMO-PM`)), name: CLEAN.erp, type: "text/csv" });
+      expect(r.ok).toBe(false);
+      expect(r.ok ? [] : r.errors.map((e) => e.code)).toEqual(["control-character"]);
+      expect(JSON.stringify(r)).not.toContain(bad);
+    }
+    // CR, LF and the delimiter are still fine; the clean file is unchanged
+    expect((await importErpCsv(pack, { bytes: fixtureBytes("n", CLEAN.erp), name: CLEAN.erp, type: "text/csv" })).ok).toBe(true);
+    const lab = text(CLEAN.lab);
+    const escaped = lab.replace('"EN AW-5754"', '"EN AW\\u0000-5754"');
+    expect(escaped).not.toBe(lab);
+    const rl = await importLabJson(pack, { bytes: enc(escaped), name: CLEAN.lab, type: "application/json" });
+    expect(rl.ok ? [] : rl.errors.map((e) => e.code)).toEqual(["control-character"]);
+    const raw = lab.replace('"EN AW-5754"', '"EN AW\u0000-5754"');
+    expect((await importLabJson(pack, { bytes: enc(raw), name: CLEAN.lab, type: "application/json" })).ok).toBe(false);
+    expect(ERROR_TEXT["control-character"]).not.toMatch(/[{}"]/);
+  });
+});
+
+describe("10. the ingress deadline runs on one injectable monotonic clock", () => {
+  it("the N path (no job budget) times out when the injected clock passes the deadline, and nothing is stored", async () => {
+    const pack = await loadPack();
+    const dir = mkdtempSync(join(tmpdir(), "dpp-c8-clock-"));
+    const db = new SqliteAdapter({ path: join(dir, "c.sqlite") });
+    try {
+      migrateUp(db);
+      new PolicyStore(db).activate(pack.policy.retention, NOW);
+      let t = 0;
+      // every read of the clock moves it 20 s: the start is read once, the first deadline check reads it again
+      const runner = new ImportJobRunner(db, pack, undefined, { now: () => NOW, clock: () => (t += 20_000) });
+      const r = await runner.runImportJob({ idempotencyKey: "clock-1", actor: OPERATOR, erp: { bytes: fixtureBytes("n", CLEAN.erp), name: CLEAN.erp, type: "text/csv" } });
+      expect(r.ok).toBe(false);
+      expect(r.errors?.[0]?.code).toBe("deadline");
+      expect(r).toMatchObject({ outcome: "TIMEOUT", limit: "job_deadline_ms" });
+      expect(db.get<{ n: number }>("SELECT COUNT(*) AS n FROM snapshots")!.n).toBe(0);
+      // a normal clock is unaffected
+      const ok = await new ImportJobRunner(db, pack, undefined, { now: () => NOW }).runImportJob({ idempotencyKey: "clock-2", actor: OPERATOR, erp: { bytes: fixtureBytes("n", CLEAN.erp), name: CLEAN.erp, type: "text/csv" } });
+      expect(ok.ok).toBe(true);
+    } finally {
+      db.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

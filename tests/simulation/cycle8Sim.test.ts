@@ -519,6 +519,20 @@ describe("4. job coordinator", () => {
     expect(c.cancel("nope").kind).toBe("not-cancellable");
   });
 
+  it("memory stays bounded: 10 000 admit and finish cycles leave nothing behind, and ids can be reused", () => {
+    const c = make();
+    for (let i = 0; i < 10_000; i++) {
+      const d = i % 2 ? "A" : "B";
+      expect(c.admit(`j${i}`, d).kind).toBe("started");
+      if (i % 3 === 0) expect(c.cancel(`j${i}`).kind).toBe("cancelled");
+      else expect(c.finish(`j${i}`).kind).toBe("finished");
+    }
+    expect(c.size).toBe(0);
+    expect(c.activeCount()).toBe(0);
+    expect(c.admit("j1", "A").kind).toBe("started"); // a finished id is gone, not remembered
+    expect(c.size).toBe(1);
+  });
+
   it("refuses a reused job id", () => {
     const c = make();
     c.admit("a1", "A");

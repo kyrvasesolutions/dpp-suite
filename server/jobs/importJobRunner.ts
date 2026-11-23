@@ -259,13 +259,15 @@ export class ImportJobRunner {
   public readonly logStore: SqlLogStore;
   /** The server clock. Only an in-process test can replace it; nothing in a request can. */
   private readonly now: () => string;
+  private readonly clock: () => number;
 
   constructor(
     private readonly db: DbAdapter,
     private readonly pack: ProfilePack,
     public readonly securityDomain: string = DEFAULT_SECURITY_DOMAIN,
-    options: { now?: () => string } = {},
+    options: { now?: () => string; /** Monotonic millisecond clock of the ingress deadline (default `performance.now()`). */ clock?: () => number } = {},
   ) {
+    this.clock = options.clock ?? (() => performance.now());
     if (!securityDomain.trim()) {
       throw new RetentionViolationError("domain-missing", "securityDomain is required for ImportJobRunner");
     }
@@ -754,7 +756,8 @@ export class ImportJobRunner {
 
     // Stage 3: validated (strict N ingress + EV-5 time envelope + shared job deadline). The server assigns recordedAt.
     const envelope = resolveCallerTimeEnvelope(req.timeEnvelope, this.now());
-    const startedAt = Date.now();
+    // One monotonic clock for the job's start and for the ingress deadline that is measured against it.
+    const startedAt = this.clock();
     const ingressControl = control
       ? {
           budget: control.budget,
@@ -769,13 +772,13 @@ export class ImportJobRunner {
       : {};
     const erpRes: ImportResult = await importErpCsv(
       this.pack,
-      { bytes: req.erp.bytes, name: req.erp.name, type: req.erp.type, startedAt, ...ingressControl },
+      { bytes: req.erp.bytes, name: req.erp.name, type: req.erp.type, startedAt, now: this.clock, ...ingressControl },
       actor,
     );
     const labRes: ImportResult | undefined = req.lab
       ? await importLabJson(
           this.pack,
-          { bytes: req.lab.bytes, name: req.lab.name, type: req.lab.type, startedAt, ...ingressControl },
+          { bytes: req.lab.bytes, name: req.lab.name, type: req.lab.type, startedAt, now: this.clock, ...ingressControl },
           actor,
         )
       : undefined;
