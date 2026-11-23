@@ -2,6 +2,12 @@
 
 Functional changes to the DPP suite, one entry per merged pull request, newest first.
 
+## [#19](https://github.com/kyrvasesolutions/dpp-suite/pull/19) Identity, access & config releases (P) supported (23 November 2026)
+
+- **Identity, access & config releases (P)** (`identity-releases` in `src/model/capabilities.ts`) is labelled **Supported** following Cycle 7 exit verification: five parallel independent security, surface-separation, configuration-release, and migration audits (all 5 `EXIT` after Round 2 hardening), cross-model live Administrator and Curator walkthroughs (`HT-W`) on the compiled server bundle, and cross-model security/governance review (`HT-R`).
+- **Built-in administrator bootstrap CLI (`server/index.ts`).** Added `node dist-server/server.mjs --bootstrap-admin <sub-id> "<Display Name>" [--domain <domain>] [--reason "<reason>"]` so operators can provision the initial `ADMIN` principal cleanly from the compiled bundle on Node 24+ without external TypeScript runners.
+- **ADR-0005 alignment.** Updated `adr/0005-oidc-rbac-enforcement-and-controlled-config-releases.md` to reflect the exact `DPP_OIDC_JWKS_PATH` configuration, `iat`/`grant_epoch` verification, `403 surface-forbidden` enforcement, `--bootstrap-admin` CLI, and `domain_retention_policies` table. Real customer IdP tenant registration, external JWKS HTTPS discovery and key rotation, real customer data/operators, and cryptographic artifact signing remain dated holds.
+
 ## [#18](https://github.com/kyrvasesolutions/dpp-suite/pull/18) OIDC authentication, server-side RBAC, surface separation and controlled configuration releases (23 November 2026)
 
 - **OIDC authentication (`DPP_AUTH_MODE=oidc`, ADR-0005).** Added a zero-dependency Node 24 `node:crypto` compact JWS verifier (`server/auth/oidc.ts`) accepting only asymmetric `RS256` (RSA >= 2048-bit) and `ES256` (EC P-256 IEEE P1363) signed tokens against a configured local public JWKS (`DPP_OIDC_ISSUER`, `DPP_OIDC_AUDIENCE`, `DPP_OIDC_JWKS_PATH`). Enforces canonical base64url decoding, fatal UTF-8 JSON parsing, strict JWKS `use`/`key_ops`/`alg`/`kid` filtering, finite clock/tolerance guards, and exact `iss`, `aud`, `sub`, `exp`, `nbf`, `iat`, and `grant_epoch` verification, rejecting `alg: none`, symmetric `HS*` algorithm confusion, tampered payloads, expired or future tokens, and unprovisioned or deactivated subjects. Unauthenticated `DPP_AUTH_MODE=local-dev` remains loopback-only and refuses to start on any non-loopback bind host before opening SQLite.

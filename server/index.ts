@@ -2,6 +2,9 @@
  * Entry point for the local Node 24 DPP durable storage, OIDC/RBAC, surface-separated,
  * and controlled configuration release HTTP API service (ADR-0004, ADR-0005).
  *
+ * CLI mode:
+ *   DPP_DB_PATH=data/dpp.sqlite node dist-server/server.mjs --bootstrap-admin <sub-id> "<Display Name>" [--domain <domain>] [--reason "<reason>"]
+ *
  * Configuration via environment variables (no secrets):
  *   DPP_CONTRACT_PACK      contract pack directory (default: contracts/n)
  *   DPP_DB_PATH            SQLite WAL database path (default: ./data/dpp.sqlite)
@@ -18,7 +21,9 @@
 import { existsSync } from "node:fs";
 import { readPack } from "../config/contractPack";
 import { AUTH_MODES, DEPLOYMENT_SURFACES, type AuthMode, type DeploymentSurface } from "../src/model/c7Contracts";
+import { DEFAULT_SECURITY_DOMAIN } from "../src/model/pContracts";
 import { loadProfilePack } from "../src/model/profile";
+import { GrantStore } from "./auth/grantStore";
 import { loadJwksFromFile, OidcVerifier } from "./auth/oidc";
 import { SqliteAdapter } from "./db/adapter";
 import { migrateUp } from "./db/migrations";
@@ -44,9 +49,48 @@ function parseSurface(raw: string | undefined): DeploymentSurface {
   return v;
 }
 
+/** Handles `--bootstrap-admin <sub-id> "<Display Name>" [--domain <domain>] [--reason "<reason>"]` and returns true if handled. */
+function maybeRunBootstrapCli(argv: string[], dbPath: string): boolean {
+  const idx = argv.indexOf("--bootstrap-admin");
+  if (idx === -1) return false;
+  const sub = argv[idx + 1];
+  const displayName = argv[idx + 2];
+  if (!sub || !displayName || sub.startsWith("--") || displayName.startsWith("--")) {
+    throw new Error(
+      'Usage: node dist-server/server.mjs --bootstrap-admin <sub-id> "<Display Name>" [--domain <domain>] [--reason "<reason>"]',
+    );
+  }
+  const domainIdx = argv.indexOf("--domain");
+  const domain = domainIdx !== -1 && argv[domainIdx + 1] ? argv[domainIdx + 1]! : DEFAULT_SECURITY_DOMAIN;
+  const reasonIdx = argv.indexOf("--reason");
+  const reason =
+    reasonIdx !== -1 && argv[reasonIdx + 1] ? argv[reasonIdx + 1]! : "Initial domain administrator provisioning";
+
+  const db = new SqliteAdapter({ path: dbPath });
+  try {
+    migrateUp(db);
+    const grants = new GrantStore(db, domain);
+    const user = grants.upsertUser({
+      sub,
+      displayName,
+      roles: ["ADMIN"],
+      actorSub: "bootstrap-cli",
+      reason,
+    });
+    console.log(JSON.stringify({ user }, null, 2));
+  } finally {
+    db.close();
+  }
+  return true;
+}
+
 async function main(): Promise<void> {
-  const packDir = process.env.DPP_CONTRACT_PACK?.trim() || "contracts/n";
   const dbPath = process.env.DPP_DB_PATH?.trim() || "data/dpp.sqlite";
+  if (maybeRunBootstrapCli(process.argv.slice(2), dbPath)) {
+    return;
+  }
+
+  const packDir = process.env.DPP_CONTRACT_PACK?.trim() || "contracts/n";
   const host = process.env.DPP_SERVER_HOST?.trim() || "127.0.0.1";
   const port = Number(process.env.DPP_SERVER_PORT?.trim() || "4174");
   const authMode = parseAuthMode(process.env.DPP_AUTH_MODE);

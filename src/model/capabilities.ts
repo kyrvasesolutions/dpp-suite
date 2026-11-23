@@ -145,11 +145,11 @@ export const CAPABILITIES: Capability[] = [
   {
     id: "identity-releases",
     name: "Identity, access & config releases (P)",
-    label: "untested",
+    label: "supported",
     increment: "P",
     screen: false,
     functions: ["FUNC-001", "FUNC-018", "FUNC-019", "FUNC-027", "FUNC-046", "FUNC-085", "FUNC-134"],
-    basis: "Cycle 7 implementation (Untested until Cycle 7 exit): OIDC RS256/ES256 authentication, server-side role/field/action enforcement with live grant epochs, dedicated internal vs customer deployment surfaces, four-eyes configuration package releases and rollback, and checksum-verified forward/backward migrations. Connection to a real customer IdP tenant remains a dated hold.",
+    basis: "Cycle 7 exit: OIDC RS256/ES256 authentication, server-side role/field/action enforcement with live grant epochs, dedicated internal vs customer deployment surfaces, four-eyes configuration package releases and rollback, and checksum-verified forward/backward migrations. Real customer IdP tenant, external JWKS HTTPS discovery/key rotation, real customer data/operators, and cryptographic artifact signing remain dated holds. The N labels of the same functions on the screens above are unchanged.",
   },
 ];
 

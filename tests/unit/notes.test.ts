@@ -206,6 +206,8 @@ describe.runIf(existsSync("docs/operator/identity-and-releases-notes.md"))("iden
       "/api/config-releases/rollback",
       "four-eyes",
       "legal-hold",
+      "--bootstrap-admin",
+      "Supported",
     ]) {
       expect(notes, token).toContain(token);
     }

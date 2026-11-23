@@ -35,7 +35,15 @@ describe("capability registry", () => {
   });
 
   // A label becomes "supported" only at a cycle exit, with evidence in that cycle's evidence log.
-  const SUPPORTED_AT_EXIT: Record<string, string> = { profile: "Cycle 1, 21 November 2026", import: "Cycle 2, 21 November 2026", readiness: "Cycle 3, 21 November 2026", outputs: "Cycle 4, 22 November 2026", record: "Cycle 5, 22 November 2026", server: "Cycle 6, 22 November 2026" };
+  const SUPPORTED_AT_EXIT: Record<string, string> = {
+    profile: "Cycle 1, 21 November 2026",
+    import: "Cycle 2, 21 November 2026",
+    readiness: "Cycle 3, 21 November 2026",
+    outputs: "Cycle 4, 22 November 2026",
+    record: "Cycle 5, 22 November 2026",
+    server: "Cycle 6, 22 November 2026",
+    "identity-releases": "Cycle 7, 23 November 2026",
+  };
   it("labels a screen supported only after a recorded cycle exit", () => {
     const supported = CAPABILITIES.filter((c) => c.label === "supported").map((c) => c.id);
     expect(supported.sort()).toEqual(Object.keys(SUPPORTED_AT_EXIT).sort());
@@ -65,10 +73,10 @@ describe("capability registry", () => {
   });
 
   // The P levels are kept locally like the N register: every P function labelled supported must be at F2 there.
-  const P_LEVELS = "docs/assessment/cycle-6/p-levels.csv";
-  it.runIf(existsSync(P_LEVELS))("labels supported only the P functions the local P levels put at F2", () => {
+  const P_LEVELS = ["docs/assessment/cycle-7/p-levels.csv", "docs/assessment/cycle-6/p-levels.csv"].find((p) => existsSync(p));
+  it.runIf(P_LEVELS)("labels supported only the P functions the local P levels put at F2", () => {
     const levels = new Map(
-      readFileSync(P_LEVELS, "utf8")
+      readFileSync(P_LEVELS!, "utf8")
         .split("\n")
         .filter((l) => l.startsWith("FUNC-"))
         .map((l) => [l.split(",")[0], l.split(",")[1]]),
@@ -94,13 +102,13 @@ describe("capability registry", () => {
     expect(labelOfFunction("FUNC-087")).toBeUndefined(); // N has no slice of it
   });
 
-  it("labels Cycle 7 identity, access & config release P functions untested until Cycle 7 exit without altering N labels", () => {
+  it("labels Cycle 7 identity, access & config release P functions supported since Cycle 7 exit without altering N labels", () => {
     const c7 = capabilityOf("identity-releases");
-    expect(c7.label).toBe("untested");
+    expect(c7.label).toBe("supported");
     expect(c7.increment).toBe("P");
     expect(c7.screen).toBe(false);
     for (const f of ["FUNC-001", "FUNC-018", "FUNC-019", "FUNC-027", "FUNC-046", "FUNC-085", "FUNC-134"]) {
-      expect(labelOfFunction(f, "P"), f).toBe("untested");
+      expect(labelOfFunction(f, "P"), f).toBe("supported");
     }
     expect(labelOfFunction("FUNC-001")).toBe("supported");
     expect(labelOfFunction("FUNC-019")).toBe("supported");
