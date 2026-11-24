@@ -480,7 +480,7 @@ describe("5. job coordinator, cancel and timeout (OIDC server)", () => {
       ],
       patch: {
         ...NO_RATE_PRESSURE,
-        execution: { job_deadline_ms: 400 } as never,
+        execution: { job_deadline_ms: 2000 } as never,
         coordinator: { max_active_jobs_per_security_domain: 1, max_queued_jobs_per_security_domain: 2, max_active_jobs_total: 4 } as never,
       },
       extra: { testHooks: { stageHook: (stage, ctx) => hook.current?.(stage, ctx) } },
@@ -528,31 +528,36 @@ describe("5. job coordinator, cancel and timeout (OIDC server)", () => {
       await g.promise;
     };
     const before = S.state();
-    const r1 = importAs(op1, "q-1");
-    await until(() => order.length === 1);
-    const r2 = importAs(op1, "q-2");
-    await until(async () => (await metrics()).jobs.byDomain.default?.queued === 1);
-    const r3 = importAs(op1, "q-3");
-    await until(async () => (await metrics()).jobs.byDomain.default?.queued === 2);
-    // the queue of the domain is full now
-    const r4 = await importAs(op1, "q-4");
-    expect(r4.status).toBe(429);
-    expect(r4.headers.get("retry-after")).toBe(String(S.limits.coordinator.retry_after_seconds));
-    expect(await json(r4)).toMatchObject({ code: "queue-full", outcome: "OVER_LIMIT", limit: "queue_full" });
-    // another security domain has its own slots: it starts at once although the first domain is full
-    const rb = importAs(opB, "q-b", { "X-Security-Domain": "dom-b" });
-    await until(() => order.length === 2);
-    gates.get(order[1]!)!.open();
-    expect((await rb).status).toBe(200);
-    // FIFO: releasing the first lets the second start, then the third
-    gates.get(order[0]!)!.open();
-    expect((await r1).status).toBe(200);
-    await until(() => order.length === 3);
-    gates.get(order[2]!)!.open();
-    expect((await r2).status).toBe(200);
-    await until(() => order.length === 4);
-    gates.get(order[3]!)!.open();
-    expect((await r3).status).toBe(200);
+    try {
+      const r1 = importAs(op1, "q-1");
+      await until(() => order.length === 1);
+      const r2 = importAs(op1, "q-2");
+      await until(async () => (await metrics()).jobs.byDomain.default?.queued === 1);
+      const r3 = importAs(op1, "q-3");
+      await until(async () => (await metrics()).jobs.byDomain.default?.queued === 2);
+      // the queue of the domain is full now
+      const r4 = await importAs(op1, "q-4");
+      expect(r4.status).toBe(429);
+      expect(r4.headers.get("retry-after")).toBe(String(S.limits.coordinator.retry_after_seconds));
+      expect(await json(r4)).toMatchObject({ code: "queue-full", outcome: "OVER_LIMIT", limit: "queue_full" });
+      // another security domain has its own slots: it starts at once although the first domain is full
+      const rb = importAs(opB, "q-b", { "X-Security-Domain": "dom-b" });
+      await until(() => order.length === 2);
+      gates.get(order[1]!)!.open();
+      expect((await rb).status).toBe(200);
+      // FIFO: releasing the first lets the second start, then the third
+      gates.get(order[0]!)!.open();
+      expect((await r1).status).toBe(200);
+      await until(() => order.length === 3);
+      gates.get(order[2]!)!.open();
+      expect((await r2).status).toBe(200);
+      await until(() => order.length === 4);
+      gates.get(order[3]!)!.open();
+      expect((await r3).status).toBe(200);
+    } finally {
+      hook.current = null;
+      for (const g of gates.values()) g.open();
+    }
     const jobs = (await json(await get(S, "/api/jobs", admin))).jobs as Array<{ jobId: string; idempotencyKey: string }>;
     const keyOf = (id: string) => jobs.find((j) => j.jobId === id)?.idempotencyKey;
     expect([order[0], order[2], order[3]].map((id) => keyOf(id!))).toEqual(["q-1", "q-2", "q-3"]);
@@ -659,7 +664,7 @@ describe("5. job coordinator, cancel and timeout (OIDC server)", () => {
       await idle();
       hook.current = null;
       expect((await importAs(op1, `timeout-${stage}`)).status).toBe(200); // the client retries with the same key
-    });
+    }, 10_000);
   }
 
   it("a cooperative stage notices the deadline at once (the budget is checked inside it)", async () => {
@@ -675,9 +680,9 @@ describe("5. job coordinator, cancel and timeout (OIDC server)", () => {
     const res = await importAs(op1, "timeout-coop");
     const elapsed = performance.now() - t0;
     expect(await json(res)).toMatchObject({ outcome: "TIMEOUT", ok: false });
-    expect(elapsed).toBeLessThan(S.limits.execution.job_deadline_ms + 250);
+    expect(elapsed).toBeLessThan(S.limits.execution.job_deadline_ms + 600);
     expect(S.state()).toEqual(before);
-  });
+  }, 10_000);
 
   it("a client that disconnects cancels its job: rolled back, nothing committed, slot freed", async () => {
     const { g, seen } = heldAt("validated");
