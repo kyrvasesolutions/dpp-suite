@@ -7,7 +7,7 @@ describe("capability registry", () => {
   it("has one entry per screen", () => {
     const ids = CAPABILITIES.map((c) => c.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect([...ids].sort()).toEqual(["graph", "identity-releases", "import", "mapping", "outputs", "prepare", "profile", "readiness", "record", "requirements", "server", "validation"]);
+    expect([...ids].sort()).toEqual(["graph", "identity-releases", "import", "load-security", "mapping", "outputs", "prepare", "profile", "readiness", "record", "requirements", "server", "validation"]);
   });
 
   it("uses only the four labels", () => {
@@ -43,6 +43,7 @@ describe("capability registry", () => {
     record: "Cycle 5, 22 November 2026",
     server: "Cycle 6, 22 November 2026",
     "identity-releases": "Cycle 7, 23 November 2026",
+    "load-security": "Cycle 8, 24 November 2026",
   };
   it("labels a screen supported only after a recorded cycle exit", () => {
     const supported = CAPABILITIES.filter((c) => c.label === "supported").map((c) => c.id);
@@ -73,7 +74,7 @@ describe("capability registry", () => {
   });
 
   // The P levels are kept locally like the N register: every P function labelled supported must be at F2 there.
-  const P_LEVELS = ["docs/assessment/cycle-7/p-levels.csv", "docs/assessment/cycle-6/p-levels.csv"].find((p) => existsSync(p));
+  const P_LEVELS = ["docs/assessment/cycle-8/p-levels.csv", "docs/assessment/cycle-7/p-levels.csv", "docs/assessment/cycle-6/p-levels.csv"].find((p) => existsSync(p));
   it.runIf(P_LEVELS)("labels supported only the P functions the local P levels put at F2", () => {
     const levels = new Map(
       readFileSync(P_LEVELS!, "utf8")
@@ -114,6 +115,18 @@ describe("capability registry", () => {
     expect(labelOfFunction("FUNC-019")).toBe("supported");
     expect(labelOfFunction("FUNC-046")).toBe("supported");
     expect(labelOfFunction("FUNC-018")).toBeUndefined();
+  });
+
+  it("labels Cycle 8 load, input limits & security hardening P functions supported since Cycle 8 exit without altering N labels", () => {
+    const c8 = capabilityOf("load-security");
+    expect(c8.label).toBe("supported");
+    expect(c8.increment).toBe("P");
+    expect(c8.screen).toBe(false);
+    for (const f of ["FUNC-131", "FUNC-133"]) {
+      expect(labelOfFunction(f, "P"), f).toBe("supported");
+    }
+    expect(labelOfFunction("FUNC-131")).toBeUndefined();
+    expect(labelOfFunction("FUNC-133")).toBeUndefined();
   });
 
   it("fails loudly for an unknown screen", () => {
