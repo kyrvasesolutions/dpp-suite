@@ -2,7 +2,7 @@
 
 Functional changes to the DPP suite, one entry per merged pull request, newest first.
 
-## Unreleased: Architecture decision records kept local (25 November 2026)
+## [#21](https://github.com/kyrvasesolutions/dpp-suite/pull/21) Architecture decision records kept local (25 November 2026)
 
 - **Public documentation is now README files and this changelog only.** The architecture decision records in `adr/` are no longer tracked and are listed in `.gitignore`. The decisions themselves are unchanged and still apply. Code comments keep their ADR identifiers. No product behaviour changes.
 - **Documentation boundary test.** `tests/unit/notes.test.ts` now checks that `adr/` is git-ignored together with the other working documentation, and no longer expects ADR files in a clean checkout.
