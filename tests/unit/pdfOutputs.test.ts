@@ -308,19 +308,20 @@ describe("long texts are never cut off or drawn over the footer", () => {
     return { f, pages: pageCount };
   };
 
-  it("draws all 400 sentences of a 10,000-character narrative and both of its source lines, over several pages", async () => {
-    const all = sentences(400);
-    expect(all.join(" ").length).toBeGreaterThan(10_000);
-    const { pages } = await check(
-      { ...CLEAN, editLab: (d) => (d.texts[0].text = all.join(" ")) },
+  // A field is at most 2000 characters (R2-01): the longest narrative is 40 sentences. Several long fields fill the pages.
+  it("draws all 40 sentences of a 1,900-character narrative in both languages and both of its source lines", async () => {
+    const all = sentences(40);
+    expect(all.join(" ").length).toBeGreaterThan(1_800);
+    expect(all.join(" ").length).toBeLessThanOrEqual(2_000);
+    await check(
+      { ...CLEAN, editLab: (d) => ((d.texts[0].text = all.join(" ")), (d.texts[1].text = all.join(" "))) },
       all,
       ["Source: Laboratory file, /texts/0/text", "Source: Laboratory file, /texts/1/text"],
     );
-    expect(pages).toBeGreaterThan(3);
   });
 
-  it("draws an 800-word product name in full, in the title and in its item, without touching the footer", async () => {
-    const words = Array.from({ length: 800 }, (_, i) => `Wort${i + 1}`);
+  it("draws a 1,900-character product name (250 words) in full, in the title and in its item, without touching the footer", async () => {
+    const words = Array.from({ length: 250 }, (_, i) => `Wort${i + 1}`);
     const name = words.join(" ");
     const { f } = await check(
       { ...CLEAN, editErp: (csv) => csv.replace("Aluminiumblech EN AW-5754 H111, 2,0 mm", name) },
@@ -329,11 +330,12 @@ describe("long texts are never cut off or drawn over the footer", () => {
     );
     const t = await pdfText(f.bytes);
     // the title and the item both carry it
-    expect(t.split("Wort800").length - 1).toBeGreaterThanOrEqual(2);
+    expect(name.length).toBeLessThanOrEqual(2_000);
+    expect(t.split("Wort250").length - 1).toBeGreaterThanOrEqual(2);
   });
 
-  it("keeps every line above the bottom margin when many values fill the pages", async () => {
-    const { pages } = await check({ ...CLEAN, editLab: (d) => (d.texts[1].text = sentences(120).join(" ")) }, sentences(120), []);
+  it("keeps every line above the bottom margin when long values fill the pages", async () => {
+    const { pages } = await check({ ...CLEAN, editLab: (d) => ((d.texts[0].text = sentences(40).join(" ")), (d.texts[1].text = sentences(40).join(" "))) }, sentences(40), []);
     expect(pages).toBeGreaterThanOrEqual(2);
   });
 });

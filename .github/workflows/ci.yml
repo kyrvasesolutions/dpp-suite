@@ -33,9 +33,8 @@ jobs:
       - name: Production dependency licences are on the allow-list
         run: npm run check-licences
 
-      - name: Vulnerability report for production dependencies (reports, does not block)
-        continue-on-error: true
-        run: npm audit --omit=dev --audit-level=high
+      - name: Dependency audit gate (all dependencies; unaccepted or expired advisories fail, D8-06)
+        run: npm run check-audit
 
       - name: Typecheck (app, tests and configs)
         run: npm run typecheck
@@ -63,11 +62,14 @@ jobs:
       - name: Acceptance suite (failure classes on the three routes, through the UI)
         run: npm run acceptance
 
-      - name: Built bundle has the content security policy and no browser LLM client
-        run: npm run check-bundle
-
       - name: Durable server bundles (Node 24, node:sqlite) and its tests run in the unit suite
         run: npm run build:server
+
+      - name: Built bundles have the content security policy, no browser LLM client and no LLM SDK in the server bundle
+        run: npm run check-bundle
+
+      - name: No secrets in the build output (dist/ and dist-server/, D8-06)
+        run: npm run check-secrets -- --build
 
       - name: Keep the acceptance report
         if: ${{ !cancelled() }}

@@ -28,6 +28,7 @@ import {
 } from "./recordRepository";
 import { diffHistory } from "./correction";
 import { parseStrictJson, toPlain } from "./strictJson";
+import { safePart } from "./outputs/types";
 
 export class CentralRecordError extends Error {
   override name = "CentralRecordError";
@@ -116,8 +117,7 @@ export async function exportCentralRecord(repo: RecordRepository, pack: ProfileP
   const doc = { ...body, sha256: await contentDigest(body) };
   const text = canonicalPretty(doc);
   const bytes = utf8(text);
-  const safe = (s: string) => s.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
-  return { fileName: `central-record_${safe(model)}_${safe(batch)}.json`, mediaType: "application/json", text, bytes, fileSha256: await sha256Bytes(bytes) };
+  return { fileName: `central-record_${safePart(model)}_${safePart(batch)}.json`, mediaType: "application/json", text, bytes, fileSha256: await sha256Bytes(bytes) };
 }
 
 export interface ImportedCentralRecord {

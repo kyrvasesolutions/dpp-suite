@@ -22,6 +22,10 @@ export type IngressCode =
   | "media-type"
   | "byte-order-mark"
   | "wrong-encoding"
+  | "control-character"
+  | "unsafe-identifier"
+  | "field-too-long"
+  | "execution-failed"
   | "empty-file"
   | "csv-syntax"
   | "ragged-row"
@@ -35,6 +39,8 @@ export type IngressCode =
   | "json-syntax"
   | "duplicate-key"
   | "too-deep"
+  | "too-many-nodes"
+  | "cancelled"
   | "non-finite-number"
   | "schema"
   | "missing-value"
@@ -56,6 +62,10 @@ export type IngressCode =
 export const ERROR_TEXT: Record<IngressCode, string> = {
   "media-type": "The file is not of the expected type. Use the ERP extract as .csv and the laboratory file as .json.",
   "byte-order-mark": "The file starts with a byte order mark. Save it as UTF-8 without BOM.",
+  "unsafe-identifier": "An identifier or code contains a character that is not plain printable ASCII (a control, direction, invisible, combining or look-alike character), or is longer than the declared limit.",
+  "execution-failed": "The import could not be processed and was stopped. Nothing is imported.",
+  "field-too-long": "A text in the file is longer than the declared limit for one field, so the file was not read further. Nothing is imported.",
+  "control-character": "The file contains a control character (for example a NUL) inside a value. Remove it and export the file again.",
   "wrong-encoding": "The file is not valid UTF-8. Export it again with UTF-8 encoding.",
   "empty-file": "The file is empty.",
   "csv-syntax": "The CSV text is malformed, for example a quote that is never closed.",
@@ -68,6 +78,8 @@ export const ERROR_TEXT: Record<IngressCode, string> = {
   "too-large": "The file is larger than the declared limit for a source file, so it was not read.",
   "deadline": "The import ran past its time limit and was stopped. Nothing is imported.",
   "too-deep": "The JSON is nested deeper than the declared limit.",
+  "too-many-nodes": "The JSON holds more values than the declared limit, so it was not processed. Nothing is imported.",
+  "cancelled": "The import was cancelled and stopped. Nothing is imported.",
   "json-syntax": "The JSON text is malformed.",
   "duplicate-key": "An object in the JSON has the same key twice, so it is unclear which value is meant.",
   "non-finite-number": "A number is too large to represent, or not a number at all.",
@@ -198,15 +210,34 @@ class Deadline {
     private readonly clock: () => number,
     private readonly name: string,
     startedAt?: number,
+    private readonly budget?: IngressBudget,
   ) {
     // the deadline belongs to the job (the whole import of the pair), so a second file inherits the time the first one used
     this.start = startedAt ?? clock();
   }
   check(stage: Stage) {
+    // The server's job budget (cancellation token + wall-clock deadline) throws a LimitError, which is not a stage failure:
+    // it stops the whole job, never one file (C8-02). It runs at every stage boundary and at every parser tick.
+    this.budget?.check(stage);
     if (this.clock() - this.start > this.limitMs) {
       throw new StageFailure(stage, [issue(stage, "deadline", this.name, `The limit is ${this.limitMs / 1000} s.`)]);
     }
   }
+}
+
+/** The server's job budget as ingress sees it: `check` throws when the job was cancelled or passed its deadline (Cycle 8). */
+export interface IngressBudget {
+  check(stage: string): void;
+}
+
+/** Execution budgets that replace the pinned input limits for one job (the server passes OPERATIONAL-LIMITS here; the browser passes none). */
+export interface IngressLimits {
+  maxFileBytes?: number;
+  maxJsonDepth?: number;
+  maxRows?: number;
+  /** Most JSON values in one document; exceeding it stops the parse with `too-many-nodes`. */
+  maxParserNodes?: number;
+  deadlineMs?: number;
 }
 
 /** Optional clock, so tests can run a job past its deadline without waiting for it. */
@@ -217,6 +248,52 @@ export interface ImportInput {
   now?: () => number;
   /** When the job began, on the same clock: the deadline counts from here, not from this file. */
   startedAt?: number;
+  /** Cycle 8: cooperative cancellation and deadline of the job. Absent in the browser. */
+  budget?: IngressBudget;
+  /** Cycle 8: budgets that override the pinned input limits. Absent in the browser. */
+  limits?: IngressLimits;
+}
+
+/** The effective input limits of one import: the pinned ones, overridden by the job's budgets. */
+function effectiveLimits(pinned: ProfilePack["policy"]["limits"], over: IngressLimits | undefined) {
+  return {
+    ...pinned,
+    ...(over?.maxFileBytes !== undefined ? { max_file_bytes: over.maxFileBytes } : {}),
+    ...(over?.maxJsonDepth !== undefined ? { max_json_depth: over.maxJsonDepth } : {}),
+    ...(over?.maxRows !== undefined ? { max_erp_data_rows: over.maxRows } : {}),
+    ...(over?.deadlineMs !== undefined ? { job_deadline_ms: over.deadlineMs } : {}),
+  };
+}
+
+/** An ingress issue built from a code, for a caller outside this file (a job-level budget stop). */
+export const ingressIssue = (stage: Stage, code: IngressCode, location: string, detail?: string): IngressIssue => issue(stage, code, location, detail);
+
+/** The offset of the first byte that is not part of a valid UTF-8 sequence, in one pass. */
+export function firstInvalidUtf8(b: Uint8Array): number {
+  let i = 0;
+  const n = b.length;
+  while (i < n) {
+    const c = b[i];
+    if (c < 0x80) {
+      i++;
+      continue;
+    }
+    let need: number;
+    let min: number;
+    let cp: number;
+    if (c >= 0xc2 && c <= 0xdf) [need, min, cp] = [1, 0x80, c & 0x1f];
+    else if (c >= 0xe0 && c <= 0xef) [need, min, cp] = [2, 0x800, c & 0x0f];
+    else if (c >= 0xf0 && c <= 0xf4) [need, min, cp] = [3, 0x10000, c & 0x07];
+    else return i;
+    for (let k = 1; k <= need; k++) {
+      const x = b[i + k];
+      if (x === undefined || (x & 0xc0) !== 0x80) return i;
+      cp = (cp << 6) | (x & 0x3f);
+    }
+    if (cp < min || cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff)) return i;
+    i += need + 1;
+  }
+  return n;
 }
 
 async function bytesStage(bytes: Uint8Array, name: string, declaredType: string, role: SourceFile["role"], maxBytes: number) {
@@ -234,15 +311,7 @@ async function bytesStage(bytes: Uint8Array, name: string, declaredType: string,
   try {
     text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch {
-    let at = 0;
-    for (let n = 1; n <= bytes.length; n++) {
-      try {
-        new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, n));
-        at = n;
-      } catch {
-        if (n - at > 4) break;
-      }
-    }
+    const at = firstInvalidUtf8(bytes); // one pass: never a quadratic search, so a bad byte at the end of a 10 MiB file costs the same as one at the start
     throw new StageFailure("bytes", [issue("bytes", "wrong-encoding", `${name}, byte ${at}`)]);
   }
   const file: SourceFile = { name, role, mediaType: expected.type, sha256: await sha256Hex(text), size: bytes.length };
@@ -260,17 +329,32 @@ function csvRows(text: string, delimiter: string, name: string, tick: () => void
   const rows: string[][] = [];
   let row: string[] = [];
   let field = "";
+  // A run of plain characters is copied with one slice when it ends, not character by character: a 10 MiB cell would otherwise
+  // build ten million string pieces before it is flattened.
+  let runStart = -1;
+  const flush = (end: number) => {
+    if (runStart >= 0) {
+      field += text.slice(runStart, end);
+      runStart = -1;
+    }
+  };
   let quoted = false;
   let wasQuoted = false;
   let line = 1;
   for (let i = 0; i < text.length; i++) {
     if (i % 4096 === 0) tick();
     const c = text[i];
+    // C0 control characters are never part of a value: only the delimiter, CR and LF may appear below U+0020.
+    if (c < " " && c !== delimiter && c !== "\n" && c !== "\r") {
+      throw new StageFailure("parse", [issue("parse", "control-character", `${name}, line ${line}`)]);
+    }
     if (quoted) {
       if (c === '"' && text[i + 1] === '"') {
+        flush(i);
         field += '"';
         i++;
       } else if (c === '"') {
+        flush(i);
         quoted = false;
         const next = text[i + 1];
         if (next !== undefined && next !== delimiter && next !== "\n" && next !== "\r") {
@@ -278,17 +362,19 @@ function csvRows(text: string, delimiter: string, name: string, tick: () => void
         }
       } else {
         if (c === "\n") line++;
-        field += c;
+        if (runStart < 0) runStart = i;
       }
     } else if (c === '"') {
-      if (field !== "") throw new StageFailure("parse", [issue("parse", "csv-syntax", `${name}, line ${line}`, "Quote inside an unquoted field.")]);
+      if (field !== "" || runStart >= 0) throw new StageFailure("parse", [issue("parse", "csv-syntax", `${name}, line ${line}`, "Quote inside an unquoted field.")]);
       quoted = true;
       wasQuoted = true;
     } else if (c === delimiter) {
+      flush(i);
       row.push(field);
       field = "";
       wasQuoted = false;
     } else if (c === "\n" || c === "\r") {
+      flush(i);
       if (c === "\r" && text[i + 1] === "\n") i++;
       row.push(field);
       rows.push(row);
@@ -296,10 +382,11 @@ function csvRows(text: string, delimiter: string, name: string, tick: () => void
       field = "";
       wasQuoted = false;
       line++;
-    } else {
-      field += c;
+    } else if (runStart < 0) {
+      runStart = i;
     }
   }
+  flush(text.length);
   if (quoted) throw new StageFailure("parse", [issue("parse", "csv-syntax", `${name}, line ${line}`, "A quote is never closed.")]);
   if (field !== "" || wasQuoted || row.length) {
     row.push(field);
@@ -321,7 +408,23 @@ const HAS_INVISIBLE = /[\u200B-\u200D\u2060\uFEFF\u00AD]/;
  * Whether a number literal survives as a double without changing: at most 15 significant digits, and no
  * nonzero literal that underflows to 0. Longer numbers would be silently rounded (re-assessment R2-5).
  */
+/** The longest number literal that is looked at; anything longer cannot be exact in a double and is refused as precision-loss without further work. */
+const MAX_NUMBER_LITERAL = 64;
+/** The longest identifier or code accepted in a cell or a JSON identifier field. */
+export const MAX_IDENTIFIER_LENGTH = 128;
+/** The longest text of one field (an ERP cell, a string in the laboratory file): the file is refused above it, before any layout or output sees it (R2-01). */
+export const MAX_TEXT_FIELD_CHARS = 2000;
+/**
+ * An identifier or code is plain printable ASCII (an inner space is allowed: "EN AW-5754"; the ends are checked as padding), at most `MAX_IDENTIFIER_LENGTH` long (R2-03). Every identifier of the
+ * pinned pack and of the fixtures is ASCII, so an allow-list closes what a deny-list of invisible, combining and direction characters
+ * could not: look-alike letters (Cyrillic, full-width), format and tag characters, combining marks, line and paragraph separators,
+ * private-use characters, surrogates and non-ASCII spaces. Such a value is also not its own NFKC form, which is checked as well.
+ */
+const SAFE_IDENTIFIER = /^[\u0020-\u007e]+$/;
+const unsafeIdentifier = (raw: string) => raw.length > MAX_IDENTIFIER_LENGTH || (raw !== "" && (!SAFE_IDENTIFIER.test(raw) || raw !== raw.normalize("NFKC")));
+
 function exact(raw: string) {
+  if (raw.length > MAX_NUMBER_LITERAL) return false;
   const mantissa = raw.replace(/^-/, "").split(/[eE]/)[0].replace(".", "").replace(/^0+/, "");
   const digits = mantissa.replace(/0+$/, "").length;
   return digits <= 15 && !(Number(raw) === 0 && /[1-9]/.test(mantissa));
@@ -350,8 +453,8 @@ export async function importErpCsv(
   actor = "ACT-01",
 ): Promise<ImportResult> {
   const contract = pack.inputs.erp;
-  const limits = pack.policy.limits;
-  const deadline = new Deadline(limits.job_deadline_ms, input.now ?? (() => performance.now()), input.name, input.startedAt);
+  const limits = effectiveLimits(pack.policy.limits, input.limits);
+  const deadline = new Deadline(limits.job_deadline_ms, input.now ?? (() => performance.now()), input.name, input.startedAt, input.budget);
   let file: SourceFile = { name: input.name, role: "erp", mediaType: input.type, sha256: "", size: input.bytes.length };
   try {
     deadline.check("bytes");
@@ -363,6 +466,11 @@ export async function importErpCsv(
     deadline.check("parse");
     const rows = csvRows(decoded.text, contract.delimiter, name, () => deadline.check("parse"));
     const [header = [], ...body] = rows;
+    // R2-01: one field is never longer than `MAX_TEXT_FIELD_CHARS`; the first that is names the file and the place, never the text.
+    for (let r = 0; r < rows.length; r++) {
+      const long = rows[r]!.findIndex((cell) => cell.length > MAX_TEXT_FIELD_CHARS);
+      if (long !== -1) throw new StageFailure("parse", [issue("parse", "field-too-long", `${name}, row ${r + 1}, column ${long + 1}`)]);
+    }
     failIf(
       "parse",
       body.flatMap((r, i) =>
@@ -413,6 +521,10 @@ export async function importErpCsv(
         const [property, member] = c.maps_to.split("/");
         if ((c.code_list || member?.startsWith("FLD-Identifier-")) && (raw !== raw.trim() || HAS_INVISIBLE.test(raw))) {
           errors.push(issue("semantics", "padded-identifier", loc, JSON.stringify(raw)));
+          continue;
+        }
+        if ((c.code_list || member?.startsWith("FLD-Identifier-")) && unsafeIdentifier(raw)) {
+          errors.push(issue("semantics", "unsafe-identifier", loc));
           continue;
         }
         const flags: Flag[] = ["declared"];
@@ -523,8 +635,8 @@ export async function importLabJson(
   actor = "ACT-01",
 ): Promise<ImportResult> {
   const contract = pack.inputs.lab;
-  const limits = pack.policy.limits;
-  const deadline = new Deadline(limits.job_deadline_ms, input.now ?? (() => performance.now()), input.name, input.startedAt);
+  const limits = effectiveLimits(pack.policy.limits, input.limits);
+  const deadline = new Deadline(limits.job_deadline_ms, input.now ?? (() => performance.now()), input.name, input.startedAt, input.budget);
   let file: SourceFile = { name: input.name, role: "lab", mediaType: input.type, sha256: "", size: input.bytes.length };
   try {
     deadline.check("bytes");
@@ -535,12 +647,47 @@ export async function importLabJson(
     let doc: JsonValue;
     try {
       deadline.check("parse");
-      doc = parseStrictJson(decoded.text, { maxDepth: limits.max_json_depth, tick: () => deadline.check("parse") });
+      doc = parseStrictJson(decoded.text, {
+        maxDepth: limits.max_json_depth,
+        ...(input.limits?.maxParserNodes !== undefined ? { maxNodes: input.limits.maxParserNodes } : {}),
+        tick: () => deadline.check("parse"),
+      });
     } catch (e) {
       if (!(e instanceof JsonSyntaxError)) throw e;
-      const code: IngressCode = e.code === "duplicate-key" ? "duplicate-key" : e.code === "non-finite-number" ? "non-finite-number" : e.code === "too-deep" ? "too-deep" : "json-syntax";
-      throw new StageFailure("parse", [issue("parse", code, `${name}, ${e.path || "/"}`, e.message)]);
+      const code: IngressCode =
+        e.code === "duplicate-key"
+          ? "duplicate-key"
+          : e.code === "non-finite-number"
+            ? "non-finite-number"
+            : e.code === "too-deep"
+              ? "too-deep"
+              : e.code === "too-many-nodes"
+                ? "too-many-nodes"
+                : "json-syntax";
+      // The node-limit text never carries the offset or the path: neither is needed, and neither is echoed.
+      throw new StageFailure("parse", [issue("parse", code, code === "too-many-nodes" ? name : `${name}, ${e.path || "/"}`, code === "too-many-nodes" ? undefined : e.message)]);
     }
+
+    // An escaped control character (\u0000) inside a string or key is refused like a raw one: the parser already refuses raw ones.
+    const hasControl = (v: JsonValue): boolean =>
+      v.kind === "string"
+        ? /[\u0000-\u001f]/.test(v.value)
+        : v.kind === "array"
+          ? v.items.some(hasControl)
+          : v.kind === "object"
+            ? [...v.entries].some(([k, x]) => /[\u0000-\u001f]/.test(k) || hasControl(x))
+            : false;
+    if (hasControl(doc)) throw new StageFailure("parse", [issue("parse", "control-character", name)]);
+    // R2-01: one string is never longer than `MAX_TEXT_FIELD_CHARS` (keys included).
+    const longText = (v: JsonValue): boolean =>
+      v.kind === "string"
+        ? v.value.length > MAX_TEXT_FIELD_CHARS
+        : v.kind === "array"
+          ? v.items.some(longText)
+          : v.kind === "object"
+            ? [...v.entries].some(([k, x]) => k.length > MAX_TEXT_FIELD_CHARS || longText(x))
+            : false;
+    if (longText(doc)) throw new StageFailure("parse", [issue("parse", "field-too-long", name)]);
 
     deadline.check("structure");
     const structure: IngressIssue[] = [];
@@ -556,9 +703,13 @@ export async function importLabJson(
     // The lab file names the model, batch and alloy it reports on, so they become assertions too (FUNC-065).
     const reference = (key: string, property: string, member?: string) => {
       const raw = str(get(product, key));
-      // The same rule as for identifiers in the ERP extract: padding would keep the value from matching its record.
-      if (key !== "alloy" && (raw !== raw.trim() || HAS_INVISIBLE.test(raw))) {
+      // The same rule as for identifiers in the ERP extract: padding would keep the value from matching its record (R3-03: applies to alloy too).
+      if (raw !== raw.trim() || HAS_INVISIBLE.test(raw)) {
         errors.push(issue("semantics", "padded-identifier", `${name}, /product/${key}`, JSON.stringify(raw)));
+        return;
+      }
+      if (unsafeIdentifier(raw)) {
+        errors.push(issue("semantics", "unsafe-identifier", `${name}, /product/${key}`));
         return;
       }
       assertions.push({ property, ...(member ? { member } : {}), raw, value: raw, unit: null, source: src(`/product/${key}`), flags: ["declared"] });
@@ -574,6 +725,7 @@ export async function importLabJson(
       const seen = new Map<string, number>();
       items.forEach((x, i) => {
         const id = str(get(x, key));
+        if (unsafeIdentifier(id)) errors.push(issue("semantics", "unsafe-identifier", `${name}, ${path}/${i}/${key}`));
         if (seen.has(id)) errors.push(issue("semantics", "duplicate-id", `${name}, ${path}/${i}/${key}`, `"${id}" also at ${path}/${seen.get(id)}.`));
         seen.set(id, i);
       });
@@ -774,7 +926,7 @@ const same = (a: Assertion, b: Assertion) => (typeof a.value === "number" && typ
  * Combines accepted imports into one record per product model and batch (FUNC-065 references). When two
  * sources state different values for the same property, both stay and the value is challenged (C2-05).
  */
-export async function buildRecords(results: ImportResult[]): Promise<RecordState> {
+export async function buildRecords(results: ImportResult[], digestOf: (state: object) => string | Promise<string> = (state) => sha256Hex(canonical(state))): Promise<RecordState> {
   const accepted = results.filter((r): r is Extract<ImportResult, { ok: true }> => r.ok);
   const erp = accepted.filter((r) => r.file.role === "erp");
   const lab = accepted.filter((r) => r.file.role === "lab");
@@ -799,7 +951,7 @@ export async function buildRecords(results: ImportResult[]): Promise<RecordState
         });
       const sources = [e.file, ...labs.map((l) => l.file)];
       const state = { model: ref.model, batch: ref.batch, sources, values };
-      records.push({ ...state, digest: await sha256Hex(canonical(state)) });
+      records.push({ ...state, digest: await digestOf(state) });
     }
   }
   for (const l of lab) if (!attachedLab.has(l)) unattached.push(...l.assertions);
@@ -999,6 +1151,7 @@ export const baseAssertion = (v: RecordValue): Assertion | undefined => v.assert
  */
 export function checkCorrectedValue(pack: ProfilePack, base: Assertion, raw: string): { ok: true; value: string | number | null } | { ok: false; reason: string } {
   const no = (reason: string) => ({ ok: false as const, reason });
+  if (raw.length > MAX_TEXT_FIELD_CHARS) return no(`The corrected value is longer than ${MAX_TEXT_FIELD_CHARS} characters.`);
   if (raw.replace(INVISIBLE, "").trim() === "") return no("The corrected value is empty.");
   if (raw !== raw.trim() || HAS_INVISIBLE.test(raw)) return no("The corrected value has spaces at its ends or invisible characters.");
   if (/[\u0000-\u001f\u007f]/.test(raw)) return no("The corrected value has a control character or a line break.");
@@ -1006,6 +1159,15 @@ export function checkCorrectedValue(pack: ProfilePack, base: Assertion, raw: str
   const unit = base.unit;
   const rest = base.source.location.slice(base.source.file.length + 2);
   const column = base.source.role === "erp" ? pack.inputs.erp.columns.find((c) => c.name === /^row \d+, column (.+)$/.exec(rest)?.[1]) : undefined;
+  // R3-02: identifier and coded fields obey the same printable-ASCII NFKC-stable allow-list and length cap on correction as at ingress.
+  const isIdentifier =
+    Boolean(base.member?.startsWith("FLD-Identifier-")) ||
+    Boolean(column?.maps_to.includes("FLD-Identifier-")) ||
+    Boolean(column?.code_list) ||
+    base.property === byRole(pack, "alloy");
+  if (isIdentifier && unsafeIdentifier(raw)) {
+    return no("The corrected identifier contains characters that are not allowed or is too long.");
+  }
   if (unit !== null) {
     if (DECIMAL_COMMA.test(raw)) return no("The corrected value uses a decimal comma; the contract requires a point.");
     if (!DECIMAL.test(raw)) return no("The corrected value is not a plain number with a point as decimal separator.");

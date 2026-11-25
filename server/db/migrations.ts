@@ -574,6 +574,85 @@ export const MIGRATIONS: readonly Migration[] = [
       DROP TABLE IF EXISTS users;
     `,
   },
+  {
+    // Cycle 8 (D8-02, D8-10): who submitted each run of a job, and the audited reason of a cancel, per run (job id + claim sequence),
+    // so a re-claim of the same idempotency key by another submitter starts a new run with its own owner and its own cancel record.
+    // Both tables are append-only (update, delete and replace are refused). They are part of `computeStoreChecksum` once they hold
+    // rows. Rolling back to v6 drops them, and with them the submitter and cancellation history: that data loss is accepted for a
+    // rollback of this migration and is recorded in tests/unit/cycle8Limits.test.ts.
+    version: 7,
+    name: "0007_cycle8_job_control",
+    up: `
+      CREATE TABLE IF NOT EXISTS job_submitters (
+        job_id TEXT NOT NULL REFERENCES import_jobs(job_id),
+        claim_seq INTEGER NOT NULL CHECK (claim_seq >= 1),
+        security_domain TEXT NOT NULL,
+        submitter_sub TEXT NOT NULL,
+        recorded_at TEXT NOT NULL,
+        PRIMARY KEY (job_id, claim_seq)
+      );
+
+      CREATE TABLE IF NOT EXISTS job_cancellations (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        job_id TEXT NOT NULL REFERENCES import_jobs(job_id),
+        claim_seq INTEGER NOT NULL CHECK (claim_seq >= 1),
+        security_domain TEXT NOT NULL,
+        requested_by TEXT NOT NULL,
+        reason TEXT NOT NULL CHECK (length(reason) BETWEEN 1 AND 500),
+        outcome TEXT NOT NULL CHECK (outcome IN ('CANCELLED')),
+        requested_at TEXT NOT NULL,
+        UNIQUE (job_id, claim_seq)
+      );
+
+      CREATE TRIGGER IF NOT EXISTS trg_job_submitters_no_update
+      BEFORE UPDATE ON job_submitters
+      BEGIN
+        SELECT RAISE(ABORT, 'job_submitters is append-only and cannot be updated');
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_job_submitters_no_delete
+      BEFORE DELETE ON job_submitters
+      BEGIN
+        SELECT RAISE(ABORT, 'job_submitters is append-only and cannot be deleted');
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_job_submitters_no_replace
+      BEFORE INSERT ON job_submitters
+      WHEN EXISTS (SELECT 1 FROM job_submitters WHERE job_id = NEW.job_id AND claim_seq = NEW.claim_seq)
+      BEGIN
+        SELECT RAISE(ABORT, 'job_submitters is append-only; a row that exists cannot be replaced');
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_job_cancellations_no_update
+      BEFORE UPDATE ON job_cancellations
+      BEGIN
+        SELECT RAISE(ABORT, 'job_cancellations is append-only and cannot be updated');
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_job_cancellations_no_delete
+      BEFORE DELETE ON job_cancellations
+      BEGIN
+        SELECT RAISE(ABORT, 'job_cancellations is append-only and cannot be deleted');
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_job_cancellations_no_replace
+      BEFORE INSERT ON job_cancellations
+      WHEN EXISTS (SELECT 1 FROM job_cancellations WHERE job_id = NEW.job_id AND claim_seq = NEW.claim_seq)
+      BEGIN
+        SELECT RAISE(ABORT, 'job_cancellations is append-only; a row that exists cannot be replaced');
+      END;
+    `,
+    down: `
+      DROP TRIGGER IF EXISTS trg_job_cancellations_no_replace;
+      DROP TRIGGER IF EXISTS trg_job_cancellations_no_delete;
+      DROP TRIGGER IF EXISTS trg_job_cancellations_no_update;
+      DROP TRIGGER IF EXISTS trg_job_submitters_no_replace;
+      DROP TRIGGER IF EXISTS trg_job_submitters_no_delete;
+      DROP TRIGGER IF EXISTS trg_job_submitters_no_update;
+      DROP TABLE IF EXISTS job_cancellations;
+      DROP TABLE IF EXISTS job_submitters;
+    `,
+  },
 ];
 
 export function migrationChecksum(m: Migration): string {
@@ -705,7 +784,7 @@ export function migrateDown(db: DbAdapter, targetVersion: number): AppliedMigrat
  * SHA-256, update receipts, and all execution log columns) to detect any silent data corruption
  * or loss across forward/backward migrations and restore drills (LEAN-DEF-05, C7-05 prep).
  */
-export function computeStoreChecksum(db: DbAdapter): string {
+export function computeStoreChecksum(db: DbAdapter, options: { includeJobControl?: boolean } = {}): string {
   const hash = createHash("sha256");
 
   const policies = db.query(
@@ -771,6 +850,16 @@ export function computeStoreChecksum(db: DbAdapter): string {
      ORDER BY seq`,
   );
   hash.update(`log:${JSON.stringify(log)}\n`);
+
+  // v7 job control (submitters and cancellations). Hashed only when the tables exist and hold rows, so a store at v1 to v6, and a
+  // v7 store without job control rows, keeps the digest it always had. Rolling back to v6 drops these rows (accepted data loss).
+  if (options.includeJobControl !== false) {
+    for (const table of ["job_submitters", "job_cancellations"]) {
+      if (!db.get("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", table)) continue;
+      const rows = db.query(`SELECT * FROM ${table} ORDER BY job_id, claim_seq`);
+      if (rows.length) hash.update(`${table}:${JSON.stringify(rows)}\n`);
+    }
+  }
 
   return hash.digest("hex");
 }

@@ -318,7 +318,7 @@ export class ConfigReleaseStore {
         throw new ConfigReleaseError(
           "duplicate-release",
           409,
-          `Release ${input.packageId}@${input.version} already exists (${dup.release_id})`,
+          "A release with this package and version already exists",
         );
       }
 
@@ -329,7 +329,7 @@ export class ConfigReleaseStore {
         throw new ConfigReleaseError(
           "predecessor-mismatch",
           409,
-          `Predecessor mismatch: expected ${expectedPred ?? "null"} (current active release), received ${statedPred ?? "null"}`,
+          "Predecessor mismatch: the stated predecessor is not the current active release",
         );
       }
 
@@ -366,9 +366,9 @@ export class ConfigReleaseStore {
         this.securityDomain,
         releaseId,
       );
-      if (!row) throw new ConfigReleaseError("not-found", 404, `Configuration release "${releaseId}" not found`);
+      if (!row) throw new ConfigReleaseError("not-found", 404, "Configuration release not found");
       if (row.state !== "validated") {
-        throw new ConfigReleaseError("invalid-state", 409, `Release "${releaseId}" is in state "${row.state}" and cannot be approved`);
+        throw new ConfigReleaseError("invalid-state", 409, "The release is not in a state that can be approved");
       }
       if (row.proposed_by.trim().toLowerCase() === actorSub.toLowerCase()) {
         throw new ConfigReleaseError(
@@ -386,7 +386,7 @@ export class ConfigReleaseStore {
         releaseId,
       );
       if (updated.changes !== 1) {
-        throw new ConfigReleaseError("invalid-state", 409, `Release "${releaseId}" could not be approved concurrently`);
+        throw new ConfigReleaseError("invalid-state", 409, "The release could not be approved concurrently");
       }
       this.appendEvent(releaseId, row.package_id, "approved", actorSub, reason, nowIso);
       return this.get(releaseId)!;
@@ -405,9 +405,9 @@ export class ConfigReleaseStore {
         this.securityDomain,
         releaseId,
       );
-      if (!row) throw new ConfigReleaseError("not-found", 404, `Configuration release "${releaseId}" not found`);
+      if (!row) throw new ConfigReleaseError("not-found", 404, "Configuration release not found");
       if (row.state !== "validated" && row.state !== "approved") {
-        throw new ConfigReleaseError("invalid-state", 409, `Release "${releaseId}" in state "${row.state}" cannot be rejected`);
+        throw new ConfigReleaseError("invalid-state", 409, "The release is not in a state that can be rejected");
       }
       const updated = this.db.run(
         `UPDATE config_packages SET state = 'rejected'
@@ -416,7 +416,7 @@ export class ConfigReleaseStore {
         releaseId,
       );
       if (updated.changes !== 1) {
-        throw new ConfigReleaseError("invalid-state", 409, `Release "${releaseId}" changed state concurrently`);
+        throw new ConfigReleaseError("invalid-state", 409, "The release changed state concurrently");
       }
       this.appendEvent(releaseId, row.package_id, "rejected", actorSub, reason, nowIso);
       return this.get(releaseId)!;
@@ -432,9 +432,9 @@ export class ConfigReleaseStore {
       this.securityDomain,
       releaseId,
     );
-    if (!preRow) throw new ConfigReleaseError("not-found", 404, `Configuration release "${releaseId}" not found`);
+    if (!preRow) throw new ConfigReleaseError("not-found", 404, "Configuration release not found");
     if (preRow.state !== "approved") {
-      throw new ConfigReleaseError("invalid-state", 409, `Only approved releases may be activated (current state: "${preRow.state}")`);
+      throw new ConfigReleaseError("invalid-state", 409, "Only approved releases may be activated");
     }
 
     const bundle = JSON.parse(preRow.bundle_json) as PackSource;
@@ -448,14 +448,14 @@ export class ConfigReleaseStore {
         releaseId,
       );
       if (!row || row.state !== "approved") {
-        throw new ConfigReleaseError("invalid-state", 409, `Release "${releaseId}" is no longer in approved state`);
+        throw new ConfigReleaseError("invalid-state", 409, "The release is no longer in approved state");
       }
       const currentActive = this.getActive(row.package_id);
       if ((currentActive?.releaseId ?? null) !== row.predecessor_release_id) {
         throw new ConfigReleaseError(
           "predecessor-mismatch",
           409,
-          `Release "${releaseId}" targets predecessor ${row.predecessor_release_id ?? "null"} but active release is ${currentActive?.releaseId ?? "null"}`,
+          "Predecessor mismatch: the release does not follow the current active release",
         );
       }
 
@@ -480,7 +480,7 @@ export class ConfigReleaseStore {
         releaseId,
       );
       if (act.changes !== 1) {
-        throw new ConfigReleaseError("invalid-state", 409, `Release "${releaseId}" is no longer in approved state`);
+        throw new ConfigReleaseError("invalid-state", 409, "The release is no longer in approved state");
       }
       this.appendEvent(releaseId, row.package_id, "activated", actorSub, reason, nowIso);
       this.policies.activate(pack.policy.retention, nowIso);
@@ -504,11 +504,11 @@ export class ConfigReleaseStore {
     const reason = validateReason(reasonInput);
     const currentActive = this.getActive(packageId);
     if (!currentActive) {
-      throw new ConfigReleaseError("not-found", 404, `No active configuration release found for package "${packageId}"`);
+      throw new ConfigReleaseError("not-found", 404, "No active configuration release found for this package");
     }
     const desiredTargetId = targetReleaseId ?? currentActive.predecessorReleaseId;
     if (!desiredTargetId) {
-      throw new ConfigReleaseError("invalid-state", 409, `Active release "${currentActive.releaseId}" has no predecessor to roll back to`);
+      throw new ConfigReleaseError("invalid-state", 409, "The active release has no predecessor to roll back to");
     }
     if (desiredTargetId === currentActive.releaseId) {
       throw new ConfigReleaseError("invalid-state", 409, "Cannot roll back to the already-active release");
@@ -521,13 +521,13 @@ export class ConfigReleaseStore {
       desiredTargetId,
     );
     if (!preTarget) {
-      throw new ConfigReleaseError("not-found", 404, `Rollback target "${desiredTargetId}" not found for package "${packageId}"`);
+      throw new ConfigReleaseError("not-found", 404, "Rollback target not found for this package");
     }
     if (preTarget.state !== "superseded") {
       throw new ConfigReleaseError(
         "invalid-state",
         409,
-        `Rollback target "${desiredTargetId}" must be a previously active superseded release (state: "${preTarget.state}")`,
+        "The rollback target must be a previously active superseded release",
       );
     }
 
@@ -550,7 +550,7 @@ export class ConfigReleaseStore {
         throw new ConfigReleaseError(
           "invalid-state",
           409,
-          `Rollback target "${desiredTargetId}" is no longer in superseded state (current: "${liveTarget?.state ?? "missing"}")`,
+          "The rollback target is no longer in superseded state",
         );
       }
 
@@ -573,7 +573,7 @@ export class ConfigReleaseStore {
         desiredTargetId,
       );
       if (restore.changes !== 1) {
-        throw new ConfigReleaseError("invalid-state", 409, `Rollback target "${desiredTargetId}" changed state concurrently`);
+        throw new ConfigReleaseError("invalid-state", 409, "The rollback target changed state concurrently");
       }
       this.appendEvent(desiredTargetId, packageId, "activated", actorSub, `Restored via rollback from ${liveActive.releaseId}: ${reason}`, nowIso);
       this.policies.activate(pack.policy.retention, nowIso);

@@ -176,8 +176,7 @@ export class OidcVerifier {
     const header = decodeBase64UrlJson(headB64, "header");
     const alg = header.alg;
     if (typeof alg !== "string" || !ALLOWED_ALGS.has(alg as "RS256" | "ES256")) {
-      const algDesc = typeof alg === "string" ? alg : typeof alg;
-      throw new AuthError("token-algorithm-rejected", 401, `JWT algorithm "${algDesc}" is not allowed`);
+      throw new AuthError("token-algorithm-rejected", 401, "The JWT algorithm is not allowed");
     }
     if (header.crit !== undefined) {
       throw new AuthError("token-malformed", 401, "Unsupported critical JWT header extensions");

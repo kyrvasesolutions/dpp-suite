@@ -103,7 +103,7 @@ function validateDisplayName(displayName: unknown): string {
 
 function validateRole(role: unknown): ServerRole {
   if (typeof role !== "string" || !(SERVER_ROLES as readonly string[]).includes(role)) {
-    throw Object.assign(new Error(`Unknown role "${typeof role === "string" ? role : typeof role}"`), {
+    throw Object.assign(new Error("Unknown role"), {
       statusCode: 400,
       code: "invalid-role",
     });
@@ -345,10 +345,10 @@ export class GrantStore {
         sub,
       );
       if (!existing) {
-        throw Object.assign(new Error(`User "${sub}" not found`), { statusCode: 404, code: "user-not-found" });
+        throw Object.assign(new Error("User not found"), { statusCode: 404, code: "user-not-found" });
       }
       if (Number(existing.active) !== 1) {
-        throw new AuthError("user-inactive", 403, `Cannot assign role to deactivated user "${sub}"`);
+        throw new AuthError("user-inactive", 403, "Cannot assign a role to a deactivated user");
       }
       const nextEpoch = Number(existing.grant_epoch) + 1;
       const inserted = this.db.run(
@@ -388,7 +388,7 @@ export class GrantStore {
         sub,
       );
       if (!existing) {
-        throw Object.assign(new Error(`User "${sub}" not found`), { statusCode: 404, code: "user-not-found" });
+        throw Object.assign(new Error("User not found"), { statusCode: 404, code: "user-not-found" });
       }
       const currentRoles = this.rolesFor(sub);
       if (Number(existing.active) === 1 && role === "ADMIN" && currentRoles.includes("ADMIN") && this.activeAdminCount(sub) === 0) {
@@ -431,7 +431,7 @@ export class GrantStore {
         sub,
       );
       if (!existing) {
-        throw Object.assign(new Error(`User "${sub}" not found`), { statusCode: 404, code: "user-not-found" });
+        throw Object.assign(new Error("User not found"), { statusCode: 404, code: "user-not-found" });
       }
       if (Number(existing.active) === 0) {
         return this.getUser(sub)!;

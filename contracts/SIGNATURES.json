@@ -1,8 +1,8 @@
 {
   "n": {
-    "manifest_sha256": "322f8dc20e1c452c0167e1a26759813e5cd9bb81907baa0454178aaf539bcd85",
+    "manifest_sha256": "174442b372a337da71dce072a011f94423390e717748a6d44d4cec2eec90b01f",
     "signed_by": "kyrvasesolutions (GitHub account of the owner)",
-    "date": "2026-11-22",
-    "basis": "ARTIFICIAL-DEMO sign-off under the owner's standing instruction; decision D6-05"
+    "date": "2026-11-23",
+    "basis": "ARTIFICIAL-DEMO sign-off under the owner's standing instruction; decisions D8-01, D8-10 and D8-11"
   }
 }

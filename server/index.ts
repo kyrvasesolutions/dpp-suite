@@ -20,6 +20,7 @@
  */
 import { existsSync } from "node:fs";
 import { readPack } from "../config/contractPack";
+import egressAllowlist from "../config/egress-allowlist.json";
 import { AUTH_MODES, DEPLOYMENT_SURFACES, type AuthMode, type DeploymentSurface } from "../src/model/c7Contracts";
 import { DEFAULT_SECURITY_DOMAIN } from "../src/model/pContracts";
 import { loadProfilePack } from "../src/model/profile";
@@ -29,7 +30,10 @@ import { SqliteAdapter } from "./db/adapter";
 import { migrateUp } from "./db/migrations";
 import { createDppServer, isLoopbackBindHost } from "./http/api";
 import { ImportJobRunner } from "./jobs/importJobRunner";
+import { crashLine, installExceptionBarrier } from "./log/barrier";
+import { publicLogWriter } from "./log/publicLog";
 import { ConfigReleaseStore } from "./releases/configReleaseStore";
+import { allowlistHosts, installEgressGuard } from "./security/egressGuard";
 import { PolicyStore } from "./store/policyStore";
 import { verifyPackForServer } from "./verifyPack";
 
@@ -70,14 +74,15 @@ function maybeRunBootstrapCli(argv: string[], dbPath: string): boolean {
   try {
     migrateUp(db);
     const grants = new GrantStore(db, domain);
-    const user = grants.upsertUser({
+    grants.upsertUser({
       sub,
       displayName,
       roles: ["ADMIN"],
       actorSub: "bootstrap-cli",
       reason,
     });
-    console.log(JSON.stringify({ user }, null, 2));
+    // Fixed confirmation: no subject, display name, domain or reason is printed (D8-04).
+    process.stdout.write("bootstrap-admin: ok\n");
   } finally {
     db.close();
   }
@@ -85,6 +90,9 @@ function maybeRunBootstrapCli(argv: string[], dbPath: string): boolean {
 }
 
 async function main(): Promise<void> {
+  // Before anything else: nothing a crash can carry reaches the output, and no connection leaves this host (D8-04, D8-05).
+  installExceptionBarrier();
+  installEgressGuard({ allowlist: allowlistHosts(egressAllowlist.connect), mode: "refuse" });
   const dbPath = process.env.DPP_DB_PATH?.trim() || "data/dpp.sqlite";
   if (maybeRunBootstrapCli(process.argv.slice(2), dbPath)) {
     return;
@@ -140,7 +148,7 @@ async function main(): Promise<void> {
   const activePack = (await configReleases.loadPackByReleaseId(activeRelease.releaseId)) ?? startupPack;
 
   // Ensure the active configuration pack's pinned retention policy is active before accepting any data (C6-02).
-  const activePolicy = new PolicyStore(db).activate(activePack.policy.retention);
+  new PolicyStore(db).activate(activePack.policy.retention);
 
   // Recover any interrupted staged jobs on startup (C6-04).
   // Skip job recovery on a dedicated customer-only surface so it remains read/release-only.
@@ -158,14 +166,14 @@ async function main(): Promise<void> {
     authMode,
     surface,
     oidc: oidcVerifier,
+    log: publicLogWriter,
   });
   server.listen(port, host, () => {
-    console.log(
-      `DPP server listening on http://${host}:${port} ` +
-        `(auth=${authMode}, surface=${surface}, ${staticDir ? `app served from ${staticDir}` : "API only"}) ` +
-        `(db=${dbPath}, schema=v${migrations[migrations.length - 1]?.version ?? 0}, ` +
-        `release=${activeRelease.packageId}@${activeRelease.version}, ` +
-        `policy=${activePolicy.policyPin}, recovered=${recovery.resumed.length} resumed / ${recovery.rolledBack.length} rolled back)`,
+    // Port and surface only: no path, issuer, audience, subject or release detail is printed (D8-04).
+    // stderr, so stdout stays one six-field JSON line per request.
+    process.stderr.write(
+      `DPP server listening on port ${port} (auth=${authMode}, surface=${surface}, ${staticDir ? "app served" : "API only"}, ` +
+        `schema=v${migrations[migrations.length - 1]?.version ?? 0}, recovered=${recovery.resumed.length}/${recovery.rolledBack.length})\n`,
     );
   });
 
@@ -180,6 +188,7 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error("DPP server failed to start:", err instanceof Error ? err.message : String(err));
+  // Class and code only, never the message (it can carry a path, an issuer or a value).
+  process.stderr.write(`${crashLine(err)}\n`);
   process.exit(1);
 });

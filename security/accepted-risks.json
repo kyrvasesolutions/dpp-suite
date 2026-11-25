@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "risks": [
+    {
+      "id": "AR-CI-01",
+      "advisory": null,
+      "package": "github-actions",
+      "severity": "low",
+      "rationale": "GitHub Actions are pinned by major version tag only. First-party actions/* only, read-only token (permissions: contents: read). To be revisited in Cycle 10.",
+      "accepted_by": "kyrvasesolutions",
+      "date": "2026-11-23",
+      "review_by": "2027-02-23"
+    },
+    {
+      "id": "AR-DEP-01",
+      "advisory": "GHSA-3g3m-2fjr-6pw4",
+      "package": "glob",
+      "severity": "moderate",
+      "rationale": "Build-time dev dependency only (vite-plugin-pwa -> workbox-build -> glob); never shipped in dist/ or dist-server/. Patterns are repository-controlled, no untrusted AbortSignal input. npm's only fix is a semver-major downgrade of workbox-build. Re-check at Cycle 10 or when vite-plugin-pwa releases a fixed version.",
+      "accepted_by": "kyrvasesolutions",
+      "date": "2026-11-23",
+      "review_by": "2027-02-23"
+    },
+    {
+      "id": "AR-DEP-02",
+      "advisory": "GHSA-g3hv-75wg-m249",
+      "package": "minimatch",
+      "severity": "moderate",
+      "rationale": "Build-time dev dependency only (workbox-build -> glob -> minimatch); never shipped. Glob patterns are fixed in repository config, so the ReDoS input is not attacker-controlled. npm's only fix is a semver-major downgrade of workbox-build. Re-check at Cycle 10.",
+      "accepted_by": "kyrvasesolutions",
+      "date": "2026-11-23",
+      "review_by": "2027-02-23"
+    }
+  ]
+}

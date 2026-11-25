@@ -14,7 +14,7 @@ import { derive, publicSource, type DerivedStatement, type PublicSource } from "
 import { byRole, type Assertion, type Flag, type ProductRecord, type ValueStatus } from "./ingress";
 import { decide } from "./policy";
 import type { ProfilePack, Route } from "./profile";
-import { assess } from "./readiness";
+import { assess, type RouteReadiness } from "./readiness";
 
 export interface ProjectedAssertion {
   raw: string;
@@ -74,16 +74,30 @@ const copy = (a: Assertion, evidenceVisible: boolean): ProjectedAssertion => ({
 });
 
 /** What a recipient of `route` receives from `record`: the single path from record to route output or view. */
-export function project(pack: ProfilePack, record: ProductRecord, route: Route): Projection {
+export function project(pack: ProfilePack, record: ProductRecord, route: Route, routeReadiness?: RouteReadiness): Projection {
   const info = pack.routes[route];
   const values: ProjectedValue[] = [];
   const derived: DerivedDisclosure[] = [];
   const withheld: Withheld[] = [];
   const known = new Set(pack.properties.map((p) => p.id));
   const evidenceVisible = decide(pack, route, byRole(pack, "evidence")) === "permit";
+  const byProp = new Map<string, ProductRecord["values"]>();
+  const unknownProps = new Set<string>();
+  for (const v of record.values) {
+    if (!known.has(v.property)) {
+      unknownProps.add(v.property);
+      continue;
+    }
+    let bucket = byProp.get(v.property);
+    if (!bucket) {
+      bucket = [];
+      byProp.set(v.property, bucket);
+    }
+    bucket.push(v);
+  }
 
   for (const p of pack.properties) {
-    const own = record.values.filter((v) => v.property === p.id);
+    const own = byProp.get(p.id) ?? [];
     const access = decide(pack, route, p.id);
     if (access === "deny") {
       withheld.push({ property: p.id, decision: "deny", reason: "The matrix does not permit this property for this recipient." });
@@ -107,10 +121,11 @@ export function project(pack: ProfilePack, record: ProductRecord, route: Route):
       }
     }
   }
-  for (const unknown of new Set(record.values.filter((v) => !known.has(v.property)).map((v) => v.property))) {
+  for (const unknown of unknownProps) {
     withheld.push({ property: unknown, decision: "deny", reason: "The property is not in the profile, so nothing about it can be disclosed." });
   }
 
-  const onHold = assess(pack, record).find((r) => r.route === route)!.status === "on-hold";
+  const readiness = routeReadiness && routeReadiness.route === route ? routeReadiness : assess(pack, record, { routes: [route] })[0]!;
+  const onHold = readiness.status === "on-hold";
   return { route, recipient: info.recipient, onHold, values, derived, withheld };
 }

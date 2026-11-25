@@ -47,6 +47,11 @@ const entryOf = (ref: string, item: OutputValue, a: Assertion, detail?: string):
  */
 export function buildLineage(pack: ProfilePack, record: ProductRecord, route: Route, items: OutputValue[]): LineageEntry[] {
   const entries: LineageEntry[] = [];
+  const valueIndex = new Map<string, ProductRecord["values"][number]>();
+  for (const v of record.values) {
+    const k = `${v.property}\0${v.member ?? ""}\0${v.qualifier ?? ""}`;
+    if (!valueIndex.has(k)) valueIndex.set(k, v);
+  }
   for (const item of items) {
     if (!item.present) continue;
     const ref = outputRef(route, item.step);
@@ -58,7 +63,7 @@ export function buildLineage(pack: ProfilePack, record: ProductRecord, route: Ro
     }
     if (!item.refs.length) throw new Error(`${ref}: a stated value has no source assertion`);
     for (const r of item.refs) {
-      const value = record.values.find((v) => v.property === r.property && v.member === r.member && v.qualifier === r.qualifier);
+      const value = valueIndex.get(`${r.property}\0${r.member ?? ""}\0${r.qualifier ?? ""}`);
       const a = value?.assertions[r.index];
       if (!a) throw new Error(`${ref}: ${r.property} is not in the record`);
       entries.push(entryOf(ref, item, a, r.detail));
