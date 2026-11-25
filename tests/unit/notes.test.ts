@@ -139,19 +139,11 @@ describe.runIf(existsSync("docs/developer/handover.md"))("developer handover", (
   });
 });
 
-describe("public ADRs and documentation boundaries", () => {
-  it("tracks public ADRs in adr/ while keeping docs/ and working documentation git-ignored", () => {
-    for (const file of [
-      "adr/0001-browser-only-pipeline-and-contract-packs.md",
-      "adr/0002-deterministic-contract-testing-and-three-layer-verification.md",
-      "adr/0003-reimport-and-correction-semantics.md",
-      "adr/0004-durable-relational-storage-and-staged-jobs.md",
-      "adr/0005-oidc-rbac-enforcement-and-controlled-config-releases.md",
-    ]) {
-      expect(existsSync(file), file).toBe(true);
-    }
+describe("documentation boundaries", () => {
+  it("keeps ADRs, docs/ and working documentation git-ignored; only README files and CHANGELOG.md are public", () => {
+    expect(existsSync("CHANGELOG.md")).toBe(true);
     const gitignore = read(".gitignore");
-    for (const ignored of ["/docs/", "/docs/assessment/", "/scripts/assessment/", "/spec/", "/CLAUDE.md", "/.claude/"]) {
+    for (const ignored of ["/adr/", "/docs/", "/docs/assessment/", "/scripts/assessment/", "/spec/", "/CLAUDE.md", "/.claude/"]) {
       expect(gitignore, ignored).toContain(ignored);
     }
   });

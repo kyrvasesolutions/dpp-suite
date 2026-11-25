@@ -25,6 +25,8 @@ playwright-report/
 /.venv/
 
 # The public record of changes is CHANGELOG.md. Assistant and working documentation stays local.
+# Architecture decision records stay local too: only README files and CHANGELOG.md are public.
+/adr/
 /CLAUDE.md
 /.claude/
 /.graphifyignore

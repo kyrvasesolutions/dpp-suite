@@ -2,6 +2,11 @@
 
 Functional changes to the DPP suite, one entry per merged pull request, newest first.
 
+## Unreleased: Architecture decision records kept local (25 November 2026)
+
+- **Public documentation is now README files and this changelog only.** The architecture decision records in `adr/` are no longer tracked and are listed in `.gitignore`. The decisions themselves are unchanged and still apply. Code comments keep their ADR identifiers. No product behaviour changes.
+- **Documentation boundary test.** `tests/unit/notes.test.ts` now checks that `adr/` is git-ignored together with the other working documentation, and no longer expects ADR files in a clean checkout.
+
 ## [#20](https://github.com/kyrvasesolutions/dpp-suite/pull/20) Bounded execution, input limits, load resilience and security hardening (24 November 2026)
 
 - **Pinned operational limits (`policy/OPERATIONAL-LIMITS@1.0.0.yaml`, ADR-0006).** Added a frozen, signed operational limits policy pinning execution budgets (file/pair sizes, nesting depth, parser node cap, job deadline, cancellation poll and forced termination bounds, zero automatic server retries), per-security-domain coordinator slots/queues and in-flight record-byte budgets (`server_record_max_bytes: 2 MiB`, `max_inflight_record_bytes: 4 MiB`), HTTP bounds (`headers_timeout_ms`, `request_timeout_ms`, `keep_alive_timeout_ms`, `body_read_timeout_ms`, `idle_socket_timeout_ms`, `max_connections`, `max_request_body_bytes`, per-subject/IP read and write rate limits), and load targets. Existing `LIMITS@1.0.0` remains unchanged for narrow-demonstrator compatibility.
