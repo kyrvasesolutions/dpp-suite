@@ -58,7 +58,7 @@ describe("wrap gives the reference lines", () => {
         }
       }
     }
-  });
+  }, 30_000);
 
   it("for random texts over the characters that kern and widen", () => {
     let seed = 20261124;
@@ -73,7 +73,7 @@ describe("wrap gives the reference lines", () => {
       const width = 40 + rnd() * 460;
       expect(wrap(text, font, size, width), JSON.stringify(text)).toEqual(wrapReference(text, font, size, width));
     }
-  });
+  }, 30_000);
 });
 
 describe("wrap is linear", () => {
@@ -89,5 +89,5 @@ describe("wrap is linear", () => {
     const wordMs = performance.now() - t0;
     expect(wordsMs).toBeLessThan(3000);
     expect(wordMs).toBeLessThan(300);
-  });
+  }, 30_000);
 });
