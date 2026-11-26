@@ -175,7 +175,7 @@ export function ProfileView({ chain }: { chain: Chain | null }) {
         <h2 id="codes-title">Code lists</h2>
         <p className="hint small">
           Each list is a file in the pack. Editing one changes its digest, and the checker refuses it until the
-          manifest is rewritten and signed again.
+          manifest is rewritten and owner digest approval is renewed (pinned digest; no cryptographic signing profile is approved yet).
         </p>
         <div className="profile-codes">
           {profile.codeLists.map((c) => (

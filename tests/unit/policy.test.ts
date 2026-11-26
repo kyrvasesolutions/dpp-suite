@@ -36,12 +36,12 @@ describe("decide", () => {
   });
 
   it("throws for an unknown route or property rather than guessing", () => {
-    expect(() => decide(pack, "customer-pdf", "ALU-NOPE")).toThrow(/Unknown property/);
-    expect(() => decide(pack, "customer-pdf", "")).toThrow(/Unknown property/);
+    expect(() => decide(pack, "customer", "ALU-NOPE")).toThrow(/Unknown property/);
+    expect(() => decide(pack, "customer", "")).toThrow(/Unknown property/);
     expect(() => decide(pack, "carrier-pigeon" as never, pack.properties[0].id)).toThrow(/Unknown route/);
     expect(() => decide(pack, "__proto__" as never, pack.properties[0].id)).toThrow(/Unknown route/);
-    expect(() => decide(pack, "customer-pdf", "__proto__")).toThrow(/Unknown property/);
-    expect(() => decide(pack, "customer-pdf", "constructor")).toThrow(/Unknown property/);
+    expect(() => decide(pack, "customer", "__proto__")).toThrow(/Unknown property/);
+    expect(() => decide(pack, "customer", "constructor")).toThrow(/Unknown property/);
   });
 
   it("derives only where the matrix says derived: the three kinds occur and no other", () => {

@@ -13,9 +13,9 @@
  *   reproducible               the same inputs give the same output bytes
  *   NA                         the class cannot affect the route; the case still asserts the route is unchanged
  */
-export const ROUTES = ["customer-pdf", "erp-staging-csv", "registry-prep-json"] as const;
+export const ROUTES = ["customer", "internal", "registry"] as const;
 export type RouteId = (typeof ROUTES)[number];
-export const ROUTE_CODE: Record<RouteId, string> = { "customer-pdf": "PDF", "erp-staging-csv": "CSV", "registry-prep-json": "REG" };
+export const ROUTE_CODE: Record<RouteId, string> = { customer: "PDF", internal: "CSV", registry: "REG" };
 
 export type Outcome = "rejected-at-ingress" | "route-hold-output-refused" | "registry-draft-only" | "field-withheld" | "output-made" | "reproducible" | "scan-clean" | "NA";
 
@@ -40,7 +40,7 @@ export interface Pair {
   erp: string;
   lab: string;
 }
-export const CLEAN: Pair = { erp: "d03a-erp-extract.csv", lab: "d03a-lab-assessment.json" };
+export const CLEAN: Pair = { erp: "erp-extract.csv", lab: "lab-assessment.json" };
 
 /** A class whose file is refused at ingress. `file` is a fixture, or built in the test (`built`). */
 export interface IngressClass {
@@ -76,20 +76,42 @@ export const CLASSES: Record<string, IngressClass | EffectClass> = {
   "duplicate-json-key": { kind: "ingress", role: "lab", file: "lab-duplicate-key.json", stage: "parse", code: "duplicate-key", funcs: ["FUNC-039", "FUNC-133"], criteria: ["C2-02", "C5-04"], gates: ["G05"] },
   "non-finite-number": { kind: "ingress", role: "lab", file: "lab-non-finite.json", stage: "parse", code: "non-finite-number", funcs: ["FUNC-039", "FUNC-133"], criteria: ["C2-02", "C5-04"], gates: ["G05", "G06"] },
   "missing-unit": { kind: "ingress", role: "lab", file: "lab-missing-unit.json", stage: "semantics", code: "missing-unit", funcs: ["FUNC-039", "FUNC-030"], criteria: ["C2-04", "C5-04"], gates: ["G06"] },
-  "wrong-unit": { kind: "ingress", role: "lab", file: "lab-wrong-unit.json", stage: "semantics", code: "wrong-unit", funcs: ["FUNC-039", "FUNC-030"], criteria: ["C2-04", "C5-04"], gates: ["G06"] },
-  "unit-alias": { kind: "ingress", role: "lab", file: "lab-unit-alias.json", stage: "semantics", code: "wrong-unit", funcs: ["FUNC-039", "FUNC-030"], criteria: ["C2-04", "C5-04"], gates: ["G06"] },
+  "wrong-unit": {
+    kind: "effect",
+    pair: { erp: CLEAN.erp, lab: "lab-wrong-unit.json" },
+    routes: {
+      customer: { outcome: "output-made", rules: [] },
+      internal: { outcome: "route-hold-output-refused", rules: ["RR-SHAPE-ERROR"] },
+      registry: { outcome: "NA", rules: ["RR-STANDING-HOLD"], na: NA_NO_FOOTPRINT },
+    },
+    funcs: ["FUNC-039", "FUNC-030"],
+    criteria: ["C2-04", "C5-04"],
+    gates: ["G06"],
+  },
+  "unit-alias": {
+    kind: "effect",
+    pair: { erp: CLEAN.erp, lab: "lab-below-loq.json" },
+    routes: {
+      customer: { outcome: "route-hold-output-refused", rules: ["RR-DERIVED-UNDETERMINABLE"] },
+      internal: { outcome: "output-made", rules: [] },
+      registry: { outcome: "NA", rules: ["RR-STANDING-HOLD"], na: NA_NO_FOOTPRINT },
+    },
+    funcs: ["FUNC-039", "FUNC-030"],
+    criteria: ["C2-04", "C5-04"],
+    gates: ["G06"],
+  },
   "multiple-records": { kind: "ingress", role: "erp", file: "erp-two-rows.csv", stage: "structure", code: "multiple-records", funcs: ["FUNC-133"], criteria: ["C5-04"], gates: ["G14"] },
   "too-deep": { kind: "ingress", role: "lab", file: "lab-too-deep.json", stage: "parse", code: "too-deep", funcs: ["FUNC-133"], criteria: ["C5-04"], gates: ["G14"] },
   "too-large": { kind: "ingress", role: "erp", built: "too-large", stage: "bytes", code: "too-large", funcs: ["FUNC-133"], criteria: ["C5-04"], gates: ["G14"], note: "No pack fixture: a file one byte over the declared limit is built in the test." },
-  deadline: { kind: "ingress", role: "erp", built: "deadline", file: "d03a-erp-extract.csv", stage: "bytes", code: "deadline", funcs: ["FUNC-133"], criteria: ["C5-04"], gates: ["G14"], note: "No pack fixture: the clean extract is imported while the page's clock jumps past the 30-second deadline." },
+  deadline: { kind: "ingress", role: "erp", built: "deadline", file: "erp-extract.csv", stage: "bytes", code: "deadline", funcs: ["FUNC-133"], criteria: ["C5-04"], gates: ["G14"], note: "No pack fixture: the clean extract is imported while the page's clock jumps past the 30-second deadline." },
 
   "ambiguous-footprint": {
     kind: "effect",
-    pair: { erp: CLEAN.erp, lab: "lab-two-footprints.json" },
+    pair: { erp: CLEAN.erp, lab: "lab-incompatible-footprint.json" },
     routes: {
-      "customer-pdf": { outcome: "route-hold-output-refused", rules: ["RR-SEVERAL-RESULTS"] },
-      "erp-staging-csv": { outcome: "route-hold-output-refused", rules: ["RR-SEVERAL-RESULTS"] },
-      "registry-prep-json": { outcome: "NA", rules: ["RR-STANDING-HOLD"], na: NA_NO_FOOTPRINT },
+      customer: { outcome: "route-hold-output-refused", rules: ["RR-DERIVED-UNDETERMINABLE"] },
+      internal: { outcome: "output-made", rules: [] },
+      registry: { outcome: "NA", rules: ["RR-STANDING-HOLD"], na: NA_NO_FOOTPRINT },
     },
     funcs: ["FUNC-126", "FUNC-012"],
     criteria: ["C3-04", "C5-04"],
@@ -97,11 +119,11 @@ export const CLASSES: Record<string, IngressClass | EffectClass> = {
   },
   "blocked-export": {
     kind: "effect",
-    pair: { erp: "erp-missing-recycled-content.csv", lab: CLEAN.lab },
+    pair: { erp: "erp-missing-thickness.csv", lab: CLEAN.lab },
     routes: {
-      "customer-pdf": { outcome: "route-hold-output-refused", rules: ["RR-MISSING"] },
-      "erp-staging-csv": { outcome: "route-hold-output-refused", rules: ["RR-MISSING"] },
-      "registry-prep-json": { outcome: "NA", rules: ["RR-STANDING-HOLD"], na: NA_NO_FOOTPRINT },
+      customer: { outcome: "route-hold-output-refused", rules: ["RR-MISSING"] },
+      internal: { outcome: "route-hold-output-refused", rules: ["RR-MISSING"] },
+      registry: { outcome: "NA", rules: ["RR-STANDING-HOLD"], na: NA_NO_FOOTPRINT },
     },
     funcs: ["FUNC-012", "FUNC-041", "FUNC-042"],
     criteria: ["C3-02", "C4-01", "C5-04"],
@@ -109,11 +131,11 @@ export const CLASSES: Record<string, IngressClass | EffectClass> = {
   },
   "conflicting-assertions": {
     kind: "effect",
-    pair: { erp: CLEAN.erp, lab: "lab-conflicting-alloy.json" },
+    pair: { erp: CLEAN.erp, lab: "lab-conflicting-pre-consumer.json" },
     routes: {
-      "customer-pdf": { outcome: "route-hold-output-refused", rules: ["RR-CHALLENGED", "RR-DERIVED-UNDETERMINABLE"] },
-      "erp-staging-csv": { outcome: "route-hold-output-refused", rules: ["RR-CHALLENGED"] },
-      "registry-prep-json": { outcome: "NA", rules: ["RR-STANDING-HOLD"], na: NA_NO_FOOTPRINT },
+      customer: { outcome: "route-hold-output-refused", rules: ["RR-CHALLENGED", "RR-DERIVED-UNDETERMINABLE"] },
+      internal: { outcome: "output-made", rules: [] },
+      registry: { outcome: "NA", rules: ["RR-STANDING-HOLD"], na: NA_NO_FOOTPRINT },
     },
     funcs: ["FUNC-065", "FUNC-012"],
     criteria: ["C2-05", "C3-03", "C5-04"],
@@ -121,24 +143,22 @@ export const CLASSES: Record<string, IngressClass | EffectClass> = {
   },
   "evidence-digest-missing": {
     kind: "effect",
-    pair: { erp: CLEAN.erp, lab: "lab-evidence-digest-missing.json" },
+    pair: { erp: CLEAN.erp, lab: "lab-assurance-unknown.json" },
     routes: {
-      "customer-pdf": { outcome: "route-hold-output-refused", rules: ["RR-EVIDENCE-DIGEST"] },
-      "erp-staging-csv": { outcome: "route-hold-output-refused", rules: ["RR-EVIDENCE-DIGEST"] },
-      "registry-prep-json": { outcome: "NA", rules: ["RR-STANDING-HOLD"], na: NA_NO_FOOTPRINT },
+      customer: { outcome: "route-hold-output-refused", rules: ["RR-EVIDENCE-DIGEST", "RR-DERIVED-UNDETERMINABLE"] },
+      internal: { outcome: "route-hold-output-refused", rules: ["RR-EVIDENCE-DIGEST"] },
+      registry: { outcome: "NA", rules: ["RR-STANDING-HOLD"], na: NA_NO_FOOTPRINT },
     },
     funcs: ["FUNC-012", "FUNC-023"],
     criteria: ["C3-03", "C5-04"],
     gates: ["G03", "G08"],
   },
   "unknown-code": {
-    kind: "effect",
-    pair: { erp: "erp-unknown-company-code.csv", lab: CLEAN.lab },
-    routes: {
-      "customer-pdf": { outcome: "route-hold-output-refused", rules: ["RR-UNKNOWN-CODE"] },
-      "erp-staging-csv": { outcome: "route-hold-output-refused", rules: ["RR-UNKNOWN-CODE"] },
-      "registry-prep-json": { outcome: "registry-draft-only", rules: ["RR-STANDING-HOLD", "RR-UNKNOWN-CODE"] },
-    },
+    kind: "ingress",
+    role: "erp",
+    file: "erp-unknown-company-code.csv",
+    stage: "semantics",
+    code: "unknown-code",
     funcs: ["FUNC-012", "FUNC-039"],
     criteria: ["C2-03", "C3-03", "C5-04"],
     gates: ["G03", "G12"],
@@ -147,9 +167,9 @@ export const CLASSES: Record<string, IngressClass | EffectClass> = {
     kind: "effect",
     pair: CLEAN,
     routes: {
-      "customer-pdf": { outcome: "field-withheld", rules: [] },
-      "erp-staging-csv": { outcome: "field-withheld", rules: [] },
-      "registry-prep-json": { outcome: "field-withheld", rules: ["RR-STANDING-HOLD"] },
+      customer: { outcome: "field-withheld", rules: [] },
+      internal: { outcome: "field-withheld", rules: [] },
+      registry: { outcome: "field-withheld", rules: ["RR-STANDING-HOLD"] },
     },
     funcs: ["FUNC-019", "FUNC-046"],
     criteria: ["C3-01", "C5-04"],
@@ -159,9 +179,9 @@ export const CLASSES: Record<string, IngressClass | EffectClass> = {
     kind: "effect",
     pair: CLEAN,
     routes: {
-      "customer-pdf": { outcome: "field-withheld", rules: [] },
-      "erp-staging-csv": { outcome: "field-withheld", rules: [] },
-      "registry-prep-json": { outcome: "field-withheld", rules: ["RR-STANDING-HOLD"] },
+      customer: { outcome: "field-withheld", rules: [] },
+      internal: { outcome: "field-withheld", rules: [] },
+      registry: { outcome: "field-withheld", rules: ["RR-STANDING-HOLD"] },
     },
     funcs: ["FUNC-019", "FUNC-046"],
     criteria: ["C3-01", "C5-04"],
@@ -172,9 +192,9 @@ export const CLASSES: Record<string, IngressClass | EffectClass> = {
     kind: "effect",
     pair: CLEAN,
     routes: {
-      "customer-pdf": { outcome: "reproducible", rules: [] },
-      "erp-staging-csv": { outcome: "reproducible", rules: [] },
-      "registry-prep-json": { outcome: "reproducible", rules: ["RR-STANDING-HOLD"] },
+      customer: { outcome: "reproducible", rules: [] },
+      internal: { outcome: "reproducible", rules: [] },
+      registry: { outcome: "reproducible", rules: ["RR-STANDING-HOLD"] },
     },
     funcs: ["FUNC-041", "FUNC-042", "FUNC-043", "FUNC-023"],
     criteria: ["C4-04", "C5-04"],
@@ -224,8 +244,8 @@ const other: Case[] = [
     funcs: ["FUNC-041", "FUNC-042", "FUNC-043", "FUNC-125"],
     criteria: ["C4-01", "C4-02", "C4-03", "C5-04"],
     gates: ["G01", "G07", "G10"],
-    outcome: route === "registry-prep-json" ? "registry-draft-only" : "output-made",
-    expected: route === "registry-prep-json" ? "the HOLD draft is made, equals the golden file and is never submitted" : "the output is made and equals the golden file",
+    outcome: route === "registry" ? "registry-draft-only" : "output-made",
+    expected: route === "registry" ? "the HOLD draft is made, equals the golden file and is never submitted" : "the output is made and equals the golden file",
   })),
   {
     id: "AC-REPRODUCIBLE-ALL",

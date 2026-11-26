@@ -8,9 +8,9 @@ import { fixtureBytes } from "./fixtures";
 import { TEST_SOFTWARE } from "./release";
 
 export async function runScenario(pack: ProfilePack) {
-  const erp = await importErpCsv(pack, { bytes: fixtureBytes("n", "d03a-erp-extract.csv"), name: "d03a-erp-extract.csv", type: "text/csv" });
-  const lab = await importLabJson(pack, { bytes: fixtureBytes("n", "d03a-lab-assessment.json"), name: "d03a-lab-assessment.json", type: "application/json" });
-  const { records } = await buildRecords([erp, lab]);
+  const erp = await importErpCsv(pack, { bytes: fixtureBytes("n", "erp-extract.csv"), name: "erp-extract.csv", type: "text/csv" });
+  const lab = await importLabJson(pack, { bytes: fixtureBytes("n", "lab-assessment.json"), name: "lab-assessment.json", type: "application/json" });
+  const { records } = await buildRecords([erp, lab], pack);
   const readiness = assess(pack, records[0]);
   const { snapshot } = await storeRecord(new MemoryRepository(), records[0]);
   const release = await generateRelease(pack, snapshot, { software: TEST_SOFTWARE });

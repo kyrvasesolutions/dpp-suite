@@ -109,9 +109,9 @@ export class PolicyStore {
   /**
    * Activates a pinned retention policy atomically for `this.securityDomain`.
    *
-   * Only a policy exactly as loaded from a verified, signed contract pack is accepted: the object must come out of
+   * Only a policy exactly as loaded from a verified, owner-digest-approved contract pack is accepted: the object must come out of
    * `loadProfilePack` and still have the canonical content digest recorded then. Different content under a pin the
-   * database already holds is refused, so a weaker policy can never replace the signed one (C6-02).
+   * database already holds is refused, so a weaker policy can never replace the approved one (C6-02).
    */
   activate(policy: RetentionPolicy, loadedAt: string = new Date().toISOString()): StoredPolicy {
     const parsed = RetentionPolicySchema.safeParse(policy);
@@ -131,7 +131,7 @@ export class PolicyStore {
     if (sha256Sync(canonical(policy)) !== pinnedDigest) {
       throw new RetentionViolationError(
         "policy-untrusted",
-        "The retention policy no longer matches the content of the signed contract pack",
+        "The retention policy no longer matches the content of the owner-digest-approved contract pack",
       );
     }
     const pin = `${parsed.data.id}@${parsed.data.version}`;

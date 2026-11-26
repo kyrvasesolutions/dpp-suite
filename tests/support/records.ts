@@ -8,9 +8,39 @@ export const loadPack = () => loadProfilePack(readPack("contracts/n"));
 export const text = (name: string) => new TextDecoder().decode(fixtureBytes("n", name));
 const enc = (s: string) => new TextEncoder().encode(s);
 
-/** The property whose definition has this slug, so no test names an identifier. */
+const SLUG_TO_DEF: Record<string, string> = {
+  "product-id": "productModelIdentifier",
+  "product-revision": "productDefinitionRevision",
+  "product-name": "commercialProductDesignation",
+  "batch-id": "batchIdentifier",
+  "manufacturer-id": "manufacturerParty",
+  "manufacturing-site": "manufacturingSite",
+  "production-date": "batchProductionDate",
+  "alloy-designation": "alloyDesignation",
+  "temper": "temperDesignation",
+  "nominal-thickness": "nominalSheetThickness",
+  "measured-thickness": "measuredSheetThickness",
+  "nominal-width": "nominalSheetWidth",
+  "nominal-length": "nominalSheetLength",
+  "magnesium-content": "measuredMagnesiumMassFraction",
+  "recycled-content": "declaredTotalRecycledContent",
+  "pre-consumer-share": "preConsumerRecycledContent",
+  "post-consumer-share": "postConsumerRecycledContent",
+  "recycled-basis": "recycledContentMassBasis",
+  "evidence-references": "recycledContentEvidenceReferences",
+  "carbon-footprint": "productCarbonFootprintResult",
+  "product-narrative": "authorisedProductDescriptions",
+  "customer-article-number": "customerMaterialCode",
+  "lead-content": "measuredLeadMassFraction",
+  "conversion-cost": "internalUnitConversionCost",
+};
+
+/** The property whose definition has this suffix or kebab-case alias, so no test hard-codes an identifier. */
 export function propertyBySlug(pack: ProfilePack, slug: string): string {
-  const found = pack.properties.find((p) => p.definitionRef.endsWith(`:${slug}`));
+  const canonical = SLUG_TO_DEF[slug] ?? slug;
+  const found = pack.properties.find(
+    (p) => p.definitionRef.endsWith(`/${canonical}`) || p.definitionRef.endsWith(`:${canonical}`),
+  );
   if (!found) throw new Error(`no property ${slug}`);
   return found.id;
 }
@@ -47,16 +77,22 @@ export async function recordsFor(pack: ProfilePack, c: Combination): Promise<Pro
     if (!r.ok) throw new Error(`${c.lab} rejected: ${r.errors[0].code}`);
     results.push(r);
   }
-  return (await buildRecords(results)).records;
+  return (await buildRecords(results, pack)).records;
 }
 
 export const recordFor = async (pack: ProfilePack, c: Combination) => (await recordsFor(pack, c))[0];
 
-export const CLEAN = { erp: "d03a-erp-extract.csv", lab: "d03a-lab-assessment.json" };
+export const CLEAN = { erp: "erp-extract.csv", lab: "lab-assessment.json" };
 
 /** Every accepted ERP file combined with every accepted lab file, and each ERP file alone. */
-export const ACCEPTED_ERP = ["d03a-erp-extract.csv", "erp-missing-recycled-content.csv", "erp-unknown-company-code.csv"];
-export const ACCEPTED_LAB = ["d03a-lab-assessment.json", "lab-conflicting-alloy.json", "lab-two-footprints.json", "lab-evidence-digest-missing.json"];
+export const ACCEPTED_ERP = ["erp-extract.csv", "erp-missing-thickness.csv"];
+export const ACCEPTED_LAB = [
+  "lab-assessment.json",
+  "lab-conflicting-pre-consumer.json",
+  "lab-incompatible-footprint.json",
+  "lab-assurance-unknown.json",
+  "lab-below-loq.json",
+];
 export const COMBINATIONS: Combination[] = [
   ...ACCEPTED_ERP.flatMap((erp) => [{ erp }, ...ACCEPTED_LAB.map((lab) => ({ erp, lab }))]),
 ];

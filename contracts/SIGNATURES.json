@@ -1,8 +1,25 @@
 {
+  "note": "Owner digest approval (pinned SHA-256 of MANIFEST.json; not cryptographic signing — signing_profile: NO_NEW_PROFILE_APPROVED).",
   "n": {
-    "manifest_sha256": "174442b372a337da71dce072a011f94423390e717748a6d44d4cec2eec90b01f",
+    "manifest_sha256": "69e26912cb6ceeded5855fc128152bdeb23ce09f84a3ba36b3585b4f159b15da",
     "signed_by": "kyrvasesolutions (GitHub account of the owner)",
-    "date": "2026-11-23",
-    "basis": "ARTIFICIAL-DEMO sign-off under the owner's standing instruction; decisions D8-01, D8-10 and D8-11"
-  }
+    "date": "2026-11-26",
+    "basis": "Owner digest approval of the regenerated synthetic stand-in pack: aligned 24-property structure with stand-in-authored labels, definitions, texts, identifiers and values (not cryptographic signing)"
+  },
+  "withdrawn": [
+    {
+      "pack": "n",
+      "manifest_sha256": "174442b372a337da71dce072a011f94423390e717748a6d44d4cec2eec90b01f",
+      "date": "2026-11-23",
+      "withdrawn_on": "2026-11-26",
+      "reason": "Prior synthetic stand-in superseded by aligned 24-property specification structure; preserved for historical verification"
+    },
+    {
+      "pack": "n",
+      "manifest_sha256": "5e3046f05d49f148b9d83b0eb745b42b0be84223ceba081a1f0f20efe76b14cc",
+      "date": "2026-11-26",
+      "withdrawn_on": "2026-11-26",
+      "reason": "Interim stand-in superseded the same day by fully synthetic stand-in content; never released"
+    }
+  ]
 }

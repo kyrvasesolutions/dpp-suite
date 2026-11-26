@@ -124,13 +124,13 @@ describe("Cycle 6 P01 data-quality exception catalogue replay (C6-01)", () => {
           } else if (rule.expected_stage === "output") {
             expect(out.ok, rule.id).toBe(true);
             const release = await generateRelease(pack, out.snapshot!, { software: TEST_SOFTWARE });
-            const pdfOutcome = release.outcomes.find((o) => o.route === "customer-pdf")!;
+            const pdfOutcome = release.outcomes.find((o) => o.route === "customer")!;
             expect("refused" in pdfOutcome, rule.id).toBe(true);
             if ("refused" in pdfOutcome) {
               expect(pdfOutcome.refused.holds.some((h) => h.ruleId === rule.expected_code), rule.id).toBe(true);
             }
-            // ERP CSV stays ready/unaffected by PDF WinAnsi guard
-            const erpOutcome = release.outcomes.find((o) => o.route === "erp-staging-csv")!;
+            // Internal ERP CSV stays RELEASED/unaffected by PDF WinAnsi guard
+            const erpOutcome = release.outcomes.find((o) => o.route === "internal")!;
             expect("file" in erpOutcome, rule.id).toBe(true);
           }
         }

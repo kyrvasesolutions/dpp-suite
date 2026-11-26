@@ -1,0 +1,174 @@
+{
+  "id": "MAP-IMP-ERP-01",
+  "version": "1.0.0",
+  "direction": "import",
+  "source_contract": "SRC-ERP-CSV-01",
+  "target_contract": "REC-ALU-24-01",
+  "rules": [
+    {
+      "id": "MI-E01",
+      "target": "ALU-D101",
+      "selector": [
+        "source_company",
+        "code_list_version",
+        "material_code"
+      ],
+      "operator": "lookup_model",
+      "loss": "none; stand-in lookup keys kept"
+    },
+    {
+      "id": "MI-E02",
+      "target": "ALU-D102",
+      "selector": [
+        "product_revision"
+      ],
+      "operator": "string",
+      "loss": "none"
+    },
+    {
+      "id": "MI-E03",
+      "target": "ALU-D103",
+      "selector": [
+        "product_designation"
+      ],
+      "operator": "designation",
+      "loss": "none"
+    },
+    {
+      "id": "MI-E04",
+      "target": "ALU-D104",
+      "selector": [
+        "batch_id"
+      ],
+      "operator": "batch_identifier",
+      "loss": "none"
+    },
+    {
+      "id": "MI-E05",
+      "target": "ALU-D105",
+      "selector": [
+        "manufacturer_id",
+        "manufacturer_name"
+      ],
+      "operator": "manufacturer",
+      "loss": "none"
+    },
+    {
+      "id": "MI-E06",
+      "target": "ALU-D106",
+      "selector": [
+        "site_id",
+        "site_country",
+        "manufacturer_id"
+      ],
+      "operator": "site",
+      "loss": "none"
+    },
+    {
+      "id": "MI-E07",
+      "target": "ALU-D107",
+      "selector": [
+        "production_date"
+      ],
+      "operator": "string",
+      "loss": "none"
+    },
+    {
+      "id": "MI-E08",
+      "target": "ALU-D108",
+      "selector": [
+        "alloy_code"
+      ],
+      "operator": "alloy",
+      "loss": "none; stand-in designation system stated"
+    },
+    {
+      "id": "MI-E09",
+      "target": "ALU-D109",
+      "selector": [
+        "temper_code"
+      ],
+      "operator": "temper",
+      "loss": "none"
+    },
+    {
+      "id": "MI-E10",
+      "target": "ALU-D110",
+      "selector": [
+        "nominal_thickness_mm"
+      ],
+      "operator": "nominal_mm",
+      "loss": "stand-in: source digits kept in the raw file; nominal sense kept"
+    },
+    {
+      "id": "MI-E11",
+      "target": "ALU-D112",
+      "selector": [
+        "nominal_width_mm"
+      ],
+      "operator": "nominal_mm",
+      "loss": "stand-in: source digits kept in the raw file"
+    },
+    {
+      "id": "MI-E12",
+      "target": "ALU-D113",
+      "selector": [
+        "nominal_length_mm"
+      ],
+      "operator": "nominal_mm",
+      "loss": "stand-in: source digits kept in the raw file"
+    },
+    {
+      "id": "MI-E13",
+      "target": "ALU-D115",
+      "selector": [
+        "recycled_total_percent"
+      ],
+      "operator": "recycled_fraction",
+      "loss": "none; stand-in declared value kept apart from the sum check"
+    },
+    {
+      "id": "MI-E14",
+      "target": "ALU-D116",
+      "selector": [
+        "pre_consumer_percent"
+      ],
+      "operator": "pre_consumer_assertion",
+      "loss": "none; a later disagreeing stand-in value stays separate"
+    },
+    {
+      "id": "MI-E15",
+      "target": "ALU-D117",
+      "selector": [
+        "post_consumer_percent"
+      ],
+      "operator": "recycled_fraction",
+      "loss": "none"
+    },
+    {
+      "id": "MI-E16",
+      "target": "ALU-D122",
+      "selector": [
+        "customer_material_code"
+      ],
+      "operator": "customer_identifier",
+      "loss": "none; stand-in leading zeros kept"
+    },
+    {
+      "id": "MI-E17",
+      "target": "ALU-D124",
+      "selector": [
+        "internal_conversion_cost_eur_per_kg"
+      ],
+      "operator": "cost",
+      "loss": "none; stand-in cost context kept"
+    }
+  ],
+  "preconditions": [
+    "stand-in: one data row per file",
+    "stand-in: one matching lookup entry",
+    "stand-in: listed alloy and temper only",
+    "stand-in: blank cells stay blank"
+  ],
+  "failure": "Stand-in: keep the source bytes and raw values; refuse unknown or repeated codes and broken contracts before any record is made."
+}

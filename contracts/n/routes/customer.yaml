@@ -1,0 +1,206 @@
+# Route customer. Synthetic public stand-in (renumbered IDs ALU-D101..ALU-D124, generic identifiers).
+# Generated automatically; do not edit by hand.
+id: customer
+version: 1.0.0
+recipient: ST-CUST-A
+purpose: synthetic_customer_data_request
+format: application/pdf
+target_contract: TARGET-CUSTOMER-JSON-01
+mapping_contract: MAP-EXP-CUSTOMER-01
+layout: one fixed layout
+status: FROZEN
+fields:
+  - ALU-D101
+  - ALU-D102
+  - ALU-D103
+  - ALU-D108
+  - ALU-D109
+  - ALU-D110
+  - ALU-D112
+  - ALU-D113
+  - ALU-D115
+  - ALU-D118
+  - ALU-D120
+  - ALU-D121
+  - ALU-D122
+  - ALU-D123
+output:
+  sections:
+    - id: identity
+      en: Product identification
+      de: Produktidentifikation
+    - id: technical
+      en: Nominal dimensions & material
+      de: Nennmaße & Werkstoff
+    - id: sustainability
+      en: Recycled content & carbon footprint
+      de: Rezyklatanteil & CO2-Fußabdruck
+    - id: description
+      en: Approved product text
+      de: Freigegebener Produkttext
+    - id: screening
+      en: Derived substance screening
+      de: Abgeleitetes Stoff-Screening
+  items:
+    - step: MAP-PDF-001
+      role: field
+      property: ALU-D101
+      reads:
+        kind: value
+      pdf:
+        section: identity
+        order: 1
+        label:
+          en: Product model code
+          de: Produktmodellcode
+    - step: MAP-PDF-002
+      role: field
+      property: ALU-D102
+      reads:
+        kind: value
+      pdf:
+        section: identity
+        order: 2
+        label:
+          en: Product specification revision
+          de: Revision der Produktspezifikation
+    - step: MAP-PDF-003
+      role: field
+      property: ALU-D103
+      reads:
+        kind: value
+      pdf:
+        section: identity
+        order: 3
+        label:
+          en: Trade designation
+          de: Handelsname
+    - step: MAP-PDF-004
+      role: field
+      property: ALU-D122
+      reads:
+        kind: value
+      pdf:
+        section: identity
+        order: 4
+        label:
+          en: Buyer material number
+          de: Materialnummer des Käufers
+    - step: MAP-PDF-005
+      role: field
+      property: ALU-D108
+      reads:
+        kind: value
+      pdf:
+        section: technical
+        order: 5
+        label:
+          en: Alloy designation
+          de: Legierungsbezeichnung
+    - step: MAP-PDF-006
+      role: field
+      property: ALU-D109
+      reads:
+        kind: value
+      pdf:
+        section: technical
+        order: 6
+        label:
+          en: Temper designation
+          de: Zustandsbezeichnung
+    - step: MAP-PDF-007
+      role: field
+      property: ALU-D110
+      reads:
+        kind: value
+      unit: m
+      pdf:
+        section: technical
+        order: 7
+        label:
+          en: Specified thickness
+          de: Spezifizierte Dicke
+    - step: MAP-PDF-008
+      role: field
+      property: ALU-D112
+      reads:
+        kind: value
+      unit: m
+      pdf:
+        section: technical
+        order: 8
+        label:
+          en: Specified width
+          de: Spezifizierte Breite
+    - step: MAP-PDF-009
+      role: field
+      property: ALU-D113
+      reads:
+        kind: value
+      unit: m
+      pdf:
+        section: technical
+        order: 9
+        label:
+          en: Specified length
+          de: Spezifizierte Länge
+    - step: MAP-PDF-010
+      role: field
+      property: ALU-D115
+      reads:
+        kind: derived
+        rule: DR-RECYCLED-TOTAL
+      unit: "%"
+      pdf:
+        section: sustainability
+        order: 10
+        label:
+          en: Total recycled share (declared)
+          de: Gesamter Recyclinganteil (deklariert)
+    - step: MAP-PDF-011
+      role: field
+      property: ALU-D118
+      reads:
+        kind: value
+      pdf:
+        section: sustainability
+        order: 11
+        label:
+          en: Mass basis of recycled share
+          de: Massenbasis des Recyclinganteils
+    - step: MAP-PDF-012
+      role: field
+      property: ALU-D120
+      reads:
+        kind: value
+      unit: kg CO2e
+      pdf:
+        section: sustainability
+        order: 12
+        label:
+          en: Carbon footprint value
+          de: CO2-Fußabdruckwert
+    - step: MAP-PDF-013
+      role: field
+      property: ALU-D121
+      reads:
+        kind: value
+      pdf:
+        section: description
+        order: 13
+        label:
+          en: Approved product texts
+          de: Freigegebene Produkttexte
+    - step: MAP-PDF-014
+      role: field
+      property: ALU-D123
+      reads:
+        kind: derived
+        rule: DR-LEAD-SCREENING
+      unit: mg/kg
+      pdf:
+        section: screening
+        order: 14
+        label:
+          en: Lead content as measured
+          de: Gemessener Bleigehalt

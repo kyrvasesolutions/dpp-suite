@@ -32,6 +32,7 @@ interface UserRow {
 
 interface UserRoleJoinRow extends UserRow {
   role: ServerRole | null;
+  explicit_raw_grant?: number | null;
 }
 
 interface EventRow {
@@ -137,7 +138,7 @@ export class GrantStore {
           `SELECT COUNT(DISTINCT rg.sub) AS n
            FROM role_grants rg
            JOIN users u ON u.security_domain = rg.security_domain AND u.sub = rg.sub
-           WHERE rg.security_domain = ? AND rg.role = 'ADMIN' AND u.active = 1 AND rg.sub != ?`,
+           WHERE rg.security_domain = ? AND rg.role = 'ACT-19' AND u.active = 1 AND rg.sub != ?`,
           this.securityDomain,
           excludingSub,
         )
@@ -145,7 +146,7 @@ export class GrantStore {
           `SELECT COUNT(DISTINCT rg.sub) AS n
            FROM role_grants rg
            JOIN users u ON u.security_domain = rg.security_domain AND u.sub = rg.sub
-           WHERE rg.security_domain = ? AND rg.role = 'ADMIN' AND u.active = 1`,
+           WHERE rg.security_domain = ? AND rg.role = 'ACT-19' AND u.active = 1`,
           this.securityDomain,
         );
     return Number(row?.n ?? 0);
@@ -176,8 +177,8 @@ export class GrantStore {
 
   /** Atomic single-statement read of a user and all active roles so epoch and roles never split across WAL transactions. */
   getUser(sub: string): UserGrantSummary | undefined {
-    const rows = this.db.query<UserRoleJoinRow>(
-      `SELECT u.security_domain, u.sub, u.display_name, u.active, u.grant_epoch, u.created_at, u.updated_at, rg.role
+    const rows = this.db.query<UserRoleJoinRow & { explicit_raw_grant?: number | null }>(
+      `SELECT u.security_domain, u.sub, u.display_name, u.active, u.grant_epoch, u.created_at, u.updated_at, rg.role, rg.explicit_raw_grant
        FROM users u
        LEFT JOIN role_grants rg ON rg.security_domain = u.security_domain AND rg.sub = u.sub
        WHERE u.security_domain = ? AND u.sub = ?
@@ -187,6 +188,7 @@ export class GrantStore {
     );
     if (rows.length === 0) return undefined;
     const first = rows[0]!;
+    const explicitRawGrant = rows.some((r) => r.role === "ACT-17" && Number(r.explicit_raw_grant) === 1);
     return {
       sub: first.sub,
       securityDomain: first.security_domain,
@@ -194,14 +196,50 @@ export class GrantStore {
       active: Number(first.active) === 1,
       grantEpoch: Number(first.grant_epoch),
       roles: rows.map((r) => r.role).filter((r): r is ServerRole => r !== null),
+      ...(explicitRawGrant ? { explicitRawGrant: true } : {}),
       createdAt: first.created_at,
       updatedAt: first.updated_at,
     };
   }
 
+  /** Grants or revokes explicit raw-restricted read permission for external auditor ACT-17 (D9-05, C9-11). */
+  setAuditorRawGrant(targetSub: string, allowed: boolean, actorSubInput: string, reasonInput: string): UserGrantSummary {
+    const sub = validateUserSub(targetSub);
+    const actorSub = validateSub(actorSubInput, "actor subject identifier");
+    const reason = validateReason(reasonInput);
+    const nowIso = this.now();
+    return this.db.transaction(() => {
+      const existing = this.db.get<UserRow>(
+        "SELECT * FROM users WHERE security_domain = ? AND sub = ?",
+        this.securityDomain,
+        sub,
+      );
+      if (!existing) throw Object.assign(new Error("User not found"), { statusCode: 404, code: "user-not-found" });
+      const res = this.db.run(
+        "UPDATE role_grants SET explicit_raw_grant = ? WHERE security_domain = ? AND sub = ? AND role = 'ACT-17'",
+        allowed ? 1 : 0,
+        this.securityDomain,
+        sub,
+      );
+      if (res.changes === 0) {
+        throw Object.assign(new Error("User does not hold the ACT-17 role"), { statusCode: 409, code: "role-missing" });
+      }
+      const nextEpoch = Number(existing.grant_epoch) + 1;
+      this.db.run(
+        "UPDATE users SET grant_epoch = ?, updated_at = ? WHERE security_domain = ? AND sub = ?",
+        nextEpoch,
+        nowIso,
+        this.securityDomain,
+        sub,
+      );
+      this.appendEvent(sub, actorSub, allowed ? "role-assigned" : "role-revoked", "ACT-17", nextEpoch, reason, nowIso);
+      return this.getUser(sub)!;
+    });
+  }
+
   listUsers(): UserGrantSummary[] {
     const rows = this.db.query<UserRoleJoinRow>(
-      `SELECT u.security_domain, u.sub, u.display_name, u.active, u.grant_epoch, u.created_at, u.updated_at, rg.role
+      `SELECT u.security_domain, u.sub, u.display_name, u.active, u.grant_epoch, u.created_at, u.updated_at, rg.role, rg.explicit_raw_grant
        FROM users u
        LEFT JOIN role_grants rg ON rg.security_domain = u.security_domain AND rg.sub = u.sub
        WHERE u.security_domain = ?
@@ -219,12 +257,16 @@ export class GrantStore {
           active: Number(row.active) === 1,
           grantEpoch: Number(row.grant_epoch),
           roles: [],
+          explicitRawGrant: false,
           createdAt: row.created_at,
           updatedAt: row.updated_at,
         };
         bySub.set(row.sub, summary);
       }
-      if (row.role !== null) summary.roles.push(row.role);
+      if (row.role !== null) {
+        summary.roles.push(row.role);
+        if (Number(row.explicit_raw_grant) === 1) summary.explicitRawGrant = true;
+      }
     }
     return [...bySub.values()];
   }
@@ -391,8 +433,8 @@ export class GrantStore {
         throw Object.assign(new Error("User not found"), { statusCode: 404, code: "user-not-found" });
       }
       const currentRoles = this.rolesFor(sub);
-      if (Number(existing.active) === 1 && role === "ADMIN" && currentRoles.includes("ADMIN") && this.activeAdminCount(sub) === 0) {
-        throw Object.assign(new Error("Cannot revoke the last active ADMIN role in this domain"), {
+      if (Number(existing.active) === 1 && role === "ACT-19" && currentRoles.includes("ACT-19") && this.activeAdminCount(sub) === 0) {
+        throw Object.assign(new Error("Cannot revoke the last active ACT-19 role in this domain"), {
           statusCode: 409,
           code: "last-admin-protected",
         });
@@ -437,8 +479,8 @@ export class GrantStore {
         return this.getUser(sub)!;
       }
       const currentRoles = this.rolesFor(sub);
-      if (currentRoles.includes("ADMIN") && this.activeAdminCount(sub) === 0) {
-        throw Object.assign(new Error("Cannot deactivate the last active ADMIN user in this domain"), {
+      if (currentRoles.includes("ACT-19") && this.activeAdminCount(sub) === 0) {
+        throw Object.assign(new Error("Cannot deactivate the last active ACT-19 user in this domain"), {
           statusCode: 409,
           code: "last-admin-protected",
         });

@@ -1,0 +1,28 @@
+id: customer
+note: "Negative fixture FC-PROHIBITED-DISCLOSURE: route variant requiring
+  properties denied raw disclosure to the customer."
+recipient: ST-CUST-A
+format: application/pdf
+status: FROZEN
+fields:
+  - ALU-D101
+  - ALU-D102
+  - ALU-D103
+  - ALU-D108
+  - ALU-D109
+  - ALU-D110
+  - ALU-D112
+  - ALU-D113
+  - ALU-D115
+  - ALU-D118
+  - ALU-D120
+  - ALU-D121
+  - ALU-D122
+  - ALU-D123
+  - ALU-D114
+  - ALU-D119
+  - ALU-D124
+requires:
+  - ALU-D114
+  - ALU-D119
+  - ALU-D124

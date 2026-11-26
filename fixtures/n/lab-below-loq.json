@@ -1,0 +1,215 @@
+{
+  "synthetic": true,
+  "batch_id": "ST-LOT-2026-001",
+  "source_assurance": "issuer_declared_synthetic",
+  "lab_tests": {
+    "thickness": {
+      "observation_id": "ST-OBS-THK-01",
+      "value": 1.49,
+      "unit_id": "mm",
+      "property_ref": "ALU-D111",
+      "specimen_ref": "ST-SPECIMEN-DIM-01",
+      "method_ref": "ST-DIM-METHOD-01",
+      "date": "2026-09-09",
+      "location": "standin_mid_width_point",
+      "qualifier": "measured_estimate",
+      "uncertainty": {
+        "value": 0.02,
+        "unit_id": "mm",
+        "coverage_factor": 2,
+        "uncertainty_kind": "expanded"
+      },
+      "evidence_refs": [
+        "ST-EV-DIM-01"
+      ]
+    },
+    "magnesium": {
+      "observation_id": "ST-OBS-MG-01",
+      "value": 2.9,
+      "unit_id": "%",
+      "property_ref": "ALU-D114",
+      "specimen_ref": "ST-SPECIMEN-CHEM-01",
+      "method_ref": "ST-CHEM-METHOD-01",
+      "date": "2026-09-09",
+      "analyte": {
+        "name": "magnesium",
+        "symbol": "Mg"
+      },
+      "mass_basis": "uncoated_alloy_specimen_mass",
+      "qualifier": "measured_estimate",
+      "uncertainty": {
+        "value": 0.04,
+        "unit_id": "percentage_point",
+        "coverage_factor": 2,
+        "uncertainty_kind": "expanded"
+      },
+      "evidence_refs": [
+        "ST-EV-CHEM-01"
+      ]
+    },
+    "lead": {
+      "observation_id": "ST-OBS-PB-01",
+      "value": 31.4,
+      "unit_id": "mg/kg",
+      "property_ref": "ALU-D123",
+      "specimen_ref": "ST-SPECIMEN-CHEM-01",
+      "method_ref": "ST-LAB-PB-01",
+      "date": "2026-09-09",
+      "analyte": {
+        "name": "lead",
+        "symbol": "Pb"
+      },
+      "mass_basis": "uncoated_alloy_specimen_mass",
+      "qualifier": "below_LOQ",
+      "uncertainty": {
+        "value": 1.8,
+        "unit_id": "mg/kg",
+        "coverage_factor": 2,
+        "uncertainty_kind": "expanded"
+      },
+      "evidence_refs": [
+        "ST-EV-PB-01"
+      ]
+    }
+  },
+  "recycled_content": {
+    "basis": {
+      "basis_id": "RC-BASIS-001",
+      "numerator": "eligible_recycled_material_mass_in_final_sheet",
+      "denominator": "total_uncoated_final_alloy_sheet_mass",
+      "includes": "aluminium_and_alloying_constituents",
+      "excludes": [
+        "packaging",
+        "separately_added_coatings"
+      ],
+      "mass_unit": "kg"
+    },
+    "method_id": "ST-RC-PHYSICAL-01",
+    "scope_id": "ST-RC-SCOPE-01",
+    "eligibility": "synthetic_fixture_eligible_under_demo_method",
+    "conflicting_pre_percent": null,
+    "evidence": [
+      {
+        "evidence_id": "EV-RC-DECL-001",
+        "issuer": "ST-MFR-01",
+        "revision": "1",
+        "record_kind": "synthetic_declaration_summary",
+        "scope": "ST-RC-SCOPE-01",
+        "digest": null,
+        "access_policy_ref": "ST-POL-EVIDENCE",
+        "external_verification": "not_performed"
+      }
+    ]
+  },
+  "assessment": {
+    "result": {
+      "indicator_id": "ST-CLIMATE-GWP100",
+      "result": 4.6,
+      "unit_id": "kg_CO2e",
+      "reference_unit": "ST-REFUNIT-001",
+      "system_boundary": "ST-BOUNDARY-001",
+      "method_ref": "ST-METHOD-PCF-001",
+      "allocation": "ST-ALLOC-001",
+      "period": "ST-REP-001",
+      "geography": "ST-REP-001",
+      "evidence_refs": [
+        "ST-EV-PCF-01"
+      ],
+      "data_quality": "standin_result; no assessment carried out"
+    },
+    "context": {
+      "context_id": "ST-ASSESS-001",
+      "method": {
+        "id": "ST-METHOD-PCF-001",
+        "version": "1.0.0",
+        "conformity_status": "not_asserted"
+      },
+      "reference_unit": {
+        "id": "ST-REFUNIT-001",
+        "quantity": 1,
+        "unit": "kg",
+        "basis_type": "declared_unit",
+        "reference_product": "ST-5754-M01/P01"
+      },
+      "boundary": {
+        "id": "ST-BOUNDARY-001",
+        "label": "synthetic_cradle_to_factory_gate",
+        "included": [
+          "metal_supply",
+          "alloying",
+          "rolling"
+        ],
+        "excluded": [
+          "packaging",
+          "downstream_forming",
+          "use",
+          "end_of_life"
+        ],
+        "module_assignment": null
+      },
+      "allocation": {
+        "id": "ST-ALLOC-001",
+        "label": "illustrative_cutoff",
+        "conformity_status": "not_asserted"
+      },
+      "representativeness": {
+        "id": "ST-REP-001",
+        "period": "2025",
+        "geography": "DE_demo_site",
+        "coverage": "synthetic_site_family_average",
+        "batch_specific": false
+      }
+    }
+  },
+  "authorised_texts": [
+    {
+      "text_id": "ST-TEXT-EN-01",
+      "subject_ref": "ST-5754-M01/P01",
+      "language": "en",
+      "sector": "cross_sector_material_description",
+      "market": "EU",
+      "text": "Stand-in aluminium sheet, alloy family 5754, specified thickness 1.5 mm. Made-up test data; no claim about any real product.",
+      "approval_state": "authorised_in_synthetic_fixture",
+      "revision": "1"
+    },
+    {
+      "text_id": "ST-TEXT-DE-01",
+      "subject_ref": "ST-5754-M01/P01",
+      "language": "de",
+      "sector": "cross_sector_material_description",
+      "market": "EU",
+      "text": "Platzhalter-Aluminiumblech, Legierungsfamilie 5754, spezifizierte Dicke 1,5 mm. Erfundene Testdaten; keine Aussage über ein reales Produkt.",
+      "approval_state": "authorised_in_synthetic_fixture",
+      "revision": "1",
+      "source_text_ref": "ST-TEXT-EN-01"
+    }
+  ],
+  "methods": [
+    {
+      "id": "ST-DIM-METHOD-01",
+      "version": "1.0.0",
+      "description": "Stand-in dimension check; no test carried out"
+    },
+    {
+      "id": "ST-CHEM-METHOD-01",
+      "version": "1.0.0",
+      "description": "Stand-in magnesium check; no test carried out"
+    },
+    {
+      "id": "ST-LAB-PB-01",
+      "version": "1.0.0",
+      "description": "Stand-in lead check with an expanded uncertainty; no analysis carried out"
+    }
+  ],
+  "cost_context": {
+    "currency": "EUR",
+    "denominator_unit": "kg",
+    "scope": "synthetic_rolling_and_finishing_conversion_cost_including_overhead",
+    "excluded": "primary_metal_purchase_cost",
+    "period": "2026-09",
+    "estimate_status": "synthetic",
+    "id": "COST-CONTEXT-001"
+  },
+  "state_overrides": {},
+  "comment": "Every value in this stand-in file is made up for tests. Nothing has been checked by a third party."
+}

@@ -1,0 +1,2 @@
+source_company,code_list_version,material_code,product_revision,product_designation,batch_id,manufacturer_id,manufacturer_name,site_id,site_country,production_date,alloy_code,temper_code,nominal_thickness_mm,nominal_width_mm,nominal_length_mm,recycled_total_percent,pre_consumer_percent,post_consumer_percent,customer_material_code,internal_conversion_cost_eur_per_kg
+ST-MFR-01,1.0.0,STM004215,P01,Stand-in 5754 aluminium sheet,ST-LOT-2026-001,ST-MFR-01,Stand-in Aluminium Sheet Producer,ST-SITE-01,DE,2026-09-08,5754,O,,1250,2500,65,15,50,004215,1.95

@@ -15,10 +15,10 @@ async function release(observations: number, name: string, method: string) {
   const [record] = await recordsFor(pack, {
     erp: CLEAN.erp,
     lab: CLEAN.lab,
-    editErp: (csv) => csv.replace("Aluminium sheet EN AW-5754 H111, 2.0 mm", name),
+    editErp: (csv) => csv.replace("Stand-in 5754 aluminium sheet", name),
     editLab: (doc) => {
-      const base = doc.observations[0];
-      for (let i = 0; i < observations; i++) doc.observations.push({ ...base, observation_id: `OBS-X${i}`, method });
+      const base = doc.recycled_content.evidence[0];
+      for (let i = 0; i < observations; i++) doc.recycled_content.evidence.push({ ...base, evidence_id: `EV-X${i}`, issuer: method });
     },
   });
   const t0 = performance.now();

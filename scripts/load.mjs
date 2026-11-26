@@ -87,10 +87,10 @@ export function sizedVariant(n, totalBytes, fixtures = join(ROOT, "fixtures/n"))
   const labExtra = Math.min(extra, fileCap - v.lab.length);
   const erpExtra = extra - labExtra;
   const doc = JSON.parse(v.lab.toString("utf8"));
-  const base = doc.observations[0];
-  const one = JSON.stringify({ ...base, observation_id: "OBS-P0000" }).length + 4;
+  const base = doc.recycled_content.evidence[0];
+  const one = JSON.stringify({ ...base, evidence_id: "EV-P0000" }).length + 4;
   const clones = Math.min(1000, Math.floor(labExtra / one / 2));
-  for (let i = 0; i < clones; i++) doc.observations.push({ ...base, observation_id: `OBS-P${String(i).padStart(4, "0")}` });
+  for (let i = 0; i < clones; i++) doc.recycled_content.evidence.push({ ...base, evidence_id: `EV-P${String(i).padStart(4, "0")}` });
   const labText = JSON.stringify(doc, null, 2) + "\n";
   const labBytes = Buffer.byteLength(labText);
   const target = Math.min(fileCap, v.lab.length + labExtra);
@@ -101,9 +101,9 @@ export function sizedVariant(n, totalBytes, fixtures = join(ROOT, "fixtures/n"))
 
 /** One source pair for batch number `n`: the clean fixtures with their batch identifier replaced. */
 export function variant(n, fixtures = join(ROOT, "fixtures/n")) {
-  const batch = `B-2026-${String(n).padStart(4, "0")}`;
-  const erp = readFileSync(join(fixtures, "d03a-erp-extract.csv"), "utf8").replaceAll("B-2026-0417", batch);
-  const lab = readFileSync(join(fixtures, "d03a-lab-assessment.json"), "utf8").replaceAll("B-2026-0417", batch);
+  const batch = `ST-LOT-2026-${String(n).padStart(4, "0")}`;
+  const erp = readFileSync(join(fixtures, "erp-extract.csv"), "utf8").replaceAll("ST-LOT-2026-001", batch);
+  const lab = readFileSync(join(fixtures, "lab-assessment.json"), "utf8").replaceAll("ST-LOT-2026-001", batch);
   return { batch, erp: Buffer.from(erp, "utf8"), lab: Buffer.from(lab, "utf8") };
 }
 
@@ -161,8 +161,8 @@ class Api {
   importBody(key, pair, evidence) {
     return {
       idempotencyKey: key,
-      erp: { name: "d03a-erp-extract.csv", type: "text/csv", base64: pair.erp.toString("base64") },
-      lab: { name: "d03a-lab-assessment.json", type: "application/json", base64: pair.lab.toString("base64") },
+      erp: { name: "erp-extract.csv", type: "text/csv", base64: pair.erp.toString("base64") },
+      lab: { name: "lab-assessment.json", type: "application/json", base64: pair.lab.toString("base64") },
       ...(evidence ? { evidence } : {}),
     };
   }
@@ -240,7 +240,7 @@ export async function runLoad(cfg) {
   for (let i = 0; i < burstSubjects; i++) users.burst.push(await user(domA, `burst-${i}`));
   users.victim = await user(domA, "victim");
   for (let i = 0; i < 3; i++) users.background.push(await user(domA, `bg-${i}`));
-  const metricsSub = await user(domA, "metrics", "AUDITOR");
+  const metricsSub = await user(domA, "metrics", "ACT-17");
   const healthSub = null;
   void healthSub;
   log(`provisioned users in ${domains.length} security domains`);

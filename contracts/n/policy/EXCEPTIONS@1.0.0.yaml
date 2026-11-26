@@ -1,5 +1,5 @@
-# Representative customer data-quality exception catalogue. PUBLIC STAND-IN for the private N pack (decision D1-01, option b): synthetic, renumbered
-# identifiers, stand-in definitions and codes. Generated from the private specification; do not edit by hand.
+# Representative data-quality exception catalogue. Synthetic public stand-in (renumbered IDs ALU-D101..ALU-D124, generic identifiers).
+# Generated automatically; do not edit by hand.
 id: EXCEPTIONS
 version: 1.0.0
 status: FROZEN
@@ -36,14 +36,14 @@ exceptions:
     expected_code: decimal-comma
     handling: Reject European locale decimal comma; require dot decimal separator with no silent coercion.
     fixture: fixtures/p/erp-decimal-comma.csv
-  - id: EX-NON-POSITIVE-MASS
+  - id: EX-NON-POSITIVE-DIM
     category: numeric
     source: erp
     expected_stage: semantics
     expected_outcome: rejected
     expected_code: out-of-range
-    handling: Reject zero or negative physical mass or dimensions at semantics stage.
-    fixture: fixtures/p/erp-zero-mass.csv
+    handling: Reject zero or negative nominal dimensions at semantics stage.
+    fixture: fixtures/p/erp-zero-thickness.csv
   - id: EX-PERCENT-OVER-100
     category: numeric
     source: erp
@@ -52,21 +52,21 @@ exceptions:
     expected_code: out-of-range
     handling: Reject mass-share percentages outside 0..100 at semantics stage.
     fixture: fixtures/p/erp-recycled-over-100.csv
-  - id: EX-UNKNOWN-SUPPLIER-CODE
+  - id: EX-UNKNOWN-MATERIAL-CODE
     category: code-list
     source: erp
-    expected_stage: readiness
-    expected_outcome: held
-    expected_code: RR-UNKNOWN-CODE
-    handling: Keep verbatim unknown supplier code with unknown-code flag and hold ERP route until code list or value is updated.
-    fixture: fixtures/p/erp-unknown-supplier.csv
+    expected_stage: semantics
+    expected_outcome: rejected
+    expected_code: unknown-code
+    handling: Reject unknown company/code-list/material lookup  while preserving raw bytes.
+    fixture: fixtures/p/erp-unknown-material.csv
   - id: EX-DUPLICATE-LAB-ID
     category: structure
     source: lab
     expected_stage: semantics
     expected_outcome: rejected
     expected_code: duplicate-id
-    handling: Reject laboratory files that reuse an observation, footprint, evidence or text identifier.
+    handling: Reject laboratory files that reuse an observation identifier.
     fixture: fixtures/p/lab-duplicate-obs-id.json
   - id: EX-UNATTACHED-LAB-BATCH
     category: attachment
@@ -74,31 +74,31 @@ exceptions:
     expected_stage: semantics
     expected_outcome: held
     expected_code: unattached-lab
-    handling: Keep laboratory file unattached when its product model/batch does not match the ERP extract; never merge across batches.
+    handling: Hold laboratory file when batch_id does not match the ERP extract; never merge across batches.
     fixture: fixtures/p/lab-unattached-batch.json
-  - id: EX-CONFLICTING-ALLOY
+  - id: EX-CONFLICTING-PRE-CONSUMER
     category: conflict
     source: pair
     expected_stage: readiness
     expected_outcome: held
     expected_code: RR-CHALLENGED
-    handling: Keep both conflicting ERP and laboratory alloy assertions, mark challenged, and hold affected routes until settled.
-    fixture: fixtures/p/lab-conflicting-alloy.json
-  - id: EX-MISSING-EVIDENCE-DIGEST
+    handling: Keep both conflicting pre-consumer assertions (15 % and 13 %) and hold customer route while internal route succeeds.
+    fixture: fixtures/p/lab-conflicting-pre-consumer.json
+  - id: EX-SOURCE-ASSURANCE-UNKNOWN
     category: evidence
     source: lab
     expected_stage: readiness
     expected_outcome: held
     expected_code: RR-EVIDENCE-DIGEST
-    handling: Flag evidence lacking a SHA-256 digest and hold routes that rely on the evidence.
-    fixture: fixtures/p/lab-evidence-digest-missing.json
-  - id: EX-NON-WINANSI-TEXT
+    handling: Hold affected routes when required source_assurance is unknown .
+    fixture: fixtures/p/lab-assurance-unknown.json
+  - id: EX-NON-WINANSI-CHAR
     category: output
     source: output
     expected_stage: output
     expected_outcome: held
     expected_code: RR-PDF-CHARACTER
-    handling: Refuse Customer PDF when text contains characters outside WinAnsi, naming exact field and code point; keep ERP CSV unaffected.
+    handling: Hold customer PDF when an authorised description contains a character outside WinAnsi rendering support.
     fixture: fixtures/p/lab-non-winansi.json
   - id: EX-UNCLASSIFIED-PAYLOAD
     category: classification
@@ -106,4 +106,4 @@ exceptions:
     expected_stage: retention
     expected_outcome: default-restricted
     expected_code: default-restricted
-    handling: Treat any unclassified dataset or payload as restricted under RETENTION@1.0.0 with default 10-year retention.
+    handling: Refuse unlisted input datasets and default unclassified supporting evidence to restricted with 3650-day retention.

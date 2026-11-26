@@ -22,7 +22,7 @@ import { SqlEvidenceStore } from "../../server/store/sqlEvidenceStore";
 import { createHash } from "node:crypto";
 import type { ProfilePack } from "../../src/model/profile";
 import { fixtureBytes } from "../support/fixtures";
-import { CLEAN, loadPack } from "../support/records";
+import { CLEAN, loadPack, propertyBySlug } from "../support/records";
 
 const tmpDirs: string[] = [];
 const mkTmpDir = () => {
@@ -153,10 +153,10 @@ describe("Cycle 6 relational migrations, EV-5 schema, and append-only triggers",
       expect(() => db.run("UPDATE snapshots SET reason = 'tampered' WHERE version = 1")).toThrow(/append-only/);
 
       // Superseding v1 with a correction closes v1's half-open interval [valid_from, valid_to)
-      const prop = pack.properties.find((p) => p.definitionRef.endsWith(":recycled-content"))!;
+      const propId = propertyBySlug(pack, "recycled-content");
       runner.repository.correctRecordAtomic(
         pack,
-        { model, batch, property: prop.id, raw: "45", reason: "Verified recycled share" },
+        { model, batch, property: propId, raw: "45", reason: "Verified recycled share" },
         {
           expectedVersion: 1,
           timeEnvelope: {

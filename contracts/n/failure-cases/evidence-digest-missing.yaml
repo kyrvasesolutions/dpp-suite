@@ -1,6 +1,6 @@
 id: FC-EVIDENCE-DIGEST-MISSING
-class: evidence without digest
-criterion: C2-06
-input: An evidence record in the laboratory file has the digest null.
-expected: The file is accepted; the evidence assertion carries the flag evidence-digest-missing, and nothing scores it away.
-fixture: fixtures/n/lab-evidence-digest-missing.json
+class: source assurance unavailable
+criterion: C3-03
+input: State override marks ALU-D123 source_assurance as unknown.
+expected: Both customer and internal routes are HOLD; no independent verification is inferred.
+fixture: fixtures/n/lab-assurance-unknown.json

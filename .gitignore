@@ -24,13 +24,10 @@ playwright-report/
 # Local Python environment for scripts/assessment
 /.venv/
 
-# The public record of changes is CHANGELOG.md. Assistant and working documentation stays local.
-# Architecture decision records stay local too: only README files and CHANGELOG.md are public.
+# The public record of changes is CHANGELOG.md and README files. Assistant and working documentation stays local.
+# Architecture decision records stay local too: only README files and CHANGELOG.md are public (D9-04).
 /adr/
 /CLAUDE.md
 /.claude/
 /.graphifyignore
 /docs/
-/db/README.md
-/contracts/**/README.md
-/fixtures/**/README.md

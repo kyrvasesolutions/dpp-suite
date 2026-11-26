@@ -1,0 +1,72 @@
+{
+  "id": "MAP-EXP-CUSTOMER-01",
+  "version": "1.0.0",
+  "direction": "export",
+  "source_contract": "REC-ALU-24-01",
+  "target_contract": "TARGET-CUSTOMER-JSON-01",
+  "rules": [
+    {
+      "id": "MO-C01",
+      "target": "identity_and_nominal_specification",
+      "selector": [
+        "ALU-D101",
+        "ALU-D102",
+        "ALU-D103",
+        "ALU-D108",
+        "ALU-D109",
+        "ALU-D110",
+        "ALU-D112",
+        "ALU-D113",
+        "ALU-D122"
+      ],
+      "operator": "customer_identity_nominal",
+      "loss": "Stand-in: lot measurements left out; dimensions converted from mm to m."
+    },
+    {
+      "id": "MO-C02",
+      "target": "recycled_content",
+      "selector": [
+        "ALU-D115",
+        "ALU-D116",
+        "ALU-D117",
+        "ALU-D118",
+        "ALU-D119"
+      ],
+      "operator": "recycled_check",
+      "loss": "Stand-in: total share and its basis shown; the split and the evidence are not."
+    },
+    {
+      "id": "MO-C03",
+      "target": "carbon_footprint",
+      "selector": [
+        "ALU-D120"
+      ],
+      "operator": "compatible_assessment_projection",
+      "loss": "Stand-in: method, unit and boundary shown; evidence left out. Not a declaration of conformity."
+    },
+    {
+      "id": "MO-C04",
+      "target": "description",
+      "selector": [
+        "ALU-D121"
+      ],
+      "operator": "authorised_language",
+      "loss": "Stand-in: only the approved text in the requested language."
+    },
+    {
+      "id": "MO-C05",
+      "target": "lead_screening",
+      "selector": [
+        "ALU-D123"
+      ],
+      "operator": "synthetic_guard_band_screen",
+      "loss": "Stand-in: the measured value, its uncertainty and the evidence are withheld; only the screening result is shown."
+    }
+  ],
+  "preconditions": [
+    "stand-in: every input the route needs is present, allowed and accepted",
+    "stand-in: footprint method and unit match",
+    "stand-in: screening rule met"
+  ],
+  "failure": "Stand-in: the recipient sees HOLD with a generic message; the detailed reasons stay internal."
+}

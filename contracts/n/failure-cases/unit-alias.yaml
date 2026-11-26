@@ -1,6 +1,6 @@
 id: FC-UNIT-ALIAS
-class: unit written as an alias
+class: unapproved qualifier or unit alias
 criterion: C2-04
-input: The laboratory states the tensile strength in N/mm², which equals MPa but is not an allowed unit.
-expected: Typed error wrong-unit at stage "semantics"; nothing is converted, because the units file declares no alias.
-fixture: fixtures/n/lab-unit-alias.json
+input: Lead measurement carries below_LOQ qualifier.
+expected: Customer screening route is HOLD; below_LOQ is never coerced to a numeric bound.
+fixture: fixtures/n/lab-below-loq.json

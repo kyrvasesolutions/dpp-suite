@@ -1,0 +1,31 @@
+{
+  "@context": {
+    "@version": 1.1,
+    "@vocab": "https://standin.example/ref/",
+    "@base": "https://standin.example/demo/",
+    "ALU-D101": "https://standin.example/def/product/productModelIdentifier",
+    "ALU-D102": "https://standin.example/def/product/productDefinitionRevision",
+    "ALU-D103": "https://standin.example/def/product/commercialProductDesignation",
+    "ALU-D104": "https://standin.example/def/product/batchIdentifier",
+    "ALU-D105": "https://standin.example/def/product/manufacturerParty",
+    "ALU-D106": "https://standin.example/def/product/manufacturingSite",
+    "ALU-D107": "https://standin.example/def/product/batchProductionDate",
+    "ALU-D108": "https://standin.example/def/aluminium/alloyDesignation",
+    "ALU-D109": "https://standin.example/def/aluminium/temperDesignation",
+    "ALU-D110": "https://standin.example/def/aluminium/nominalSheetThickness",
+    "ALU-D111": "https://standin.example/def/aluminium/measuredSheetThickness",
+    "ALU-D112": "https://standin.example/def/aluminium/nominalSheetWidth",
+    "ALU-D113": "https://standin.example/def/aluminium/nominalSheetLength",
+    "ALU-D114": "https://standin.example/def/aluminium/measuredMagnesiumMassFraction",
+    "ALU-D115": "https://standin.example/def/product/declaredTotalRecycledContent",
+    "ALU-D116": "https://standin.example/def/product/preConsumerRecycledContent",
+    "ALU-D117": "https://standin.example/def/product/postConsumerRecycledContent",
+    "ALU-D118": "https://standin.example/def/product/recycledContentMassBasis",
+    "ALU-D119": "https://standin.example/def/product/recycledContentEvidenceReferences",
+    "ALU-D120": "https://standin.example/def/product/productCarbonFootprintResult",
+    "ALU-D121": "https://standin.example/def/product/authorisedProductDescriptions",
+    "ALU-D122": "https://standin-customer.example/def/product/customerMaterialCode",
+    "ALU-D123": "https://standin.example/def/product/measuredLeadMassFraction",
+    "ALU-D124": "https://standin.example/def/product/internalUnitConversionCost"
+  }
+}

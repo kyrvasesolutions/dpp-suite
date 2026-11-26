@@ -140,8 +140,9 @@ export const CAPABILITIES: Capability[] = [
     label: "supported",
     increment: "P",
     screen: false,
-    functions: ["FUNC-022", "FUNC-023", "FUNC-039", "FUNC-063", "FUNC-064", "FUNC-087", "FUNC-125"],
-    basis: "Cycle 6 exit: the P increment, present only when the DPP server serves the app: durable storage, classification and retention, staged idempotent imports with update receipts, and recoverable job state. Real customer data, real operators and cryptographic signing remain dated holds. The N labels of the same functions on the screens above are unchanged.",
+    functions: ["FUNC-022", "FUNC-023", "FUNC-039", "FUNC-063", "FUNC-125"],
+    extends: ["FUNC-064", "FUNC-087"],
+    basis: "Cycles 6 & 9: durable storage, classification/retention, staged idempotent imports with update receipts, and recoverable job state; aligned to SRC-ERP-CSV-01, SRC-LAB-JSON-01, and REC-ALU-24-01. FUNC-064 and FUNC-087 (Issue DPP Update Receipt (Acceptance Proof)) are recorded as F3 extensions without P completeness credit (A-17). Real customer data and cryptographic signing remain dated holds.",
   },
   {
     id: "identity-releases",
@@ -149,8 +150,9 @@ export const CAPABILITIES: Capability[] = [
     label: "supported",
     increment: "P",
     screen: false,
-    functions: ["FUNC-001", "FUNC-018", "FUNC-019", "FUNC-027", "FUNC-046", "FUNC-085", "FUNC-134"],
-    basis: "Cycle 7 exit: OIDC RS256/ES256 authentication, server-side role/field/action enforcement with live grant epochs, dedicated internal vs customer deployment surfaces, four-eyes configuration package releases and rollback, and checksum-verified forward/backward migrations. Real customer IdP tenant, external JWKS HTTPS discovery/key rotation, real customer data/operators, and cryptographic artifact signing remain dated holds. The N labels of the same functions on the screens above are unchanged.",
+    functions: ["FUNC-018", "FUNC-019", "FUNC-027", "FUNC-046", "FUNC-085", "FUNC-134"],
+    extends: ["FUNC-001"],
+    basis: "Cycles 7 & 9: OIDC RS256/ES256 authentication, server-side role/field/action enforcement (ACT-01, ACT-06, ACT-17 external auditor, ACT-19 platform operator, ACT-20 content curator) with live grant epochs, dedicated internal vs customer surfaces, four-eyes configuration releases and rollback, and checksum-verified migrations. FUNC-001 is recorded as an F3 extension without P completeness credit (A-17). Real IdP tenant and signing remain dated holds.",
   },
   {
     id: "load-security",

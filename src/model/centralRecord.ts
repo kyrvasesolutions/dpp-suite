@@ -13,9 +13,11 @@
  */
 import { z } from "zod";
 import { canonical, canonicalPretty, sha256Bytes, utf8 } from "./canonical";
-import { FLAG_TEXT, IMPORT_ROLES, recheckRecord, type Flag } from "./ingress";
+import { dispatchExchangeEnvelope } from "./context";
+import { FLAG_TEXT, IMPORT_ROLES, recheckRecord, type Flag, type ProductRecord as ProductRecordType } from "./ingress";
 import type { ProfilePack } from "./profile";
 import { sha256Hex } from "./profile";
+import { checkBoundedSchema } from "./recordSchemaCheck";
 import {
   MemoryRepository,
   OPERATOR,
@@ -60,9 +62,12 @@ const RecordValue = z.strictObject({
 const ProductRecord = z.strictObject({
   model: z.string(),
   batch: z.string(),
+  revision: z.string().optional(),
+  importStatus: z.enum(["IMPORTED", "IMPORTED_WITH_SHAPE_ISSUES", "REJECT"]).optional(),
   sources: z.array(z.strictObject({ name: z.string(), role: Role, mediaType: z.string(), sha256: Sha, size: z.number().int().min(0) })),
   values: z.array(RecordValue),
   digest: Sha,
+  dppPayload: z.record(z.string(), z.unknown()).optional(),
 });
 const SnapshotSchema = z.strictObject({
   model: z.string(),
@@ -108,6 +113,29 @@ export interface CentralRecordFile {
   fileSha256: string;
 }
 
+/** Exports the S5-EXCHANGE-rev2 portable DPPPayload (REC-ALU-24-01 with inline @context; C9-04). */
+export async function exportDppPayload(pack: ProfilePack, record: ProductRecordType, role: string = OPERATOR): Promise<CentralRecordFile> {
+  requireOperator(role, "export");
+  if (!record.dppPayload) {
+    throw new CentralRecordError("No REC-ALU-24-01 DPPPayload is available for this record (both ERP and laboratory inputs are required).");
+  }
+  const dispatch = dispatchExchangeEnvelope("DPPPayload", record.dppPayload);
+  if (!dispatch.ok) throw new CentralRecordError(dispatch.message);
+  const shapeErrs = checkBoundedSchema(record.dppPayload, pack.contracts.recordSchema);
+  if (shapeErrs.length > 0) {
+    throw new CentralRecordError(`DPPPayload failed pinned record.schema.json checks: ${shapeErrs[0]}`);
+  }
+  const text = canonicalPretty(record.dppPayload);
+  const bytes = utf8(text);
+  return {
+    fileName: `dpp-payload_${safePart(record.model)}_${safePart(record.batch)}.json`,
+    mediaType: "application/json",
+    text,
+    bytes,
+    fileSha256: await sha256Bytes(bytes),
+  };
+}
+
 /** Every snapshot of one record, oldest first, as a portable file. Throws unless the role is the operator. */
 export async function exportCentralRecord(repo: RecordRepository, pack: ProfilePack, model: string, batch: string, role: string = OPERATOR): Promise<CentralRecordFile> {
   requireOperator(role, "export");
@@ -149,6 +177,9 @@ export async function importCentralRecord(bytes: Uint8Array, pack: ProfilePack, 
   } catch (e) {
     if (e instanceof CentralRecordError) throw e;
     throw new CentralRecordError(`The file is not valid JSON: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  if (typeof plain === "object" && plain !== null && ((plain as Record<string, unknown>).exchange_type === "RegistryRequest" || (plain as Record<string, unknown>).not_a_registration_request === true)) {
+    throw new CentralRecordError("A RegistryRequest envelope cannot be imported as a central product assertion record (DPPPayload).");
   }
   const parsed = ExportSchema.safeParse(plain);
   if (!parsed.success) {

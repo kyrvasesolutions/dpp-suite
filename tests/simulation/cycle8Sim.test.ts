@@ -405,11 +405,11 @@ describe("3. cooperative cancellation", () => {
     expect(() => budget.check("bytes")).toThrow(expect.objectContaining({ outcome: "CANCELLED" }));
   });
 
-  it("only the submitter (ACT-01, same sub) or ADMIN may cancel; AUDITOR and others may not", () => {
+  it("only the submitter (ACT-01, same sub) or ACT-19 may cancel; ACT-17 and others may not", () => {
     expect(mayCancelJob("ACT-01", "u1", "u1")).toBe(true);
     expect(mayCancelJob("ACT-01", "u2", "u1")).toBe(false);
-    expect(mayCancelJob("ADMIN", "a1", "u1")).toBe(true);
-    for (const role of ["ACT-06", "CURATOR", "AUDITOR", "NOBODY"]) expect(mayCancelJob(role, "u1", "u1"), role).toBe(false);
+    expect(mayCancelJob("ACT-19", "a1", "u1")).toBe(true);
+    for (const role of ["ACT-06", "ACT-20", "ACT-17", "NOBODY"]) expect(mayCancelJob(role, "u1", "u1"), role).toBe(false);
   });
 });
 
@@ -721,8 +721,8 @@ describe("4. job coordinator", () => {
   });
 
   it("the new server actions map to the intended roles, and every other Cycle 7 grant is untouched", () => {
-    expect(C8_ACTIONS["job:cancel"].roles).toEqual(["ACT-01", "ADMIN"]);
-    expect(C8_ACTIONS["metrics:read"].roles).toEqual(["ADMIN", "AUDITOR"]);
+    expect(C8_ACTIONS["job:cancel"].roles).toEqual(["ACT-01", "ACT-19"]);
+    expect(C8_ACTIONS["metrics:read"].roles).toEqual(["ACT-19", "ACT-17"]);
     // Cycle 8 (Layer 3) joined the two actions to the real matrix: exactly the roles above hold them, no other role does.
     for (const role of SERVER_ROLES) {
       const actions = ROLE_ACTION_MATRIX[role] as readonly string[];

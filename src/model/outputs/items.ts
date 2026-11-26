@@ -131,7 +131,7 @@ export function buildItems(pack: ProfilePack, projection: Projection): OutputVal
     if (item.reads.kind === "derived") {
       const d = projection.derived.find((x) => x.property === item.property);
       if (!d) return absent();
-      const text = `${d.within ? "within" : "outside"} the limits (${d.basis})`;
+      const text = d.text;
       return { ...base, present: true, challenged: false, text, lines: [{ text }], numeric: false, ruleId: d.rule, sources: d.sources, refs: [], fields: [] };
     }
 
@@ -187,6 +187,11 @@ export function buildItems(pack: ProfilePack, projection: Projection): OutputVal
     }
 
     // value: one value gives its literal text; several (languages, elements, evidence records) give qualifier=text
+    // If all assertions live on structured members (e.g. FLD-Identifier-value, FLD-DesignationRef-designation),
+    // select the primary value/designation member so single-value mappings read the canonical value cleanly.
+    const topLevel = own.filter((x) => !x.member);
+    const primaryMembers = own.filter((x) => x.member && /(?:^|-)(?:value|designation|party_id|site_id)$/.test(x.member));
+    const candidates = topLevel.length > 0 ? topLevel : primaryMembers.length > 0 ? primaryMembers : own.slice(0, 1);
     const lines: OutputValue["lines"] = [];
     const sources: PublicSource[] = [];
     const refs: AssertionRef[] = [];
@@ -194,7 +199,7 @@ export function buildItems(pack: ProfilePack, projection: Projection): OutputVal
     const fields: OutputValue["fields"] = [];
     let challenged = false;
     let numberLike = false;
-    for (const v of own.filter((x) => !x.member)) {
+    for (const v of candidates) {
       if (!usable(v)) {
         challenged = true;
         continue;
@@ -232,10 +237,17 @@ export function prepare(
   pack: ProfilePack,
   record: ProductRecord,
   route: Route,
-  options: { allowHold?: boolean } = {},
+  options: { allowHold?: boolean; language?: "en" | "de"; context?: import("../context").OperationContext } = {},
 ): { projection: Projection; items: OutputValue[]; holds: HoldReason[] } {
-  const readiness = assess(pack, record, { routes: [route] })[0]!;
-  const projection = project(pack, record, route, readiness);
+  const readiness = assess(pack, record, {
+    routes: [route],
+    ...(options.language ? { language: options.language } : {}),
+    ...(options.context ? { context: { [route]: options.context } } : {}),
+  })[0]!;
+  const projection = project(pack, record, route, readiness, {
+    ...(options.language ? { language: options.language } : {}),
+    ...(options.context ? { context: options.context } : {}),
+  });
   const holds = readiness.holds;
   if (projection.route !== route) throw new RouteRefusedError(route, [], `The projection is for ${projection.route}, not ${route}`);
   if (projection.onHold && !options.allowHold) {

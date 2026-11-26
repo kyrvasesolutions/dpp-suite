@@ -332,24 +332,25 @@ describe("Layer 2 Cycle 6 deterministic contract simulator (P01 + P02)", () => {
     const erpClean = await importErpCsv(pack, { bytes: CLEAN_ERP, name: CLEAN.erp, type: "text/csv" });
     const labClean = await importLabJson(pack, { bytes: CLEAN_LAB, name: CLEAN.lab, type: "application/json" });
     expect(erpClean.ok && labClean.ok).toBe(true);
-    const built = await buildRecords([erpClean, labClean]);
+    const built = await buildRecords([erpClean, labClean], pack);
     const readiness = assess(pack, built.records[0]!);
-    expect(readiness.find((r) => r.route === "customer-pdf")?.status).toBe("ready");
-    expect(readiness.find((r) => r.route === "erp-staging-csv")?.status).toBe("ready");
-    expect(readiness.find((r) => r.route === "registry-prep-json")?.status).toBe("on-hold");
+    expect(readiness.find((r) => r.route === "customer")?.status).toBe("RELEASED");
+    expect(readiness.find((r) => r.route === "internal")?.status).toBe("RELEASED");
+    expect(readiness.find((r) => r.route === "registry")?.status).toBe("HOLD");
 
     const labConflict = await importLabJson(pack, {
-      bytes: fixtureBytes("n", "lab-conflicting-alloy.json"),
-      name: "lab-conflicting-alloy.json",
+      bytes: fixtureBytes("n", "lab-conflicting-pre-consumer.json"),
+      name: "lab-conflicting-pre-consumer.json",
       type: "application/json",
     });
     expect(labConflict.ok).toBe(true);
-    const conflictBuilt = await buildRecords([erpClean, labConflict]);
+    const conflictBuilt = await buildRecords([erpClean, labConflict], pack);
     const conflictReadiness = assess(pack, conflictBuilt.records[0]!);
-    expect(conflictReadiness.every((r) => r.status === "on-hold")).toBe(true);
-    expect(conflictReadiness.find((r) => r.route === "customer-pdf")?.holds.some((h) => h.ruleId === "RR-CHALLENGED")).toBe(true);
-    expect(conflictReadiness.find((r) => r.route === "erp-staging-csv")?.holds.some((h) => h.ruleId === "RR-CHALLENGED")).toBe(true);
-    expect(conflictReadiness.find((r) => r.route === "registry-prep-json")?.holds.some((h) => h.ruleId === "RR-STANDING-HOLD")).toBe(true);
+    expect(conflictReadiness.find((r) => r.route === "customer")?.status).toBe("HOLD");
+    expect(conflictReadiness.find((r) => r.route === "internal")?.status).toBe("RELEASED");
+    expect(conflictReadiness.find((r) => r.route === "registry")?.status).toBe("HOLD");
+    expect(conflictReadiness.find((r) => r.route === "customer")?.holds.some((h) => h.ruleId === "RR-CHALLENGED")).toBe(true);
+    expect(conflictReadiness.find((r) => r.route === "registry")?.holds.some((h) => h.ruleId === "RR-STANDING-HOLD")).toBe(true);
   });
 
   /** Runs each failure fixture through the simulator and checks the outcome on the customer route. */
@@ -377,7 +378,7 @@ describe("Layer 2 Cycle 6 deterministic contract simulator (P01 + P02)", () => {
         rejected++;
       } else {
         expect(out.ok, fc.id).toBe(true);
-        expect(out.readiness?.find((r) => r.route === "customer-pdf")?.status, fc.id).toBe("on-hold");
+        expect(out.readiness?.find((r) => r.route === "customer")?.status, fc.id).toBe("HOLD");
         held++;
       }
     }
@@ -394,15 +395,15 @@ describe("Layer 2 Cycle 6 deterministic contract simulator (P01 + P02)", () => {
       .map((f) => parse(readFileSync(`contracts/n/failure-cases/${f}`, "utf8")) as { id: string; fixture: string; expected: string });
     expect(classes.length).toBe(18);
     const sorted = classes.flatMap((c): Array<{ id: string; fixture: string; outcome: Outcome }> =>
-      /^(Typed error|Rejected at stage)/i.test(c.expected)
+      /^(Typed error|Rejected at stage|Import outcome REJECT)/i.test(c.expected)
         ? [{ id: c.id, fixture: c.fixture, outcome: "rejected-at-ingress" }]
-        : /^The routes?\b.*\bhold/i.test(c.expected)
+        : /(customer|both).*?\bHOLD\b/.test(c.expected)
           ? [{ id: c.id, fixture: c.fixture, outcome: "route-hold-output-refused" }]
           : [],
     );
     const { rejected, held } = await calibrate(sorted);
-    expect(rejected).toBeGreaterThanOrEqual(9);
-    expect(held).toBeGreaterThanOrEqual(2);
+    expect(rejected).toBeGreaterThanOrEqual(8);
+    expect(held).toBeGreaterThanOrEqual(4);
   });
 
   // The bridge manifest is generated locally from the private assessment records and is git-ignored, so a clean clone
@@ -418,7 +419,7 @@ describe("Layer 2 Cycle 6 deterministic contract simulator (P01 + P02)", () => {
     expect(Object.keys(bridge.routes).sort()).toEqual(Object.keys(pack.routes).sort());
     expect(bridge.failureClasses.length).toBeGreaterThanOrEqual(18);
     const classes = bridge.failureClasses.flatMap((fc): Array<{ id: string; fixture: string; outcome: Outcome }> => {
-      const outcome = fc.acceptanceByRoute["customer-pdf"]!.outcome;
+      const outcome = fc.acceptanceByRoute["customer"]?.outcome;
       return outcome === "rejected-at-ingress" || outcome === "route-hold-output-refused" ? [{ id: fc.id, fixture: fc.fixture, outcome }] : [];
     });
     const { rejected, held } = await calibrate(classes);
@@ -466,7 +467,7 @@ describe("Layer 2 Cycle 6 deterministic contract simulator (P01 + P02)", () => {
 
     // same key, a different file of the SAME SIZE: the claim compares digests, not lengths
     const evidenceOf = { evidenceId: "EV-SIM-01", issuer: "Test Lab", revision: "rev-1", recordKind: "test-certificate", contentBytes: new TextEncoder().encode("certificate") };
-    const sameSize = new TextEncoder().encode(new TextDecoder().decode(CLEAN_ERP).replace(";62.0;", ";63.0;"));
+    const sameSize = new TextEncoder().encode(new TextDecoder().decode(CLEAN_ERP).replace(",65,", ",66,"));
     expect(sameSize.byteLength).toBe(CLEAN_ERP.byteLength);
     await expect(sim.runImportJob({ ...base(), idempotencyKey: "batch-001-v1", dataset: "erp-extract", erpBytes: sameSize, evidence: evidenceOf })).rejects.toMatchObject({ code: "idempotency-conflict" });
     expect(await realOutcome({ ...base(), erpBytes: sameSize })).toMatchObject({ ok: true }); // the same file under a NEW key is fine for the server too

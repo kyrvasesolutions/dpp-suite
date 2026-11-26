@@ -1,6 +1,6 @@
 id: FC-WRONG-ENCODING
-class: wrong encoding
+class: non-UTF-8 encoding
 criterion: C2-02
-input: The ERP extract is not valid UTF-8.
-expected: Rejected at stage "bytes" with a typed error.
+input: ERP extract encoded in ISO-8859-1.
+expected: Rejected at stage "bytes" with wrong-encoding (import outcome REJECT).
 fixture: fixtures/n/erp-latin1.csv

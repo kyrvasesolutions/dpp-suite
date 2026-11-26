@@ -470,11 +470,11 @@ describe("5. job coordinator, cancel and timeout (OIDC server)", () => {
       mode: "oidc",
       domains: ["dom-b"],
       users: [
-        { sub: "admin-1", roles: ["ADMIN"] },
+        { sub: "admin-1", roles: ["ACT-19"] },
         { sub: "op-1", roles: ["ACT-01"] },
         { sub: "op-2", roles: ["ACT-01"] },
-        { sub: "aud-1", roles: ["AUDITOR"] },
-        { sub: "cur-1", roles: ["CURATOR"] },
+        { sub: "aud-1", roles: ["ACT-17"] },
+        { sub: "cur-1", roles: ["ACT-20"] },
         { sub: "cust-1", roles: ["ACT-06"] },
         { sub: "op-b", roles: ["ACT-01"], domain: "dom-b" },
       ],
@@ -842,7 +842,7 @@ describe("5. job coordinator, cancel and timeout (OIDC server)", () => {
 describe("6. surfaces", () => {
   it("the customer surface refuses cancel and metrics with surface-forbidden; the internal surface serves them", async () => {
     const users = [
-      { sub: "admin-1", roles: ["ADMIN" as const] },
+      { sub: "admin-1", roles: ["ACT-19" as const] },
       { sub: "op-1", roles: ["ACT-01" as const] },
     ];
     const customer = await start({ mode: "oidc", surface: "customer", users });
@@ -855,10 +855,10 @@ describe("6. surfaces", () => {
     expect((await post(internal, "/api/jobs/JOB-x/cancel", { reason: "r" }, internal.token("op-1"))).status).toBe(404);
   });
 
-  it("the role matrix grants job:cancel to ACT-01 and ADMIN, and metrics:read to ADMIN and AUDITOR, and to no other role", () => {
+  it("the role matrix grants job:cancel to ACT-01 and ACT-19, and metrics:read to ACT-19 and ACT-17, and to no other role", () => {
     const holders = (a: string) => Object.entries(ROLE_ACTION_MATRIX).filter(([, acts]) => (acts as readonly string[]).includes(a)).map(([r]) => r).sort();
-    expect(holders("job:cancel")).toEqual(["ACT-01", "ADMIN"]);
-    expect(holders("metrics:read")).toEqual(["ADMIN", "AUDITOR"]);
+    expect(holders("job:cancel")).toEqual(["ACT-01", "ACT-19"]);
+    expect(holders("metrics:read")).toEqual(["ACT-17", "ACT-19"]);
   });
 });
 
@@ -992,7 +992,7 @@ describe("9. control characters in source files", () => {
     const enc = (t: string) => new TextEncoder().encode(t);
     const erp = text(CLEAN.erp);
     for (const bad of ["\u0000", "\u0001", "\u001b"]) {
-      const r = await importErpCsv(pack, { bytes: enc(erp.replace("DEMO-PM", `D${bad}EMO-PM`)), name: CLEAN.erp, type: "text/csv" });
+      const r = await importErpCsv(pack, { bytes: enc(erp.replace("ST-LOT-2026-001", `S${bad}T-LOT-2026-001`)), name: CLEAN.erp, type: "text/csv" });
       expect(r.ok).toBe(false);
       expect(r.ok ? [] : r.errors.map((e) => e.code)).toEqual(["control-character"]);
       expect(JSON.stringify(r)).not.toContain(bad);
@@ -1000,11 +1000,11 @@ describe("9. control characters in source files", () => {
     // CR, LF and the delimiter are still fine; the clean file is unchanged
     expect((await importErpCsv(pack, { bytes: fixtureBytes("n", CLEAN.erp), name: CLEAN.erp, type: "text/csv" })).ok).toBe(true);
     const lab = text(CLEAN.lab);
-    const escaped = lab.replace('"EN AW-5754"', '"EN AW\\u0000-5754"');
+    const escaped = lab.replace('"ST-LOT-2026-001"', '"ST-LOT\\u0000-2026-001"');
     expect(escaped).not.toBe(lab);
     const rl = await importLabJson(pack, { bytes: enc(escaped), name: CLEAN.lab, type: "application/json" });
     expect(rl.ok ? [] : rl.errors.map((e) => e.code)).toEqual(["control-character"]);
-    const raw = lab.replace('"EN AW-5754"', '"EN AW\u0000-5754"');
+    const raw = lab.replace('"ST-LOT-2026-001"', '"ST-LOT\u0000-2026-001"');
     expect((await importLabJson(pack, { bytes: enc(raw), name: CLEAN.lab, type: "application/json" })).ok).toBe(false);
     expect(ERROR_TEXT["control-character"]).not.toMatch(/[{}"]/);
   });
@@ -1130,7 +1130,7 @@ describe("11. server_record_max_bytes and max_inflight_record_bytes (D8-11)", ()
     const gates = new Map<string, ReturnType<typeof gate>>();
     const s = await start({
       mode: "oidc",
-      users: [{ sub: "admin-1", roles: ["ADMIN"] }, { sub: "op-1", roles: ["ACT-01"] }, { sub: "op-2", roles: ["ACT-01"] }],
+      users: [{ sub: "admin-1", roles: ["ACT-19"] }, { sub: "op-1", roles: ["ACT-01"] }, { sub: "op-2", roles: ["ACT-01"] }],
       // two active slots per domain and in total, and a budget for one record and a half: only the byte budget can hold the second back
       patch: limitPatch(pair, { max_active_jobs_per_security_domain: 2, max_active_jobs_total: 4, max_inflight_record_bytes: Math.floor(one * 1.5) }),
       extra: {
@@ -1169,7 +1169,7 @@ describe("11. server_record_max_bytes and max_inflight_record_bytes (D8-11)", ()
     const gates = new Map<string, ReturnType<typeof gate>>();
     const s = await start({
       mode: "oidc",
-      users: [{ sub: "admin-1", roles: ["ADMIN"] }, { sub: "op-1", roles: ["ACT-01"] }, { sub: "op-2", roles: ["ACT-01"] }, { sub: "op-3", roles: ["ACT-01"] }, { sub: "op-4", roles: ["ACT-01"] }],
+      users: [{ sub: "admin-1", roles: ["ACT-19"] }, { sub: "op-1", roles: ["ACT-01"] }, { sub: "op-2", roles: ["ACT-01"] }, { sub: "op-3", roles: ["ACT-01"] }, { sub: "op-4", roles: ["ACT-01"] }],
       patch: limitPatch(pair, { max_active_jobs_per_security_domain: 2, max_queued_jobs_per_security_domain: 1, max_inflight_record_bytes: one * 2 + 10 }),
       extra: {
         testHooks: {

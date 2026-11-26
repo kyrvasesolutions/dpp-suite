@@ -1,6 +1,6 @@
-id: FC-NON-FINITE
-class: non-finite number
+id: FC-NON-FINITE-NUMBER
+class: non-finite JSON number
 criterion: C2-02
-input: The laboratory file contains a number that overflows to Infinity (for example 1e999).
-expected: Rejected at stage "parse" with a typed error. Baseline B0-04 shows the current parser accepts it.
+input: The laboratory JSON contains 1e999.
+expected: Rejected at stage "parse" with non-finite-number (import outcome REJECT).
 fixture: fixtures/n/lab-non-finite.json

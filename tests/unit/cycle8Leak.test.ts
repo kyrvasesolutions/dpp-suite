@@ -22,7 +22,7 @@ import { fixtureBytes } from "../support/fixtures";
 import { b64, startC8Server, type C8Server } from "../support/c8Server";
 import { pdfText } from "../support/pdfText";
 import { assertNoLeakText } from "../support/leak";
-import { CLEAN } from "../support/records";
+import { CLEAN, propertyBySlug } from "../support/records";
 import { ERROR_TEXT } from "../../src/model/ingress";
 
 const R = randomBytes(4).toString("hex");
@@ -117,9 +117,9 @@ async function call(s: C8Server, label: string, method: string, path: string, to
 
 function addUsers(s: C8Server) {
   const grants = new GrantStore(s.db, undefined, { now: () => "2026-11-22T12:00:00.000Z" });
-  const mk = (sub: string, roles: Array<"ACT-01" | "ACT-06" | "ADMIN">, displayName: string) => grants.upsertUser({ sub, displayName, roles, actorSub: "bootstrap", reason: "canary test user" });
+  const mk = (sub: string, roles: Array<"ACT-01" | "ACT-06" | "ACT-19">, displayName: string) => grants.upsertUser({ sub, displayName, roles, actorSub: "bootstrap", reason: "canary test user" });
   mk(C.sub, ["ACT-01"], `${C.display}-op`);
-  mk(C.admin, ["ADMIN"], `${C.display}-admin`);
+  mk(C.admin, ["ACT-19"], `${C.display}-admin`);
   mk(C.customer, ["ACT-06"], `${C.display}-cust`);
 }
 
@@ -141,15 +141,15 @@ beforeAll(async () => {
   addUsers(limited);
 
   // the record with canaries in its values, built in-process from the same bytes that are imported
-  const editErp = (csv: string) => csv.replace(/B-2026-0417/g, C.batch).replace("KA-778812", C.article);
+  const editErp = (csv: string) => csv.replace(/ST-LOT-2026-001/g, C.batch).replace(",004215,", `,${C.article},`);
   const editLabText = (t: string) =>
     t
-      .replace(/B-2026-0417/g, C.batch)
-      .replace("EN ISO 6892-1 tensile test", C.method)
-      .replace("ISO 14067:2018", C.fpMethod)
-      .replace("Demo LCA consultancy (synthetic)", C.calcBy)
-      .replace("Demo test laboratory (synthetic)", C.issuer)
-      .replace(`product model PM-5754-H111-2000`, C.scope);
+      .replace(/ST-LOT-2026-001/g, C.batch)
+      .replace(/ST-SPECIMEN-DIM-01/g, C.method)
+      .replace(/ST-REP-001/g, C.fpMethod)
+      .replace(/ST-ALLOC-001/g, C.calcBy)
+      .replace("synthetic_declaration_summary", C.issuer)
+      .replace(/ST-RC-SCOPE-01/g, C.scope);
   const erpText = editErp(dec(fixtureBytes("n", CLEAN.erp)));
   const labText = editLabText(dec(fixtureBytes("n", CLEAN.lab)));
 
@@ -181,11 +181,11 @@ beforeAll(async () => {
   const e = await importErpCsv(pack, { bytes: enc(erpText), name: `${C.erpFile}.csv`, type: "text/csv" });
   const l = await importLabJson(pack, { bytes: enc(labText), name: `${C.labFile}.json`, type: "application/json" });
   if (!e.ok || !l.ok) throw new Error("the canary pair does not import in-process");
-  record = (await buildRecords([e, l])).records[0]!;
+  record = (await buildRecords([e, l], pack)).records[0]!;
 
-  // correction with a canary reason
-  const prop = pack.properties.find((p) => p.definitionRef.endsWith(":recycled-content"))!;
-  await call(main, "correction", "POST", `/api/records/${encodeURIComponent(model)}/${encodeURIComponent(batch)}/correct`, op, JSON.stringify({ property: prop.id, raw: "44", reason: C.correction, expectedVersion: 1 }));
+  // correction with a canary reason (use nominal-width so recycled total = pre + post invariant stays valid)
+  const propId = propertyBySlug(pack, "nominal-width");
+  await call(main, "correction", "POST", `/api/records/${encodeURIComponent(model)}/${encodeURIComponent(batch)}/correct`, op, JSON.stringify({ property: propId, raw: "1505", reason: C.correction, expectedVersion: 1 }));
   // cancel with a canary reason: the job has ended, so the answer is a refusal
   await call(main, "cancel", "POST", `/api/jobs/${encodeURIComponent(jobId)}/cancel`, op, JSON.stringify({ reason: C.cancel }));
   await call(main, "cancel-unknown", "POST", `/api/jobs/${encodeURIComponent(C.path)}/cancel`, op, JSON.stringify({ reason: C.cancel }));
@@ -218,7 +218,7 @@ beforeAll(async () => {
   }
   const cust = tokenFor(main, C.customer);
   const crel = await call(main, "customer-release", "POST", `/api/customer/records/${encodeURIComponent(model)}/${encodeURIComponent(batch)}/release`, cust, "{}");
-  if (crel.status === 200 && !releaseFiles.some((f) => f.route === "customer-pdf")) releaseFiles.push({ route: "customer-pdf", fileName: crel.json.file.fileName, bytes: Uint8Array.from(Buffer.from(crel.json.file.base64, "base64")) });
+  if (crel.status === 200 && !releaseFiles.some((f) => f.route === "customer")) releaseFiles.push({ route: "customer", fileName: crel.json.file.fileName, bytes: Uint8Array.from(Buffer.from(crel.json.file.base64, "base64")) });
   customerProjection = (await call(main, "customer-read", "GET", `/api/customer/records/${encodeURIComponent(model)}/${encodeURIComponent(batch)}`, cust)).body;
   for (const p of ["/api/log", "/api/admin/audit", "/api/admin/metrics"]) await call(main, p, "GET", p, admin);
 
@@ -399,12 +399,12 @@ describe("role change on next request", () => {
 describe("generated-file scan", () => {
   const propsWith = (canary: string) => record.values.filter((v) => v.assertions.some((a) => JSON.stringify(a).includes(canary))).map((v) => v.property);
   const permitted = (canary: string, route: (typeof ROUTES)[number]) => propsWith(canary).some((p) => decide(pack, route, p) === "permit");
-  const textOf = async (f: { route: string; bytes: Uint8Array }) => (f.route === "customer-pdf" ? await pdfText(f.bytes) : dec(f.bytes));
+  const textOf = async (f: { route: string; bytes: Uint8Array }) => (f.route === "customer" ? await pdfText(f.bytes) : dec(f.bytes));
 
   it("the release made a file for at least the customer PDF and the ERP CSV, and the manifest", () => {
     const routes = releaseFiles.map((f) => f.route);
-    expect(routes).toContain("customer-pdf");
-    expect(routes).toContain("erp-staging-csv");
+    expect(routes).toContain("customer");
+    expect(routes).toContain("internal");
     expect(manifestText.length).toBeGreaterThan(10);
   });
 
@@ -426,12 +426,13 @@ describe("generated-file scan", () => {
   });
 
   it("the Customer PDF carries no restricted or internal-only canary", async () => {
-    const pdf = releaseFiles.find((f) => f.route === "customer-pdf")!;
+    const pdf = releaseFiles.find((f) => f.route === "customer")!;
     const text = await pdfText(pdf.bytes);
-    for (const c of RECORD_CANARIES) if (propsWith(c).length > 0 && !permitted(c, "customer-pdf")) expect(text, c).not.toContain(c);
+    for (const c of RECORD_CANARIES) if (propsWith(c).length > 0 && !permitted(c, "customer")) expect(text, c).not.toContain(c);
     for (const c of [C.correction, C.cancel, C.hold, C.release, C.revoke, C.sub, C.admin, C.customer, C.display, C.claim, C.erpFile, C.labFile, C.evFile, C.hostile, C.header, C.crash]) expect(text, c).not.toContain(c);
     // the customer read projection obeys the same matrix, and carries no request or actor canary
-    for (const c of RECORD_CANARIES) if (customerProjection.includes(c) && propsWith(c).length > 0) expect(permitted(c, "customer-pdf"), `projection shows ${c}`).toBe(true);
+    const projBody = JSON.stringify(JSON.parse(customerProjection).projection);
+    for (const c of RECORD_CANARIES) if (projBody.includes(c) && propsWith(c).length > 0) expect(permitted(c, "customer"), `projection shows ${c}`).toBe(true);
     for (const c of [C.erpFile, C.labFile, C.evFile, C.correction, C.sub, C.admin, C.display, C.claim, C.hold, C.cancel]) expect(customerProjection, c).not.toContain(c);
   });
 
@@ -459,15 +460,15 @@ describe("generated-file scan", () => {
       const f = releaseFiles.find((x) => x.route === route)!;
       const text = await textOf(f);
       for (const c of [C.erpFile, C.labFile, C.evFile, C.correction]) expect(text, `${route} ${c}`).not.toContain(c);
-      if (route !== "erp-staging-csv") expect(text, `${route} evidence id`).not.toContain(C.evId);
+      if (route !== "internal") expect(text, `${route} evidence id`).not.toContain(C.evId);
     }
   });
 
   it("the customer projection, numbers included, passes the disclosure invariant (denied values never appear)", () => {
     const projection = JSON.parse(customerProjection).projection;
-    assertNoLeakText(JSON.stringify(projection), "customer-pdf", record, pack);
-    // numeric restricted values by name: the tensile result, the composition and the recycled-content figures are not customer values
-    const denied = record.values.filter((v) => decide(pack, "customer-pdf", v.property) !== "permit");
+    assertNoLeakText(JSON.stringify(projection), "customer", record, pack);
+    // numeric restricted values by name: raw Mg, Pb, cost, and recycled splits are not direct customer values
+    const denied = record.values.filter((v) => decide(pack, "customer", v.property) !== "permit");
     expect(denied.length).toBeGreaterThan(0);
     const shown = new Set(projection.values.map((v: { property: string }) => v.property));
     for (const v of denied) expect(shown.has(v.property), `${v.property} is denied for the customer route`).toBe(false);

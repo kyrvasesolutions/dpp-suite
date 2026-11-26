@@ -39,6 +39,48 @@ export const correctionSourceName = (version: number) => `Operator correction v$
 
 const sameKey = (v: RecordValue, r: { property: string; member?: string; qualifier?: string }) => v.property === r.property && v.member === r.member && v.qualifier === r.qualifier;
 
+/** Keeps cached REC-ALU-24-01 dppPayload aligned with settled operator corrections across both correctRecord and carryCorrections. */
+function syncDppPayloadCorrections(record: ProductRecord): void {
+  if (!record.dppPayload) return;
+  const props = record.dppPayload.properties as Record<string, unknown>;
+  for (const v of record.values) {
+    if (v.status !== "corrected") continue;
+    const val = v.assertions[0]?.value;
+    if (val === undefined || val === null) continue;
+    const existing = props[v.property];
+    if (existing && typeof existing === "object" && !Array.isArray(existing)) {
+      const obj = existing as Record<string, unknown>;
+      if ("preferred_assertion" in obj && obj.preferred_assertion && typeof obj.preferred_assertion === "object") {
+        const cleaned = { ...obj };
+        delete cleaned.conflicting_assertion;
+        delete cleaned.resolution_status;
+        props[v.property] = {
+          ...cleaned,
+          preferred_assertion: { ...(cleaned.preferred_assertion as Record<string, unknown>), value: val },
+        };
+      } else if ("value" in obj) {
+        props[v.property] = { ...obj, value: val };
+      } else if ("designation" in obj) {
+        props[v.property] = { ...obj, designation: val };
+      }
+    } else if (typeof existing === "string" || typeof existing === "number") {
+      props[v.property] = val;
+    }
+    let keptOne = false;
+    record.dppPayload.assertions = record.dppPayload.assertions.flatMap((a) => {
+      if (a.property_id !== v.property) return [a];
+      if (keptOne) return [];
+      keptOne = true;
+      return [{ ...a, challenge_status: "none", presence: "present", mapped_value: props[v.property] ?? val }];
+    });
+    if (Array.isArray(record.dppPayload.issues)) {
+      record.dppPayload.issues = record.dppPayload.issues.filter(
+        (iss) => !(iss.property_id === v.property && (iss.kind === "conflicting_source_assertions" || iss.kind === "conflict" || iss.kind === "missing_source_value")),
+      );
+    }
+  }
+}
+
 /**
  * Corrects one value of the latest version of the record and stores the result as the next version.
  * Throws CorrectionError, and changes nothing, unless the actor is the operator, the reason is given, the record and the
@@ -87,6 +129,7 @@ export async function correctRecord(pack: ProfilePack, repo: RecordRepository, r
   // a correction settles a value whose source had changed after an earlier correction: the flag that held it is no longer needed
   value.assertions = [assertion, ...value.assertions.map((a) => (a.flags.includes("source-changed") ? { ...a, flags: a.flags.filter((f) => f !== "source-changed") } : a))];
   value.status = valueStatus(value.assertions);
+  syncDppPayloadCorrections(record);
   const source: SourceFile = { name, role: "correction", mediaType: "application/json", sha256, size: 0 };
   record.sources = [...record.sources, source];
   record.digest = await recordDigest(record);
@@ -248,6 +291,7 @@ export async function carryCorrections(latest: Snapshot | undefined, incoming: P
   for (const s of latest.record.sources) if (neededSources.has(sourceKey(s))) addSource(s);
   record.sources = sources;
   record.values.sort((a, b) => (keyOf(a) < keyOf(b) ? -1 : keyOf(a) > keyOf(b) ? 1 : 0));
+  syncDppPayloadCorrections(record);
   record.digest = await recordDigest(record);
   return { record, carried, disputed };
 }

@@ -29,7 +29,7 @@ const mkDbPath = () => {
 };
 const enc = (s: string) => new TextEncoder().encode(s);
 const erpA = () => fixtureBytes("n", CLEAN.erp);
-const erpB = () => enc(text(CLEAN.erp).replace(";62.0;", ";68.5;"));
+const erpB = () => enc(text(CLEAN.erp).replace(",1.50,", ",2.25,"));
 const lab = () => fixtureBytes("n", CLEAN.lab);
 const job = (key: string, erp: Uint8Array) => ({
   idempotencyKey: key,

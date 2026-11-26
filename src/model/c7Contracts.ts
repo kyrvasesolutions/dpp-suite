@@ -14,10 +14,14 @@ export const DEPLOYMENT_SURFACES = ["all", "internal", "customer"] as const;
 export type DeploymentSurface = (typeof DEPLOYMENT_SURFACES)[number];
 
 /**
- * Explicit server-side roles (EV-4: manufacturer operator and business customer are distinct principals,
- * separated from identity admin, configuration curator, and read-only auditor).
+ * Explicit server-side roles aligned to workbook 17_Actors (A-18, D9-05, C9-11):
+ *   ACT-01: Manufacturer operator
+ *   ACT-06: Business customer
+ *   ACT-17: Verifier / certification body / external auditor (read-only; raw restricted only under explicit grant)
+ *   ACT-19: Platform operator ("System admin")
+ *   ACT-20: Content curator
  */
-export const SERVER_ROLES = ["ACT-01", "ACT-06", "ADMIN", "CURATOR", "AUDITOR"] as const;
+export const SERVER_ROLES = ["ACT-01", "ACT-06", "ACT-17", "ACT-19", "ACT-20"] as const;
 export type ServerRole = (typeof SERVER_ROLES)[number];
 
 export const SERVER_ACTIONS = [
@@ -65,7 +69,7 @@ export const ROLE_ACTION_MATRIX: Record<ServerRole, readonly ServerAction[]> = {
     "job:cancel",
   ],
   "ACT-06": ["record-read-customer", "release-customer"],
-  ADMIN: [
+  "ACT-19": [
     "record-read-internal",
     "record-read-customer",
     "evidence-read",
@@ -84,7 +88,7 @@ export const ROLE_ACTION_MATRIX: Record<ServerRole, readonly ServerAction[]> = {
     "job:cancel",
     "metrics:read",
   ],
-  CURATOR: [
+  "ACT-20": [
     "record-read-internal",
     "log-read",
     "config-read",
@@ -93,13 +97,16 @@ export const ROLE_ACTION_MATRIX: Record<ServerRole, readonly ServerAction[]> = {
     "config-activate",
     "config-rollback",
   ],
-  AUDITOR: ["record-read-internal", "record-read-customer", "evidence-read", "job-read", "log-read", "role-read", "config-read", "metrics:read"],
+  /** External auditor (D9-05, C9-11): read-only; no write/release/legal-hold/grant; raw restricted requires explicitRawGrant. */
+  "ACT-17": ["record-read-customer", "evidence-read", "job-read", "log-read", "role-read", "config-read", "metrics:read"],
 };
 
 export interface AuthContext {
   sub: string;
   issuer: string;
   roles: ServerRole[];
+  /** Explicit policy grant enabling ACT-17 external auditor to read raw restricted record values (D9-05, C9-11). */
+  explicitRawGrant?: boolean;
   grantEpoch: number;
   securityDomain: string;
   authMode: AuthMode;
@@ -126,6 +133,8 @@ export interface UserGrantSummary {
   active: boolean;
   grantEpoch: number;
   roles: ServerRole[];
+  /** True when an explicit policy grant permits ACT-17 raw restricted reads (D9-05). */
+  explicitRawGrant?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -247,7 +256,10 @@ export class ConfigReleaseError extends Error {
  * Pure single-decision action evaluator for Cycle 7 RBAC (`C7-02`, `EV-4`).
  * Evaluates surface compatibility first, then role × action matrix. Fail-closed on unknown roles/actions.
  */
-export function evaluateRoleAction(ctx: Pick<AuthContext, "roles" | "surface">, action: ServerAction): AuthorizationDecision {
+export function evaluateRoleAction(
+  ctx: Pick<AuthContext, "roles" | "surface" | "explicitRawGrant">,
+  action: ServerAction,
+): AuthorizationDecision {
   if (!(DEPLOYMENT_SURFACES as readonly string[]).includes(ctx.surface)) {
     return {
       permitted: false,
@@ -281,6 +293,9 @@ export function evaluateRoleAction(ctx: Pick<AuthContext, "roles" | "surface">, 
     const allowed = Object.hasOwn(ROLE_ACTION_MATRIX, role) ? ROLE_ACTION_MATRIX[role] : undefined;
     if (allowed && allowed.includes(action)) {
       return { permitted: true, action, roleMatched: role, reason: `Permitted for role ${role}` };
+    }
+    if (role === "ACT-17" && action === "record-read-internal" && ctx.explicitRawGrant === true) {
+      return { permitted: true, action, roleMatched: "ACT-17", reason: "Permitted for external auditor ACT-17 under explicit raw-access policy grant (D9-05)" };
     }
   }
   return {

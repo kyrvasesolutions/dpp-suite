@@ -75,11 +75,11 @@ beforeAll(async () => {
   initialReleaseId = init.releaseId;
 
   const grants = new GrantStore(db, undefined, { now: () => NOW });
-  grants.upsertUser({ sub: "admin-1", displayName: "Admin", roles: ["ADMIN"], actorSub: "bootstrap", reason: "Seed admin" });
+  grants.upsertUser({ sub: "admin-1", displayName: "Admin", roles: ["ACT-19"], actorSub: "bootstrap", reason: "Seed admin" });
   grants.upsertUser({ sub: "op-1", displayName: "Operator", roles: ["ACT-01"], actorSub: "admin-1", reason: "Seed operator" });
   grants.upsertUser({ sub: "cust-1", displayName: "Customer", roles: ["ACT-06"], actorSub: "admin-1", reason: "Seed customer" });
-  grants.upsertUser({ sub: "cur-1", displayName: "Curator 1", roles: ["CURATOR"], actorSub: "admin-1", reason: "Seed curator 1" });
-  grants.upsertUser({ sub: "cur-2", displayName: "Curator 2", roles: ["CURATOR"], actorSub: "admin-1", reason: "Seed curator 2" });
+  grants.upsertUser({ sub: "cur-1", displayName: "Curator 1", roles: ["ACT-20"], actorSub: "admin-1", reason: "Seed curator 1" });
+  grants.upsertUser({ sub: "cur-2", displayName: "Curator 2", roles: ["ACT-20"], actorSub: "admin-1", reason: "Seed curator 2" });
 
   const internalServer = createDppServer({
     db,
@@ -206,8 +206,8 @@ describe("Cycle 7 dedicated internal vs customer deployment surface separation (
       readiness: { status: string; holds: unknown[] };
       projection: Projection;
     };
-    expect(view.route).toBe("customer-pdf");
-    expect(view.readiness.status).toBe("ready");
+    expect(view.route).toBe("customer");
+    expect(view.readiness.status).toBe("RELEASED");
 
     // Zero disclosure leakage in customer JSON response (reuses project's canonical assertNoLeak)
     assertNoLeak(view.projection, record, pack);
@@ -227,16 +227,16 @@ describe("Cycle 7 dedicated internal vs customer deployment surface separation (
     const rel = (await relRes.json()) as {
       file: { route: string; mediaType: string; sha256: string; base64: string; status: string };
     };
-    expect(rel.file.route).toBe("customer-pdf");
+    expect(rel.file.route).toBe("customer");
     expect(rel.file.mediaType).toBe("application/pdf");
-    expect(rel.file.status).toBe("ready");
+    expect(rel.file.status).toBe("RELEASED");
 
     // Deterministic match against local buildCustomerPdf AND zero leakage in extracted PDF text
     const pdfBytes = new Uint8Array(Buffer.from(rel.file.base64, "base64"));
     const expectedPdf = await buildCustomerPdf(pack, record, { version: imp.snapshot.version });
     expect(rel.file.sha256).toBe(createHash("sha256").update(expectedPdf.bytes).digest("hex"));
     const extracted = await pdfText(pdfBytes);
-    assertNoLeakText(extracted, "customer-pdf", record, pack);
+    assertNoLeakText(extracted, "customer", record, pack);
     expect(extracted).not.toContain("internal-erp-secret-name.csv");
     expect(extracted).not.toContain("EV-SECRET-99");
   });

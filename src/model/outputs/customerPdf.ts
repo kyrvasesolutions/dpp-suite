@@ -16,6 +16,7 @@
  * included), and no line is drawn below the footer's top margin.
  */
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
+import type { OperationContext } from "../context";
 import { buildLineage } from "../lineage";
 import { byRole, type ProductRecord } from "../ingress";
 import type { ProfilePack, Route } from "../profile";
@@ -23,7 +24,7 @@ import type { HoldReason } from "../readiness";
 import { fieldSource, prepare, RouteRefusedError, type OutputValue } from "./items";
 import { safeName, type OutputFile } from "./types";
 
-const ROUTE: Route = "customer-pdf";
+const ROUTE: Route = "customer";
 
 export class PdfTextError extends Error {
   override name = "PdfTextError";
@@ -169,9 +170,17 @@ export interface CustomerPdf extends OutputFile {
   drawn: string[];
 }
 
-export async function buildCustomerPdf(pack: ProfilePack, record: ProductRecord, context: { version: number } = { version: 1 }): Promise<CustomerPdf> {
-  const prepared = prepare(pack, record, ROUTE);
-  const { holds } = prepared;
+export async function buildCustomerPdf(
+  pack: ProfilePack,
+  record: ProductRecord,
+  context: { version: number; language?: "en" | "de"; operationContext?: OperationContext } = { version: 1 },
+): Promise<CustomerPdf> {
+  const language: "en" | "de" = context.language ?? (pack.contracts.profilePolicy.customer.language === "de" ? "de" : "en");
+  const prepared = prepare(pack, record, ROUTE, {
+    language,
+    ...(context.operationContext ? { context: context.operationContext } : {}),
+  });
+  const { holds, projection } = prepared;
   // Every text that will be drawn goes through the guard first, so an unknown character refuses the file before any layout
   const offenders: HoldReason[] = [];
   let firstMessage = "";
@@ -231,17 +240,21 @@ export async function buildCustomerPdf(pack: ProfilePack, record: ProductRecord,
   };
 
   newPage();
-  const valueOf = (role: "name" | "model" | "batch") => {
+  const valueOf = (role: "name" | "model" | "revision") => {
     const property = byRole(pack, role);
     const it = items.find((i) => i.property === property && i.role === "field");
     return it?.present ? (it.lines.find((l) => l.key === "value")?.text ?? it.text) : "";
   };
-  row(9, { text: "Product data sheet", x: M.left, size: 9, font: regular, color: grey });
+  const sheetTitle = language === "de" ? "Kundendatenblatt (synthetischer Demonstrator)" : "Customer product data sheet (synthetic demonstrator)";
+  row(9, { text: sheetTitle, x: M.left, size: 9, font: regular, color: grey });
   y -= 8;
-  const nameLine = items.find((i) => i.property === byRole(pack, "name"))?.lines[0]?.text ?? "";
-  for (const l of wrap(nameLine || valueOf("model"), bold, 16, A4.w - M.left - M.right)) row(18, { text: l, x: M.left, size: 16, font: bold });
+  const nameLine = projection.customerPayload?.designation ?? items.find((i) => i.property === byRole(pack, "name"))?.lines[0]?.text ?? "";
+  for (const l of wrap(winAnsi(nameLine || valueOf("model")), bold, 16, A4.w - M.left - M.right)) row(18, { text: l, x: M.left, size: 16, font: bold });
   y -= 16;
-  for (const l of wrap(`Model ${valueOf("model")}   Batch ${valueOf("batch")}`, regular, 9, A4.w - M.left - M.right)) row(11, { text: l, x: M.left, size: 9, font: regular, color: grey });
+  const revText = valueOf("revision") || record.revision || "";
+  for (const l of wrap(winAnsi(`Model ${valueOf("model")}${revText ? `   Revision ${revText}` : ""}   Language ${language}`), regular, 9, A4.w - M.left - M.right)) {
+    row(11, { text: l, x: M.left, size: 9, font: regular, color: grey });
+  }
   y -= 8;
   page!.drawLine({ start: { x: M.left, y }, end: { x: A4.w - M.right, y }, thickness: 0.6, color: grey });
   y -= 6;
@@ -266,11 +279,29 @@ export async function buildCustomerPdf(pack: ProfilePack, record: ProductRecord,
     const label = { en: wrap(it.label.en, regular, 8.5, COL_W.en), de: wrap(it.label.de, regular, 8.5, COL_W.de) };
     const valueLines: string[] = [];
     if (!it.present) valueLines.push("not provided");
-    else if (it.kind === "derived") valueLines.push(...wrap(`${it.text}`, regular, 8.5, COL_W.value), `Rule ${it.ruleId}`);
-    else it.lines.forEach((l) => valueLines.push(...wrap(`${l.key ? `${l.key}: ` : ""}${l.text}${it.lines.length === 1 ? unitText(it.unit) : ""}`, regular, 8.5, COL_W.value)));
-    // The basis a value is stated on, from the profile definition (the post-consumer share is a mass share of the product)
+    else if (it.kind === "derived") {
+      const derivedEntry = projection.derived.find((d) => d.property === it.property);
+      valueLines.push(...wrap(`${it.text}`, bold, 8.5, COL_W.value), `Rule ${it.ruleId}`);
+      if (derivedEntry?.basis) valueLines.push(...wrap(winAnsi(`Basis: ${derivedEntry.basis}`), bold, 8.5, COL_W.value));
+      if (derivedEntry?.qualification) valueLines.push(...wrap(winAnsi(derivedEntry.qualification), bold, 8.5, COL_W.value));
+    } else {
+      it.lines.forEach((l) => valueLines.push(...wrap(`${l.key ? `${l.key}: ` : ""}${l.text}${it.lines.length === 1 ? unitText(it.unit) : ""}`, bold, 8.5, COL_W.value)));
+      // Show compatible footprint context (method, declared unit, boundary) when rendering carbon footprint
+      if (it.property === byRole(pack, "footprint") && projection.customerPayload?.carbon_footprint) {
+        const fp = projection.customerPayload.carbon_footprint;
+        valueLines.push(
+          ...wrap(
+            winAnsi(`Method: ${fp.method.id} v${fp.method.version}; Reference unit: ${fp.reference_quantity.id} (${fp.reference_quantity.quantity} ${fp.reference_quantity.unit}); Boundary: ${fp.boundary.id}`),
+            bold,
+            8.5,
+            COL_W.value,
+          ),
+        );
+        valueLines.push(...wrap(winAnsi(fp.qualification), bold, 8.5, COL_W.value));
+      }
+    }
     const basis = it.present && it.kind !== "derived" ? pack.properties.find((p) => p.id === it.property)?.basis : undefined;
-    if (basis && it.role === "field") valueLines.push(...wrap(`Basis: ${basis}`, regular, 7, COL_W.value));
+    if (basis && it.role === "field") valueLines.push(...wrap(`Basis: ${basis}`, bold, 8.5, COL_W.value));
     const seen = new Set<string>();
     const sourceLines: string[] = [];
     for (const s of it.sources) {
@@ -346,10 +377,10 @@ export async function buildCustomerPdf(pack: ProfilePack, record: ProductRecord,
   const bytes = await doc.save({ useObjectStreams: false, addDefaultPage: false });
   return {
     route: ROUTE,
-    fileName: `${safeName("customer-sheet", record.model, record.batch)}.pdf`,
+    fileName: `${safeName(`customer-sheet-${language}`, record.model, record.batch)}.pdf`,
     mediaType: "application/pdf",
     bytes,
-    status: "ready",
+    status: "RELEASED",
     holds,
     items,
     lineage: buildLineage(pack, record, ROUTE, items),

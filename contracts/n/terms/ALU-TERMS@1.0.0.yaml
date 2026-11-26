@@ -1,157 +1,241 @@
-# Governed terms. PUBLIC STAND-IN for the private N pack (decision D1-01, option b): synthetic, renumbered
-# identifiers, stand-in definitions and codes. Generated from the private specification; do not edit by hand.
+# Governed terms. Synthetic public stand-in (renumbered IDs ALU-D101..ALU-D124, generic identifiers).
+# Generated automatically; do not edit by hand.
 id: ALU-TERMS
 version: 1.0.0
 status: FROZEN
-namespace: "urn:dpp-demo:standin:term:"
+namespace: https://standin.example/def/
 terms:
-  - id: urn:dpp-demo:standin:term:product-model-id
-    label: Product model identifier
-    definition: Stand-in definition for product model identifier.
-  - id: urn:dpp-demo:standin:term:manufacturer-id
-    label: Manufacturer identifier
-    definition: Stand-in definition for manufacturer identifier.
-  - id: urn:dpp-demo:standin:term:product-name
-    label: Product name
-    definition: Stand-in definition for product name.
-  - id: urn:dpp-demo:standin:term:batch-id
-    label: Batch identifier
-    definition: Stand-in definition for batch identifier.
-  - id: urn:dpp-demo:standin:term:commodity-code
-    label: Commodity code (CN)
-    definition: Stand-in definition for commodity code (cn).
-  - id: urn:dpp-demo:standin:term:alloy-designation
+  - id: https://standin.example/def/product/productModelIdentifier
+    label: Product model code
+    definition: Stand-in definition for product model code (Identifier).
+  - id: https://standin.example/def/product/productDefinitionRevision
+    label: Product specification revision
+    definition: Stand-in definition for product specification revision (string).
+  - id: https://standin.example/def/product/commercialProductDesignation
+    label: Trade designation
+    definition: Stand-in definition for trade designation (ProductDesignation).
+  - id: https://standin.example/def/product/batchIdentifier
+    label: Production lot code
+    definition: Stand-in definition for production lot code (Identifier).
+  - id: https://standin.example/def/product/manufacturerParty
+    label: Producing company
+    definition: Stand-in definition for producing company (PartyRef).
+  - id: https://standin.example/def/product/manufacturingSite
+    label: Production plant
+    definition: Stand-in definition for production plant (SiteRef).
+  - id: https://standin.example/def/product/batchProductionDate
+    label: Lot manufacturing date
+    definition: Stand-in definition for lot manufacturing date (date).
+  - id: https://standin.example/def/aluminium/alloyDesignation
     label: Alloy designation
-    definition: Stand-in definition for alloy designation.
-  - id: urn:dpp-demo:standin:term:temper-designation
+    definition: Stand-in definition for alloy designation (DesignationRef).
+  - id: https://standin.example/def/aluminium/temperDesignation
     label: Temper designation
-    definition: Stand-in definition for temper designation.
-  - id: urn:dpp-demo:standin:term:nominal-thickness
-    label: Nominal thickness
-    definition: Stand-in definition for nominal thickness.
-  - id: urn:dpp-demo:standin:term:measured-thickness
-    label: Measured thickness
-    definition: Stand-in definition for measured thickness.
-  - id: urn:dpp-demo:standin:term:nominal-width
-    label: Nominal width
-    definition: Stand-in definition for nominal width.
-  - id: urn:dpp-demo:standin:term:nominal-length
-    label: Nominal length
-    definition: Stand-in definition for nominal length.
-  - id: urn:dpp-demo:standin:term:net-mass
-    label: Net mass of the batch
-    definition: Stand-in definition for net mass of the batch.
-  - id: urn:dpp-demo:standin:term:surface-finish
-    label: Surface finish
-    definition: Stand-in definition for surface finish.
-  - id: urn:dpp-demo:standin:term:recycled-content
-    label: Recycled content
-    definition: Stand-in definition for recycled content.
-  - id: urn:dpp-demo:standin:term:tensile-strength
-    label: Tensile strength Rm (measured)
-    definition: Stand-in definition for tensile strength rm (measured).
-  - id: urn:dpp-demo:standin:term:country-of-casting
-    label: Country of casting
-    definition: Stand-in definition for country of casting.
-  - id: urn:dpp-demo:standin:term:production-date
-    label: Production date
-    definition: Stand-in definition for production date.
-  - id: urn:dpp-demo:standin:term:evidence-references
-    label: Evidence references
-    definition: Stand-in definition for evidence references.
-  - id: urn:dpp-demo:standin:term:carbon-footprint
-    label: Product carbon footprint
-    definition: Stand-in definition for product carbon footprint.
-  - id: urn:dpp-demo:standin:term:post-consumer-share
-    label: Post-consumer recycled share
-    definition: Stand-in definition for post-consumer recycled share.
-  - id: urn:dpp-demo:standin:term:product-narrative
-    label: Product narrative
-    definition: Stand-in definition for product narrative.
-  - id: urn:dpp-demo:standin:term:customer-article-number
-    label: Customer article number
-    definition: Stand-in definition for customer article number.
-  - id: urn:dpp-demo:standin:term:chemical-composition
-    label: Chemical composition (measured)
-    definition: Stand-in definition for chemical composition (measured).
-  - id: urn:dpp-demo:standin:term:primary-supplier
-    label: Primary aluminium supplier
-    definition: Stand-in definition for primary aluminium supplier.
-  - id: FLD-Identifier-scheme
-    label: Identifier scheme
-    definition: Stand-in definition for FLD-Identifier-scheme.
+    definition: Stand-in definition for temper designation (DesignationRef).
+  - id: https://standin.example/def/aluminium/nominalSheetThickness
+    label: Specified thickness
+    definition: Stand-in definition for specified thickness (Quantity).
+  - id: https://standin.example/def/aluminium/measuredSheetThickness
+    label: Thickness as measured
+    definition: Stand-in definition for thickness as measured (Measurement[]).
+  - id: https://standin.example/def/aluminium/nominalSheetWidth
+    label: Specified width
+    definition: Stand-in definition for specified width (Quantity).
+  - id: https://standin.example/def/aluminium/nominalSheetLength
+    label: Specified length
+    definition: Stand-in definition for specified length (Quantity).
+  - id: https://standin.example/def/aluminium/measuredMagnesiumMassFraction
+    label: Magnesium content as measured
+    definition: Stand-in definition for magnesium content as measured (Measurement[]).
+  - id: https://standin.example/def/product/declaredTotalRecycledContent
+    label: Total recycled share (declared)
+    definition: Stand-in definition for total recycled share (declared) (Quantity).
+  - id: https://standin.example/def/product/preConsumerRecycledContent
+    label: Pre-consumer recycled share (declared)
+    definition: Stand-in definition for pre-consumer recycled share (declared) (ContestedQuantity).
+  - id: https://standin.example/def/product/postConsumerRecycledContent
+    label: Post-consumer recycled share (declared)
+    definition: Stand-in definition for post-consumer recycled share (declared) (Quantity).
+  - id: https://standin.example/def/product/recycledContentMassBasis
+    label: Mass basis of recycled share
+    definition: Stand-in definition for mass basis of recycled share (MassFractionBasis).
+  - id: https://standin.example/def/product/recycledContentEvidenceReferences
+    label: Evidence for recycled share
+    definition: Stand-in definition for evidence for recycled share (EvidenceRef[]).
+  - id: https://standin.example/def/product/productCarbonFootprintResult
+    label: Carbon footprint value
+    definition: Stand-in definition for carbon footprint value (FootprintResult[]).
+  - id: https://standin.example/def/product/authorisedProductDescriptions
+    label: Approved product texts
+    definition: Stand-in definition for approved product texts (LocalizedTextSet[]).
+  - id: https://standin-customer.example/def/product/customerMaterialCode
+    label: Buyer material number
+    definition: Stand-in definition for buyer material number (Identifier[]).
+  - id: https://standin.example/def/product/measuredLeadMassFraction
+    label: Lead content as measured
+    definition: Stand-in definition for lead content as measured (Measurement[]).
+  - id: https://standin.example/def/product/internalUnitConversionCost
+    label: Internal processing cost per kilogram
+    definition: Stand-in definition for internal processing cost per kilogram (CostQuantity).
   - id: FLD-Identifier-value
     label: Identifier value
     definition: Stand-in definition for FLD-Identifier-value.
+  - id: FLD-Identifier-scheme_id
+    label: Identifier scheme id
+    definition: Stand-in definition for FLD-Identifier-scheme_id.
   - id: FLD-Identifier-scheme_version
     label: Identifier scheme version
     definition: Stand-in definition for FLD-Identifier-scheme_version.
-  - id: FLD-Identifier-scope
-    label: Identifier scope
-    definition: Stand-in definition for FLD-Identifier-scope.
-  - id: FLD-Uncertainty-expanded
-    label: Uncertainty expanded
-    definition: Stand-in definition for FLD-Uncertainty-expanded.
+  - id: FLD-Identifier-issuer_ref
+    label: Identifier issuer ref
+    definition: Stand-in definition for FLD-Identifier-issuer_ref.
+  - id: FLD-ProductDesignation-designation
+    label: ProductDesignation designation
+    definition: Stand-in definition for FLD-ProductDesignation-designation.
+  - id: FLD-ProductDesignation-reference_family
+    label: ProductDesignation reference family
+    definition: Stand-in definition for FLD-ProductDesignation-reference_family.
+  - id: FLD-ProductDesignation-reference_relationship
+    label: ProductDesignation reference relationship
+    definition: Stand-in definition for FLD-ProductDesignation-reference_relationship.
+  - id: FLD-PartyRef-party_id
+    label: PartyRef party id
+    definition: Stand-in definition for FLD-PartyRef-party_id.
+  - id: FLD-PartyRef-legal_name
+    label: PartyRef legal name
+    definition: Stand-in definition for FLD-PartyRef-legal_name.
+  - id: FLD-PartyRef-role
+    label: PartyRef role
+    definition: Stand-in definition for FLD-PartyRef-role.
+  - id: FLD-PartyRef-jurisdiction
+    label: PartyRef jurisdiction
+    definition: Stand-in definition for FLD-PartyRef-jurisdiction.
+  - id: FLD-SiteRef-site_id
+    label: SiteRef site id
+    definition: Stand-in definition for FLD-SiteRef-site_id.
+  - id: FLD-SiteRef-country
+    label: SiteRef country
+    definition: Stand-in definition for FLD-SiteRef-country.
+  - id: FLD-SiteRef-operator_party_id
+    label: SiteRef operator party id
+    definition: Stand-in definition for FLD-SiteRef-operator_party_id.
+  - id: FLD-DesignationRef-system
+    label: DesignationRef system
+    definition: Stand-in definition for FLD-DesignationRef-system.
+  - id: FLD-DesignationRef-designation
+    label: DesignationRef designation
+    definition: Stand-in definition for FLD-DesignationRef-designation.
+  - id: FLD-Quantity-value
+    label: Quantity value
+    definition: Stand-in definition for FLD-Quantity-value.
+  - id: FLD-Quantity-unit_id
+    label: Quantity unit id
+    definition: Stand-in definition for FLD-Quantity-unit_id.
+  - id: FLD-Quantity-quantity_kind
+    label: Quantity quantity kind
+    definition: Stand-in definition for FLD-Quantity-quantity_kind.
+  - id: FLD-Measurement-observation_id
+    label: Measurement observation id
+    definition: Stand-in definition for FLD-Measurement-observation_id.
+  - id: FLD-Measurement-method_ref
+    label: Measurement method ref
+    definition: Stand-in definition for FLD-Measurement-method_ref.
+  - id: FLD-Measurement-qualifier
+    label: Measurement qualifier
+    definition: Stand-in definition for FLD-Measurement-qualifier.
+  - id: FLD-Uncertainty-value
+    label: Uncertainty value
+    definition: Stand-in definition for FLD-Uncertainty-value.
   - id: FLD-Uncertainty-coverage_factor
     label: Uncertainty coverage factor
     definition: Stand-in definition for FLD-Uncertainty-coverage_factor.
   - id: FLD-Uncertainty-uncertainty_kind
     label: Uncertainty uncertainty kind
     definition: Stand-in definition for FLD-Uncertainty-uncertainty_kind.
-  - id: FLD-Evidence-evidence_id
-    label: Evidence evidence id
-    definition: Stand-in definition for FLD-Evidence-evidence_id.
-  - id: FLD-Evidence-issuer
-    label: Evidence issuer
-    definition: Stand-in definition for FLD-Evidence-issuer.
-  - id: FLD-Evidence-revision
-    label: Evidence revision
-    definition: Stand-in definition for FLD-Evidence-revision.
-  - id: FLD-Evidence-record_kind
-    label: Evidence record kind
-    definition: Stand-in definition for FLD-Evidence-record_kind.
-  - id: FLD-Evidence-scope
-    label: Evidence scope
-    definition: Stand-in definition for FLD-Evidence-scope.
-  - id: FLD-Evidence-digest
-    label: Evidence digest
-    definition: Stand-in definition for FLD-Evidence-digest.
-  - id: FLD-Evidence-access_policy_ref
-    label: Evidence access policy ref
-    definition: Stand-in definition for FLD-Evidence-access_policy_ref.
-  - id: FLD-Text-text_id
-    label: Text text id
-    definition: Stand-in definition for FLD-Text-text_id.
-  - id: FLD-Text-subject_ref
-    label: Text subject ref
-    definition: Stand-in definition for FLD-Text-subject_ref.
-  - id: FLD-Text-language
-    label: Text language
-    definition: Stand-in definition for FLD-Text-language.
-  - id: FLD-Text-sector
-    label: Text sector
-    definition: Stand-in definition for FLD-Text-sector.
-  - id: FLD-Text-market
-    label: Text market
-    definition: Stand-in definition for FLD-Text-market.
-  - id: FLD-Text-approval_state
-    label: Text approval state
-    definition: Stand-in definition for FLD-Text-approval_state.
-  - id: FLD-Text-revision
-    label: Text revision
-    definition: Stand-in definition for FLD-Text-revision.
-  - id: FLD-Footprint-method
-    label: Footprint method
-    definition: Stand-in definition for FLD-Footprint-method.
-  - id: FLD-Footprint-system_boundary
-    label: Footprint system boundary
-    definition: Stand-in definition for FLD-Footprint-system_boundary.
-  - id: FLD-Footprint-reference_year
-    label: Footprint reference year
-    definition: Stand-in definition for FLD-Footprint-reference_year.
-  - id: FLD-Footprint-calculated_by
-    label: Footprint calculated by
-    definition: Stand-in definition for FLD-Footprint-calculated_by.
-  - id: FLD-Composition-element
-    label: Composition element
-    definition: Stand-in definition for FLD-Composition-element.
+  - id: FLD-ContestedQuantity-preferred_assertion
+    label: ContestedQuantity preferred assertion
+    definition: Stand-in definition for FLD-ContestedQuantity-preferred_assertion.
+  - id: FLD-ContestedQuantity-conflicting_assertion
+    label: ContestedQuantity conflicting assertion
+    definition: Stand-in definition for FLD-ContestedQuantity-conflicting_assertion.
+  - id: FLD-ContestedQuantity-resolution_status
+    label: ContestedQuantity resolution status
+    definition: Stand-in definition for FLD-ContestedQuantity-resolution_status.
+  - id: FLD-MassFractionBasis-basis_id
+    label: MassFractionBasis basis id
+    definition: Stand-in definition for FLD-MassFractionBasis-basis_id.
+  - id: FLD-MassFractionBasis-numerator
+    label: MassFractionBasis numerator
+    definition: Stand-in definition for FLD-MassFractionBasis-numerator.
+  - id: FLD-MassFractionBasis-denominator
+    label: MassFractionBasis denominator
+    definition: Stand-in definition for FLD-MassFractionBasis-denominator.
+  - id: FLD-MassFractionBasis-mass_unit
+    label: MassFractionBasis mass unit
+    definition: Stand-in definition for FLD-MassFractionBasis-mass_unit.
+  - id: FLD-EvidenceRef-evidence_id
+    label: EvidenceRef evidence id
+    definition: Stand-in definition for FLD-EvidenceRef-evidence_id.
+  - id: FLD-EvidenceRef-issuer
+    label: EvidenceRef issuer
+    definition: Stand-in definition for FLD-EvidenceRef-issuer.
+  - id: FLD-EvidenceRef-revision
+    label: EvidenceRef revision
+    definition: Stand-in definition for FLD-EvidenceRef-revision.
+  - id: FLD-EvidenceRef-record_kind
+    label: EvidenceRef record kind
+    definition: Stand-in definition for FLD-EvidenceRef-record_kind.
+  - id: FLD-EvidenceRef-scope
+    label: EvidenceRef scope
+    definition: Stand-in definition for FLD-EvidenceRef-scope.
+  - id: FLD-EvidenceRef-digest
+    label: EvidenceRef digest
+    definition: Stand-in definition for FLD-EvidenceRef-digest.
+  - id: FLD-EvidenceRef-access_policy_ref
+    label: EvidenceRef access policy ref
+    definition: Stand-in definition for FLD-EvidenceRef-access_policy_ref.
+  - id: FLD-FootprintResult-indicator_id
+    label: FootprintResult indicator id
+    definition: Stand-in definition for FLD-FootprintResult-indicator_id.
+  - id: FLD-FootprintResult-method_ref
+    label: FootprintResult method ref
+    definition: Stand-in definition for FLD-FootprintResult-method_ref.
+  - id: FLD-FootprintResult-reference_unit
+    label: FootprintResult reference unit
+    definition: Stand-in definition for FLD-FootprintResult-reference_unit.
+  - id: FLD-FootprintResult-system_boundary
+    label: FootprintResult system boundary
+    definition: Stand-in definition for FLD-FootprintResult-system_boundary.
+  - id: FLD-LocalizedText-text_id
+    label: LocalizedText text id
+    definition: Stand-in definition for FLD-LocalizedText-text_id.
+  - id: FLD-LocalizedText-subject_ref
+    label: LocalizedText subject ref
+    definition: Stand-in definition for FLD-LocalizedText-subject_ref.
+  - id: FLD-LocalizedText-language
+    label: LocalizedText language
+    definition: Stand-in definition for FLD-LocalizedText-language.
+  - id: FLD-LocalizedText-sector
+    label: LocalizedText sector
+    definition: Stand-in definition for FLD-LocalizedText-sector.
+  - id: FLD-LocalizedText-market
+    label: LocalizedText market
+    definition: Stand-in definition for FLD-LocalizedText-market.
+  - id: FLD-LocalizedText-approval_state
+    label: LocalizedText approval state
+    definition: Stand-in definition for FLD-LocalizedText-approval_state.
+  - id: FLD-LocalizedText-revision
+    label: LocalizedText revision
+    definition: Stand-in definition for FLD-LocalizedText-revision.
+  - id: FLD-CostQuantity-value
+    label: CostQuantity value
+    definition: Stand-in definition for FLD-CostQuantity-value.
+  - id: FLD-CostQuantity-currency
+    label: CostQuantity currency
+    definition: Stand-in definition for FLD-CostQuantity-currency.
+  - id: FLD-CostQuantity-denominator_unit
+    label: CostQuantity denominator unit
+    definition: Stand-in definition for FLD-CostQuantity-denominator_unit.
+  - id: FLD-CostQuantity-context_ref
+    label: CostQuantity context ref
+    definition: Stand-in definition for FLD-CostQuantity-context_ref.

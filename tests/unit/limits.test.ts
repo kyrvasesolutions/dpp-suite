@@ -19,8 +19,8 @@ beforeAll(async () => {
 
 const enc = (s: string) => new TextEncoder().encode(s);
 const rejected = (r: ImportResult) => (r.ok ? null : { stage: r.stage, codes: r.errors.map((e) => e.code) });
-const erpFile = () => ({ bytes: fixtureBytes("n", "d03a-erp-extract.csv"), name: "erp.csv", type: "text/csv" });
-const labFile = () => ({ bytes: fixtureBytes("n", "d03a-lab-assessment.json"), name: "lab.json", type: "application/json" });
+const erpFile = () => ({ bytes: fixtureBytes("n", "erp-extract.csv"), name: "erp.csv", type: "text/csv" });
+const labFile = () => ({ bytes: fixtureBytes("n", "lab-assessment.json"), name: "lab.json", type: "application/json" });
 const withLimit = (key: keyof ProfilePack["policy"]["limits"], value: number): ProfilePack => ({
   ...pack,
   policy: { ...pack.policy, limits: { ...pack.policy.limits, [key]: value } },
@@ -71,7 +71,7 @@ describe("file size", () => {
   });
 
   it("accepts a file exactly at the limit, and reads the limit from the pack", async () => {
-    const bytes = fixtureBytes("n", "d03a-erp-extract.csv");
+    const bytes = fixtureBytes("n", "erp-extract.csv");
     expect((await importErpCsv(withLimit("max_file_bytes", bytes.length), erpFile())).ok).toBe(true);
     expect(rejected(await importErpCsv(withLimit("max_file_bytes", bytes.length - 1), erpFile()))).toEqual({ stage: "bytes", codes: ["too-large"] });
   });
@@ -105,7 +105,7 @@ describe("JSON nesting", () => {
 
   it("rejects a laboratory file nested too deeply at the parse stage with no assertions", async () => {
     const lab = new TextDecoder().decode(labFile().bytes);
-    const deep = lab.replace('"evidence"', `"deep": ${nested(40)},\n  "evidence"`);
+    const deep = lab.replace('"methods"', `"deep": ${nested(40)},\n  "methods"`);
     expect(deep).not.toBe(lab);
     const r = await importLabJson(pack, { ...labFile(), bytes: enc(deep) });
     expect(rejected(r)).toEqual({ stage: "parse", codes: ["too-deep"] });

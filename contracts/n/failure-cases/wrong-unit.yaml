@@ -1,6 +1,6 @@
 id: FC-WRONG-UNIT
-class: wrong unit
+class: incompatible measurement unit
 criterion: C2-04
-input: A measured value carries a unit that the input contract does not allow for its property.
-expected: Typed error at stage "semantics" naming the property, the unit given and the units allowed; no conversion guessed.
+input: Thickness as measured reported in kg instead of mm.
+expected: Internal route is HOLD; unrelated customer route remains RELEASED.
 fixture: fixtures/n/lab-wrong-unit.json

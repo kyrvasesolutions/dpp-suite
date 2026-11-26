@@ -27,8 +27,14 @@ export function assertNoLeakText(json: string, route: Projection["route"], recor
         v.assertions.flatMap((a) => [a.raw, String(a.value ?? ""), ...Object.entries(a.details ?? {}).filter(([k]) => k !== "evidence_id").map(([, d]) => d)]),
       ),
   );
+  const recycledTotalProps = new Set(
+    pack.policy.derived.rules.filter((r) => r.representation === "recycled_total_with_basis").map((r) => r.property),
+  );
   for (const v of record.values) {
-    if (decide(pack, projection.route, v.property) === "permit") continue;
+    const decision = decide(pack, projection.route, v.property);
+    if (decision === "permit") continue;
+    // recycled_total_with_basis legitimately discloses the declared total percentage with its mass basis (REF-01/REF-09)
+    if (decision === "derived" && recycledTotalProps.has(v.property)) continue;
     for (const a of v.assertions) {
       // the raw text and value, and the long free-text details that identify the record (method, issuer, ...); the short
       // coded details (uncertainty kind, coverage factor, ...) are not identifying and would match unrelated words

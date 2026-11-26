@@ -1,212 +1,134 @@
-Product data sheet
-Aluminiumblech EN AW-5754 H111, 2,0 mm
-Model PM-5754-H111-2000
+Customer product data sheet (synthetic demonstrator)
+Stand-in 5754 aluminium sheet
+Model ST-5754-M01
  
-Batch B-2026-0417
-Identification / Kennung
-Product model identifier
+Revision P01
  
-Produktmodellkennung
+Language en
+Product identification / Produktidentifikation
+Product model code
  
-scheme: DEMO-PM
-value: PM-5754-H111-2000
-scheme_version: 1.0
-Source: ERP extract, row 2, column product_model_scheme
-Source: ERP extract, row 2, column product_model_id
-Source: Laboratory file, /product/model_id
-Source: ERP extract, row 2, column product_model_scheme_version
-Manufacturer identifier
+Produktmodellcode
  
-Herstellerkennung
+ST-5754-M01
+Source: ERP extract, row 2, column material_code
+Product specification revision
  
-STANDIN-MFR-01
-Source: ERP extract, row 2, column company_code
-Product name
+Revision der Produktspezifikation
  
-Produktbezeichnung
+P01
+Source: ERP extract, row 2, column product_revision
+Trade designation
  
-de: Aluminiumblech EN AW-5754 H111, 2,0 mm
-en: Aluminium sheet EN AW-5754 H111, 2.0 mm
-Source: ERP extract, row 2, column product_name_de
-Source: ERP extract, row 2, column product_name_en
-Batch identifier
+Handelsname
  
-Chargenkennung
+Stand-in 5754 aluminium sheet
+Source: ERP extract, row 2, column product_designation
+Buyer material number
  
-value: B-2026-0417
-scheme_version: 1.0
-Source: ERP extract, row 2, column batch_id
-Source: Laboratory file, /product/batch_id
-Source: ERP extract, row 2, column batch_scheme_version
-Commodity code (CN)
+Materialnummer des Käufers
  
-Warennummer (KN)
- 
-76061293
-Source: ERP extract, row 2, column cn_code
-Customer article number
- 
-Kundenartikelnummer
- 
-scope: SC01
-value: KA-778812
-Source: ERP extract, row 2, column customer_code
-Source: ERP extract, row 2, column customer_article_no
-Material and properties / Werkstoff und Eigenschaften
+004215
+Source: ERP extract, row 2, column customer_material_code
+Nominal dimensions & material / Nennmaße & Werkstoff
 Alloy designation
  
 Legierungsbezeichnung
  
 EN AW-5754
-Source: ERP extract, row 2, column alloy
-Source: Laboratory file, /product/alloy
+Source: ERP extract, row 2, column alloy_code
 Temper designation
  
-Werkstoffzustand
+Zustandsbezeichnung
  
-H111
-Source: ERP extract, row 2, column temper
-Recycled content
+O
+Source: ERP extract, row 2, column temper_code
+Specified thickness
  
-Rezyklatanteil
+Spezifizierte Dicke
  
-62.0 %
-Source: ERP extract, row 2, column recycled_content_pct
-Tensile strength Rm (measured)
+0.0015 m
+Source: ERP extract, row 2, column nominal_thickness_mm
+Specified width
  
-Zugfestigkeit Rm (gemessen)
+Spezifizierte Breite
  
-within the limits (illustrative limits after EN 485-2, EN
-AW-5754 H111)
-Rule DR-TENSILE-LIMITS
-Source: Laboratory file, /observations/1/value
-Source: ERP extract, row 2, column alloy
-Source: Laboratory file, /product/alloy
-Source: ERP extract, row 2, column temper
-Post-consumer recycled share
+1.25 m
+Source: ERP extract, row 2, column nominal_width_mm
+Specified length
  
-Post-Consumer-Rezyklatanteil
+Spezifizierte Länge
  
-38.5 %
-Basis: mass share of the product
-Source: ERP extract, row 2, column post_consumer_pct
-Chemical composition (measured)
+2.5 m
+Source: ERP extract, row 2, column nominal_length_mm
+Recycled content & carbon footprint / Rezyklatanteil & CO2-Fußabdruck
+Total recycled share (declared)
  
-Chemische Zusammensetzung
-(gemessen)
-within the limits (illustrative limits after EN 573-3, EN
-AW-5754)
-Rule DR-COMPOSITION-LIMITS
-Source: Laboratory file, /observations/2/value
-Source: Laboratory file, /observations/3/value
-Source: ERP extract, row 2, column alloy
-Source: Laboratory file, /product/alloy
-Dimensions and mass / Abmessungen und Masse
-Nominal thickness
+Gesamter Recyclinganteil
+(deklariert)
+65 % (basis RC-BASIS-001:
+total_uncoated_final_alloy_sheet_mass)
+Rule DR-RECYCLED-TOTAL
+Basis: RC-BASIS-001 (ST-RC-PHYSICAL-01)
+Synthetic supplier declaration; arithmetic check only,
+no independent verification.
+Source: ERP extract, row 2, column recycled_total_percent
+Source: ERP extract, row 2, column pre_consumer_percent
+Source: ERP extract, row 2, column post_consumer_percent
+Source: Laboratory file, /recycled_content/basis
+Mass basis of recycled share
  
-Nenndicke
+Massenbasis des Recyclinganteils
  
-2.0 mm
-Source: ERP extract, row 2, column thickness_nominal_mm
+RC-BASIS-001
+Source: Laboratory file, /recycled_content/basis
+Carbon footprint value
+ 
+CO2-Fußabdruckwert
+ 
+ST-CLIMATE-GWP100: 4.6 kg CO2e
+Method: ST-METHOD-PCF-001 v1.0.0; Reference unit:
+ST-REFUNIT-001 (1 kg); Boundary:
+ST-BOUNDARY-001
+Imported synthetic result; no LCA performed; no
+EPD or legal conformity asserted.
+Source: Laboratory file, /assessment/result/result
+Approved product text / Freigegebener Produkttext
+Approved product texts
+ 
+Freigegebene Produkttexte
+ 
+en/cross_sector_material_description/EU: Stand-in
+aluminium sheet, alloy family 5754, specified
+thickness 1.5 mm. Made-up test data; no claim about
+any real product.
+Source: Laboratory file, /authorised_texts/0/text
 Record version 1
  
-Record digest 321191e612f317a76fbcd5cf2b06a6c5734c04067eedbb2fe9cac3484d5be463
-Contract pack manifest digest 174442b372a337da71dce072a011f94423390e717748a6d44d4cec2eec90b01f
+Record digest c1b2c48c3d3acbf9647987d93c3f7fcfa4941966e27c67e8d1daec7e6f38fd20
+Contract pack manifest digest 69e26912cb6ceeded5855fc128152bdeb23ce09f84a3ba36b3585b4f159b15da
 Page 1 of 2. Illustrative values are marked as such; this sheet is not a conformity statement.
-Measured thickness
+Derived substance screening / Abgeleitetes Stoff-Screening
+Lead content as measured
  
-Gemessene Dicke
+Gemessener Bleigehalt
  
-2.01 mm
-Source: Laboratory file, /observations/0/value
-Nominal width
- 
-Nennbreite
- 
-1500 mm
-Source: ERP extract, row 2, column width_nominal_mm
-Nominal length
- 
-Nennlänge
- 
-3000 mm
-Source: ERP extract, row 2, column length_nominal_mm
-Net mass of the batch
- 
-Nettomasse der Charge
- 
-2412.5 kg
-Source: ERP extract, row 2, column net_mass_kg
-Production and origin / Herstellung und Herkunft
-Surface finish
- 
-Oberflächenausführung
- 
-MILL
-Source: ERP extract, row 2, column surface_finish
-Country of casting
- 
-Gießland
- 
-DE
-Source: ERP extract, row 2, column country_of_casting
-Production date
- 
-Herstelldatum
- 
-2026-10-14
-Source: ERP extract, row 2, column production_date
-Environmental data / Umweltdaten
-Product carbon footprint
- 
-CO2-Fußabdruck des Produkts
- 
-PCF-1: 4.2 kg CO2e/kg
-Source: Laboratory file, /footprints/0/value
-Footprint method
- 
-Berechnungsmethode
- 
-PCF-1: ISO 14067:2018
-Source: Laboratory file, /footprints/0/method
-System boundary
- 
-Systemgrenze
- 
-PCF-1: cradle-to-gate
-Source: Laboratory file, /footprints/0/system_boundary
-Reference year
- 
-Bezugsjahr
- 
-PCF-1: 2025
-Source: Laboratory file, /footprints/0/reference_year
-Calculated by
- 
-Berechnet von
- 
-PCF-1: Demo LCA consultancy (synthetic)
-Source: Laboratory file, /footprints/0/calculated_by
-Description / Beschreibung
-Product narrative
- 
-Produktbeschreibung
- 
-de/construction/EU: Gewalztes Aluminiumblech für
-Fassaden und Dächer, walzblank geliefert.
-en/construction/EU: Rolled aluminium sheet for facade
-and roofing applications, supplied in mill finish.
-Source: Laboratory file, /texts/1/text
-Source: Laboratory file, /texts/0/text
+<80 mg/kg (stand-in screening rule)
+Rule DR-LEAD-SCREENING
+Basis: ST-PB-SCREEN-01 v1.0.0
+Stand-in screening result that includes the reported
+expanded uncertainty. It is not a limit value, a legal
+finding or a third-party check.
+Source: Laboratory file, /lab_tests/lead/value
 Reading this sheet
-PCF-1: the footprint result ID, the identifier the laboratory file gives to one calculated footprint result.
+ST-CLIMATE-GWP100: the footprint result ID, the identifier the laboratory file gives to one calculated footprint result.
 scope: the customer-scoped alias. It names the customer whose own article number is shown next to it.
-en/construction/EU: a qualifier of a text. It gives the language, the sector and the market the text is approved for.
-Rule DR-TENSILE-LIMITS: a rule ID. It names the rule in the pinned contract pack that made a derived statement, which says whether a value lies
+en/cross_sector_material_description/EU: a qualifier of a text. It gives the language, the sector and the market the text is approved for.
+Rule DR-RECYCLED-TOTAL: a rule ID. It names the rule in the pinned contract pack that made a derived statement, which says whether a value lies
 within limits; the value itself is not shown.
 The record digest and the contract pack digest in the footer identify exactly which record and which contract this sheet was made from.
 Record version 1
  
-Record digest 321191e612f317a76fbcd5cf2b06a6c5734c04067eedbb2fe9cac3484d5be463
-Contract pack manifest digest 174442b372a337da71dce072a011f94423390e717748a6d44d4cec2eec90b01f
+Record digest c1b2c48c3d3acbf9647987d93c3f7fcfa4941966e27c67e8d1daec7e6f38fd20
+Contract pack manifest digest 69e26912cb6ceeded5855fc128152bdeb23ce09f84a3ba36b3585b4f159b15da
 Page 2 of 2. Illustrative values are marked as such; this sheet is not a conformity statement.

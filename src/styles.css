@@ -3815,11 +3815,11 @@ code {
   align-items: start;
 }
 
-.readiness-route[data-state="on-hold"] {
+.readiness-route[data-state="HOLD"] {
   border-color: var(--warn);
 }
 
-.readiness-route[data-state="ready"] {
+.readiness-route[data-state="RELEASED"] {
   border-color: var(--ok);
 }
 

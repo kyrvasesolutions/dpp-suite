@@ -20,7 +20,7 @@ describe("the one-record scenario", () => {
   it.runIf(process.env.PERF !== "1")("imports both files, assesses readiness and makes the three outputs and the manifest", async () => {
     const { records, readiness, release } = await runScenario(pack);
     expect(records).toHaveLength(1);
-    expect(readiness.map((r) => r.status)).toEqual(["ready", "ready", "on-hold"]);
+    expect(readiness.map((r) => r.status)).toEqual(["RELEASED", "RELEASED", "HOLD"]);
     expect(release.files).toHaveLength(3);
     expect(release.manifest.outputs).toHaveLength(3);
   });

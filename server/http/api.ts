@@ -37,6 +37,7 @@ import { ERROR_TEXT } from "../../src/model/ingress";
 import { LogError, releaseEvents } from "../../src/model/log";
 import { buildCustomerPdf } from "../../src/model/outputs/customerPdf";
 import { RouteRefusedError } from "../../src/model/outputs/items";
+import { buildOperationContextForRecord, type OperationContext } from "../../src/model/context";
 import { generateRelease } from "../../src/model/outputs/release";
 import type { SoftwareInfo } from "../../src/model/outputs/software";
 import {
@@ -154,6 +155,7 @@ function sendJson(
   allowedOrigin?: string,
   extraHeaders?: Record<string, string>,
   allowMethods = "GET, POST, DELETE, OPTIONS",
+  deferClose = false,
 ): void {
   // Every response whose code is a limit code carries the additive `outcome` (and `limit` where known); never an input value.
   if (body && typeof body === "object" && !Array.isArray(body)) {
@@ -183,6 +185,13 @@ function sendJson(
     headers["Vary"] = "Origin";
   }
   res.writeHead(status, headers);
+  if (deferClose) {
+    // RT-21 + V2-11: flush the serialized `Connection: close` header to the wire, then prevent Node's
+    // resOnFinish from calling socket.destroySoon() before drainThenClose() discards unread request bytes.
+    res.flushHeaders();
+    res.shouldKeepAlive = true;
+    (res as unknown as { _last: boolean })._last = false;
+  }
   res.end(payload);
 }
 
@@ -299,22 +308,41 @@ async function readJsonObject(req: IncomingMessage, maxBytes: number, limitName:
   return parsed as Record<string, unknown>;
 }
 
-/** After an early answer: read and discard what the client is still sending, for at most `DRAIN_MS`, then end the connection. Nothing is kept. */
-const DRAIN_MS = 2000;
+/** After an early answer: read and discard what the client is still sending, bounded by time and bytes, then close the connection. Nothing is kept. */
+const DRAIN_MS = 150;
+const DRAIN_MAX_BYTES = 1536 * 1024;
 function drainThenClose(req: IncomingMessage, res: ServerResponse): void {
   const socket = req.socket;
   if (req.complete || socket.destroyed) {
     res.once("finish", () => socket.end());
     return;
   }
-  req.resume();
-  const timer = setTimeout(() => socket.destroy(), DRAIN_MS);
-  timer.unref();
-  const done = () => {
+  let drained = 0;
+  let closed = false;
+  const closeNow = (hard: boolean) => {
+    if (closed) return;
+    closed = true;
     clearTimeout(timer);
-    if (!socket.destroyed) socket.end();
+    req.off("data", onData);
+    req.pause();
+    if (socket.destroyed) return;
+    socket.end();
+    if (hard) {
+      // Allow the already-flushed 413/429 TCP segment to drain to the peer before stopping unread client floods.
+      setTimeout(() => {
+        if (!socket.destroyed) socket.destroy();
+      }, 25).unref();
+    }
   };
-  req.once("end", done);
+  const onData = (chunk: Buffer) => {
+    drained += chunk.length;
+    if (drained >= DRAIN_MAX_BYTES) closeNow(true);
+  };
+  req.on("data", onData);
+  req.resume();
+  const timer = setTimeout(() => closeNow(true), DRAIN_MS);
+  timer.unref();
+  req.once("end", () => closeNow(false));
   req.once("close", () => clearTimeout(timer));
 }
 
@@ -717,7 +745,7 @@ export function createDppServer(options: DppServerOptions): Server {
           429,
           { code: "rate-limited", message: "Too many requests. Retry after the indicated time.", limit: "rate_window" },
           allowedOrigin,
-          { "Retry-After": String(verdict.retryAfterSeconds) },
+          { "Retry-After": String(verdict.retryAfterSeconds), Connection: "close" },
           allowMethods,
         );
         return;
@@ -830,10 +858,10 @@ export function createDppServer(options: DppServerOptions): Server {
         return;
       }
 
-      // GET /api/customer/records/:model/:batch (strictly projected through `project(..., "customer-pdf")`)
+      // GET /api/customer/records/:model/:batch (strictly projected through `project(..., "customer")` with S5-SEM-CONTEXT-rev2)
       const custRecMatch = pathname.match(/^\/api\/customer\/records\/([^/]+)\/([^/]+)$/);
       if (method === "GET" && custRecMatch) {
-        requireAuth("record-read-customer");
+        const authz = requireAuth("record-read-customer");
         const model = decodeParam(custRecMatch[1]!);
         const batch = decodeParam(custRecMatch[2]!);
         const verParam = url.searchParams.get("version");
@@ -853,10 +881,16 @@ export function createDppServer(options: DppServerOptions): Server {
           sendJson(res, 404, { code: "not-found", message: "Record snapshot not found" }, allowedOrigin, undefined, allowMethods);
           return;
         }
-        const rawProjection = project(activePack, snapshot.record, "customer-pdf");
-        const customerRoute = assess(activePack, snapshot.record, { routes: ["customer-pdf"] })[0]!;
+        const opCtx = buildOperationContextForRecord(activePack, "customer", snapshot.record, {
+          tenantId: `tenant:${domain}`,
+          actorId: authz.sub ?? "actor:local-operator-01",
+          roleId: authz.roles[0] ?? OPERATOR,
+          recordedAt: (options.now ?? (() => new Date().toISOString()))(),
+        });
+        const customerRoute = assess(activePack, snapshot.record, { routes: ["customer"], context: { customer: opCtx } })[0]!;
+        const rawProjection = project(activePack, snapshot.record, "customer", customerRoute);
         const knownProps = new Set(activePack.properties.map((p) => p.id));
-        const isReady = customerRoute.status === "ready";
+        const isReady = customerRoute.status === "RELEASED";
         const safeProjection = {
           ...rawProjection,
           // Never expose unverified/challenged assertions to customers when the route is on hold.
@@ -874,7 +908,7 @@ export function createDppServer(options: DppServerOptions): Server {
             version: snapshot.version,
             recordDigest: snapshot.record.digest,
             packManifestDigest: activePack.manifestDigest,
-            route: "customer-pdf",
+            route: "customer",
             readiness: {
               status: customerRoute.status,
               holds: customerRoute.holds.map((h) => ({
@@ -896,7 +930,7 @@ export function createDppServer(options: DppServerOptions): Server {
       // POST /api/customer/records/:model/:batch/release (customer PDF only, never ERP CSV or Registry JSON)
       const custRelMatch = pathname.match(/^\/api\/customer\/records\/([^/]+)\/([^/]+)\/release$/);
       if (method === "POST" && custRelMatch) {
-        requireAuth("release-customer");
+        const authz = requireAuth("release-customer");
         const model = decodeParam(custRelMatch[1]!);
         const batch = decodeParam(custRelMatch[2]!);
         const { activePack, runner } = await loadRuntime();
@@ -909,10 +943,16 @@ export function createDppServer(options: DppServerOptions): Server {
           sendJson(res, 404, { code: "not-found", message: "Record snapshot not found" }, allowedOrigin, undefined, allowMethods);
           return;
         }
+        const opCtx = buildOperationContextForRecord(activePack, "customer", snapshot.record, {
+          tenantId: `tenant:${domain}`,
+          actorId: authz.sub ?? "actor:local-operator-01",
+          roleId: authz.roles[0] ?? OPERATOR,
+          recordedAt: (options.now ?? (() => new Date().toISOString()))(),
+        });
         try {
-          const pdf = await buildCustomerPdf(activePack, snapshot.record, { version: snapshot.version });
+          const pdf = await buildCustomerPdf(activePack, snapshot.record, { version: snapshot.version, operationContext: opCtx });
           assertOutputWithin([pdf]);
-          const events = await releaseEvents(model, batch, snapshot.version, [{ route: "customer-pdf", file: pdf }]);
+          const events = await releaseEvents(model, batch, snapshot.version, [{ route: "customer", file: pdf }]);
           for (const ev of events) runner.logStore.addSync(ev);
           sendJson(
             res,
@@ -1073,8 +1113,8 @@ export function createDppServer(options: DppServerOptions): Server {
       if (method === "GET" && pathname === "/api/admin/metrics") {
         const viewer = requireAuth("metrics:read");
         const jobs = coordinator.snapshot();
-        // Domain names are tenant information: only an ADMIN sees the per-domain split; an AUDITOR sees totals (V2-04).
-        const visible = viewer.roles.includes("ADMIN") ? jobs : { activeTotal: jobs.activeTotal, queuedTotal: jobs.queuedTotal };
+        // Domain names are tenant information: only ACT-19 (platform operator) sees the per-domain split; ACT-17 sees totals (V2-04, D9-05).
+        const visible = viewer.roles.includes("ACT-19") ? jobs : { activeTotal: jobs.activeTotal, queuedTotal: jobs.queuedTotal };
         sendJson(res, 200, metrics.snapshot(visible), allowedOrigin, undefined, allowMethods);
         return;
       }
@@ -1462,7 +1502,7 @@ export function createDppServer(options: DppServerOptions): Server {
         }
         const owner = runner.getSubmitter(jobId) ?? "";
         if (!ctx.roles.some((role) => mayCancelJob(role, ctx.sub, owner))) {
-          throw new AuthError("forbidden", 403, "Only the submitter of this job, or an ADMIN, may cancel it");
+          throw new AuthError("forbidden", 403, "Only the submitter of this job, or ACT-19, may cancel it");
         }
         if (job.state === "running") {
           const live = liveJobs.get(jobId, domain);
@@ -1593,7 +1633,7 @@ export function createDppServer(options: DppServerOptions): Server {
       // POST /api/records/:model/:batch/release
       const relMatch = pathname.match(/^\/api\/records\/([^/]+)\/([^/]+)\/release$/);
       if (method === "POST" && relMatch) {
-        requireAuth("release-internal");
+        const authz = requireAuth("release-internal");
         const model = decodeParam(relMatch[1]!);
         const batch = decodeParam(relMatch[2]!);
         const { activePack, runner } = await loadRuntime();
@@ -1606,7 +1646,18 @@ export function createDppServer(options: DppServerOptions): Server {
           sendJson(res, 404, { code: "not-found", message: "Record snapshot not found" }, allowedOrigin, undefined, allowMethods);
           return;
         }
-        const release = await generateRelease(activePack, snapshot, { software, by: OPERATOR });
+        const ctxOverrides = {
+          tenantId: `tenant:${domain}`,
+          actorId: authz.sub ?? "actor:local-operator-01",
+          roleId: authz.roles[0] ?? OPERATOR,
+          recordedAt: (options.now ?? (() => new Date().toISOString()))(),
+        };
+        const operationContexts: Record<"customer" | "internal" | "registry", OperationContext> = {
+          customer: buildOperationContextForRecord(activePack, "customer", snapshot.record, ctxOverrides),
+          internal: buildOperationContextForRecord(activePack, "internal", snapshot.record, ctxOverrides),
+          registry: buildOperationContextForRecord(activePack, "registry", snapshot.record, ctxOverrides),
+        };
+        const release = await generateRelease(activePack, snapshot, { software, by: OPERATOR, operationContexts });
         assertOutputWithin(release.files);
         const events = await releaseEvents(model, batch, snapshot.version, release.outcomes);
         for (const ev of events) runner.logStore.addSync(ev);
@@ -1758,17 +1809,18 @@ export function createDppServer(options: DppServerOptions): Server {
       // the connection and the client could lose the answer (V2-11): the answer is sent, the rest of the body is read and thrown away
       // for a short bounded time, then the socket is closed. A body that did not arrive in time (408) is not waited for: its socket is destroyed.
       const closing = mapped.extraHeaders?.Connection === "close";
-      const { Connection: _connection, ...otherHeaders } = mapped.extraHeaders ?? {};
-      void _connection;
+      const destroySocket = Boolean((err as { destroySocket?: boolean } | null)?.destroySocket);
+      // RT-21 + V2-11: preserve `Connection: close` on early 413/429 refusals while deferring socket close until drainThenClose finishes.
       sendJson(
         res,
         mapped.status,
         { code: mapped.code, message: mapped.message, ...(mapped.limit ? { limit: mapped.limit } : {}) },
         allowedOrigin,
-        closing ? otherHeaders : mapped.extraHeaders,
+        mapped.extraHeaders,
         allowMethods,
+        closing && !destroySocket,
       );
-      if ((err as { destroySocket?: boolean } | null)?.destroySocket) {
+      if (destroySocket) {
         const socket = req.socket;
         res.once("finish", () => socket.destroy());
         setTimeout(() => socket.destroy(), 250).unref();

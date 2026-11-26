@@ -237,7 +237,7 @@ export class ConfigReleaseStore {
           release_id, package_id, version, security_domain, manifest_sha256, digest_algorithm,
           predecessor_release_id, state, proposed_by, proposed_at, approved_by, approved_at,
           activated_by, activated_at, note, bundle_json
-        ) VALUES (?, ?, ?, ?, ?, 'sha256', NULL, 'active', 'system-bootstrap', ?, 'signed-pack', ?, 'system-bootstrap', ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, 'sha256', NULL, 'active', 'system-bootstrap', ?, 'owner-digest-approval', ?, 'system-bootstrap', ?, ?, ?)`,
         releaseId,
         resolvedPackageId,
         resolvedVersion,
@@ -246,11 +246,11 @@ export class ConfigReleaseStore {
         nowIso,
         nowIso,
         nowIso,
-        `Initial verified signed contract pack (${pack.id}@${pack.version})`,
+        `Initial verified owner-digest-approved contract pack (${pack.id}@${pack.version})`,
         JSON.stringify(source),
       );
-      this.appendEvent(releaseId, resolvedPackageId, "proposed", "system-bootstrap", "Initial signed pack bootstrap", nowIso);
-      this.appendEvent(releaseId, resolvedPackageId, "approved", "signed-pack", "Verified owner signature in SIGNATURES.json", nowIso);
+      this.appendEvent(releaseId, resolvedPackageId, "proposed", "system-bootstrap", "Initial owner-digest-approved pack bootstrap", nowIso);
+      this.appendEvent(releaseId, resolvedPackageId, "approved", "owner-digest-approval", "Verified owner digest approval in SIGNATURES.json", nowIso);
       this.appendEvent(releaseId, resolvedPackageId, "activated", "system-bootstrap", "Active at server startup", nowIso);
       // Seed the baseline retention policy pin atomically so future rollbacks never hit pin poisoning.
       this.policies.activate(pack.policy.retention, nowIso);

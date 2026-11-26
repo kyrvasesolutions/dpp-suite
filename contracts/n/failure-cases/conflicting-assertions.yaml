@@ -1,6 +1,6 @@
-id: FC-CONFLICT
-class: conflicting source assertions
+id: FC-CONFLICTING-ASSERTIONS
+class: conflicting pre-consumer recycled content assertions
 criterion: C2-05
-input: The ERP extract and the laboratory file state different values for the same property.
-expected: The property is marked challenged with both assertions and their source locations visible; neither source wins silently; routes that require it hold.
-fixture: fixtures/n/lab-conflicting-alloy.json
+input: Laboratory file reports a conflicting pre-consumer recycled share of 13 % alongside ERP 15 %.
+expected: Both 15 % and 13 % persist; customer route is HOLD; unrelated internal route remains RELEASED.
+fixture: fixtures/n/lab-conflicting-pre-consumer.json

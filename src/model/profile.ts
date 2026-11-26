@@ -1,10 +1,10 @@
 /**
  * Loads the frozen N profile from the contract pack, through its manifest digests only (Cycle 1:
- * FUNC-001, 027, 028, 029, 030, 031, 081, 091 and 025 slices; criteria C1-01 to C1-06).
+ * FUNC-001, 027, 028, 029, 030, 031, 081, 091 and 025 slices; aligned in Cycle 9 to the pinned
+ * 24-property catalogue, PROFILE-ALU-24-01 1.0.0, SRC-ERP-CSV-01, SRC-LAB-JSON-01, and MAP-* contracts).
  *
- * The pack is pinned: every file must match the sha256 in MANIFEST.json, every reference names an exact
- * id@version, and every definition and nested member resolves to a governed term. Any break throws a
- * ProfileError, so the app never shows a profile it could not verify. Nothing here edits the profile.
+ * Every file must match its sha256 in MANIFEST.json, every reference names an exact id@version,
+ * and every definition and nested member resolves to a governed term. Any break throws ProfileError.
  */
 import { parse } from "yaml";
 import { z } from "zod";
@@ -12,13 +12,14 @@ import { canonical } from "./canonical";
 import { OperationalLimitsSchema, type OperationalLimits } from "./c8Contracts";
 import { ExceptionCatalogueSchema, RetentionPolicySchema, type ExceptionCatalogue, type RetentionPolicy } from "./pContracts";
 
-export const ROUTES = ["customer-pdf", "erp-staging-csv", "registry-prep-json"] as const;
+export const ROUTES = ["customer", "internal", "registry"] as const;
 export type Route = (typeof ROUTES)[number];
 
+/** Workbook route names (A-15). */
 export const ROUTE_NAMES: Record<Route, string> = {
-  "customer-pdf": "Customer PDF",
-  "erp-staging-csv": "ERP staging CSV",
-  "registry-prep-json": "Registry preparation JSON",
+  customer: "Customer data sheet (PDF)",
+  internal: "Internal ERP staging file (CSV)",
+  registry: "Registry preparation file (JSON)",
 };
 
 /** The files of one contract pack, as the build embeds them (see vite.config.ts). */
@@ -27,7 +28,7 @@ export interface PackSource {
   manifest: { pack: string; profile: string; files: Record<string, string> };
   /** Every file in the pack directory apart from MANIFEST.json, by path, as text. */
   files: Record<string, string>;
-  /** sha256 of MANIFEST.json, the digest the owner signs. */
+  /** sha256 of MANIFEST.json, the digest approved by the owner in SIGNATURES.json. */
   manifestDigest: string;
 }
 
@@ -64,12 +65,14 @@ const ProfileDoc = z.object({
     z.object({
       id: z.string().regex(/^ALU-D\d{3}$/),
       definition_ref: z.string().min(1),
+      datatype: z.string().min(1).optional(),
       unit: z.string().nullable(),
       labels: z.object({ en: z.string().min(1), de: z.string().min(1) }),
-      required_by: z.object({ "customer-pdf": z.boolean(), "erp-staging-csv": z.boolean(), "registry-prep-json": z.boolean() }),
+      required_by: z.object({ customer: z.boolean(), internal: z.boolean(), registry: z.boolean() }),
       members: z.array(z.string()),
       context_labels: z.array(ContextLabel).optional(),
       basis: z.string().min(1).optional(),
+      quantity_kind: z.string().optional(),
     }),
   ),
 });
@@ -98,7 +101,7 @@ const UnitsDoc = z.object({
 });
 
 const ErpContractDoc = z.object({
-  id: z.literal("INPUT-ERP-CSV"),
+  id: z.literal("SRC-ERP-CSV-01"),
   version: z.string(),
   media_type: z.literal("text/csv"),
   encoding: z.literal("UTF-8"),
@@ -119,7 +122,7 @@ const ErpContractDoc = z.object({
 });
 
 const LabContractDoc = z.object({
-  id: z.literal("INPUT-LAB-JSON"),
+  id: z.literal("SRC-LAB-JSON-01"),
   version: z.string(),
   media_type: z.literal("application/json"),
   encoding: z.literal("UTF-8"),
@@ -133,6 +136,7 @@ const OutputReads = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("member"), member: z.string() }),
   z.object({ kind: z.literal("derived"), rule: z.string() }),
 ]);
+
 const OutputItemDoc = z.object({
   step: z.string().regex(/^MAP-(PDF|ERP|REG)-\d{3}$/),
   role: z.enum(["field", "context"]),
@@ -148,7 +152,10 @@ const RouteDoc = z.object({
   id: z.enum(ROUTES),
   version: z.string(),
   recipient: z.string().min(1),
+  purpose: z.string().optional(),
   format: z.string().min(1),
+  target_contract: z.string().optional(),
+  mapping_contract: z.string().optional(),
   status: z.enum(["FROZEN", "HOLD"]),
   submission: z.string().optional(),
   hold_reason: z.string().optional(),
@@ -164,7 +171,19 @@ const ReadinessDoc = z.object({
   checks: z.array(RuleText),
 });
 
-const Bound = z.number().nullable();
+const ScreeningRuleDoc = z.object({
+  id: z.string().min(1),
+  version: z.string().min(1),
+  threshold_mg_per_kg: z.number().positive(),
+  accepted_method: z.string().min(1),
+  accepted_qualifier: z.string().min(1),
+  accepted_uncertainty_kind: z.string().min(1),
+  accepted_coverage_factor: z.number().positive(),
+  predicate: z.string().min(1),
+  statement: z.string().min(1),
+  qualification: z.string().min(1),
+});
+
 const DerivedDoc = z.object({
   id: z.literal("DERIVED-RULES"),
   version: z.string(),
@@ -172,22 +191,17 @@ const DerivedDoc = z.object({
     z.object({
       id: z.string().regex(/^DR-[A-Z-]+$/),
       property: z.string(),
-      method: z.enum(["limits-by-alloy-and-temper", "limits-by-alloy-and-element"]),
-      standard: z.string().min(1),
-      limits: z.string().min(1),
+      representation: z.enum(["recycled_total_with_basis", "lead_screening"]),
+      method: z.enum(["recycled-total-with-basis", "uncertainty-guard-band-screen"]),
       output: z.string().min(1),
-      illustrative: z.boolean(),
+      expected_method_id: z.string().optional(),
+      expected_eligibility: z.string().optional(),
+      qualification: z.string().optional(),
+      screening_rule: ScreeningRuleDoc.optional(),
     }),
   ),
-  limits: z.object({
-    illustrative: z.boolean(),
-    note: z.string(),
-    tensile: z.object({ unit: z.string(), entries: z.array(z.object({ alloy: z.string(), temper: z.string(), min: Bound, max: Bound })) }),
-    composition: z.object({ unit: z.string(), entries: z.array(z.object({ alloy: z.string(), element: z.string(), min: Bound, max: Bound })) }),
-  }),
 });
 
-/** Declared input limits (design targets, configurable by pinning a new version of the file). */
 const LimitsDoc = z.object({
   id: z.literal("LIMITS"),
   version: z.string(),
@@ -200,27 +214,127 @@ const LimitsDoc = z.object({
   }),
 });
 
+export interface MappingRule {
+  id: string;
+  target: string;
+  selector: string[];
+  operator: string;
+  loss: string;
+}
+
+export interface MappingContract {
+  id: string;
+  version: string;
+  direction: "import" | "export";
+  source_contract: string;
+  target_contract: string;
+  rules: MappingRule[];
+  preconditions?: string[];
+  failure?: string;
+}
+
+export interface ReferenceCodeList {
+  id: string;
+  version: string;
+  synthetic: boolean;
+  entries: Array<{
+    source_company: string;
+    code_list_version: string;
+    material_code: string;
+    model_id: string;
+    alloy: string;
+  }>;
+}
+
+export interface ReferenceProfilePolicy {
+  id: string;
+  version: string;
+  synthetic: boolean;
+  source_assurance_required: string;
+  independent_verification_required: boolean;
+  customer: {
+    recipient: string;
+    purpose: string;
+    forbid_raw_disclosure: string[];
+    allowed_derived_representations: string[];
+    language: string;
+    expected_pcf_method: string;
+    expected_reference_unit: string;
+    expected_boundary: string;
+    route_required_source_properties: string[];
+    permitted_processing_properties: string[];
+    deny_processing_properties: string[];
+    required_output_fields: string[];
+    permission_boundary?: string;
+  };
+  internal: {
+    recipient: string;
+    purpose: string;
+    route_required_source_properties: string[];
+    permitted_processing_properties: string[];
+    deny_processing_properties: string[];
+  };
+  registry: {
+    recipient: string;
+    aluminium_registration_profile_confirmed: boolean;
+    route_required_source_properties: string[];
+    permitted_processing_properties: string[];
+    deny_processing_properties: string[];
+  };
+  screening_rule: z.infer<typeof ScreeningRuleDoc>;
+  deployment_boundary?: string;
+}
+
+export interface PinnedReferenceContracts {
+  catalogue: Array<{
+    id: string;
+    label_en: string;
+    label_de: string;
+    definition: string;
+    datatype: string;
+    unit: string | null;
+    semantic_uri: string;
+  }>;
+  codeList: ReferenceCodeList;
+  contextLd: { "@context": Record<string, unknown> };
+  recordSchema: Record<string, unknown>;
+  profilePolicy: ReferenceProfilePolicy;
+  importErp: MappingContract;
+  importLab: MappingContract;
+  exportCustomer: MappingContract;
+  exportInternal: MappingContract;
+  exportRegistry: MappingContract;
+  digests: {
+    catalogue: string;
+    codeList: string;
+    contextLd: string;
+    recordSchema: string;
+    profilePolicy: string;
+    importErp: string;
+    importLab: string;
+    exportCustomer: string;
+    exportInternal: string;
+    exportRegistry: string;
+  };
+}
+
 export type ErpContract = z.infer<typeof ErpContractDoc>;
 export type LabContract = z.infer<typeof LabContractDoc>;
 export type ReadinessRules = z.infer<typeof ReadinessDoc>;
 export type DerivedRules = z.infer<typeof DerivedDoc>;
 export type InputLimits = z.infer<typeof LimitsDoc>["limits"];
-
-/** What the actor/field matrix says about one property for one route (FUNC-019 slice). */
 export type Access = "permit" | "deny" | "derived";
-
-/** One item of a route's output, in output order: what it reads, and where it goes in the CSV, JSON or PDF (Cycle 4). */
 export type OutputItem = z.infer<typeof OutputItemDoc>;
 
 export interface RouteInfo {
   id: Route;
-  /** The pinned output mapping: every route field has exactly one `field` item (checked by check-contracts). */
   output: OutputItem[];
-  /** The titles of the PDF sections, in order (the customer PDF only; empty for the other routes). */
   sections: Array<{ id: string; en: string; de: string }>;
   recipient: string;
+  purpose?: string;
   format: string;
-  /** HOLD for a route that is on hold in the pack itself (the registry route, which is never submitted). */
+  targetContract?: string;
+  mappingContract?: string;
   status: "FROZEN" | "HOLD";
   holdReason?: string;
 }
@@ -240,14 +354,13 @@ export interface ResolvedProperty {
   id: string;
   definitionRef: string;
   definition: string;
+  datatype: string;
   labels: { en: string; de: string };
-  /** Sector-specific labels: the language tag and the sector are separate fields (C1-05). */
   contextLabels: Array<{ lang: string; context: string; text: string }>;
   unit: string | null;
   unitName: string | null;
   requiredBy: Record<Route, boolean>;
   members: Array<{ id: string; definition: string }>;
-  /** What the value is a share or measure of, where the profile definition says (for example a mass share of the product). */
   basis?: string;
   legal: { status: string; statusText: string; requirement?: string; legislation?: string };
 }
@@ -270,13 +383,9 @@ export interface ProfilePack {
   legalStatuses: Record<string, string>;
   manifestDigest: string;
   fileCount: number;
-  /** The two pinned input contracts the imports follow (Cycle 2). */
   inputs: { erp: ErpContract; lab: LabContract };
-  /** The three routes with their recipient and standing status (Cycle 3). */
   routes: Record<Route, RouteInfo>;
-  /** Property → route → access, as the pack states it. Read only through `decide` in policy.ts. */
   matrix: Record<string, Record<Route, Access>>;
-  /** The pinned readiness rules, derived-disclosure rules, limits, retention policy and exception catalogue. */
   policy: {
     readiness: ReadinessRules;
     derived: DerivedRules;
@@ -284,23 +393,27 @@ export interface ProfilePack {
     retention: RetentionPolicy;
     exceptions: ExceptionCatalogue;
   };
-  /** The pinned operational limits, coordinator and HTTP bounds and load targets (Cycle 8, D8-01). ARTIFICIAL-DEMO design values. */
   operationalLimits: OperationalLimits;
+  /** Pinned reference JSON contracts & canonical digests (Cycle 9: C9-01..C9-06). */
+  contracts: PinnedReferenceContracts;
 }
 
-/** Reads the actor/field matrix CSV: comment lines start with "#", then `property,<routes…>`, then one row per property. */
 function parseMatrix(text: string, propertyIds: string[]): ProfilePack["matrix"] {
   const rows = text
     .split(/\r?\n/)
     .filter((l) => l.trim() && !l.startsWith("#"))
     .map((l) => l.split(",").map((c) => c.trim()));
   const [header = [], ...body] = rows;
-  if (header.join(",") !== ["property", ...ROUTES].join(",")) throw new ProfileError(`actor/field matrix: header must be property,${ROUTES.join(",")}`);
+  if (header.join(",") !== ["property", ...ROUTES].join(",")) {
+    throw new ProfileError(`actor/field matrix: header must be property,${ROUTES.join(",")}`);
+  }
   const matrix: ProfilePack["matrix"] = {};
   for (const row of body) {
     const cells = Object.fromEntries(ROUTES.map((r, i) => [r, row[i + 1]]));
     for (const [route, value] of Object.entries(cells)) {
-      if (value !== "permit" && value !== "deny" && value !== "derived") throw new ProfileError(`actor/field matrix ${row[0]}, ${route}: "${value}" is not permit, deny or derived`);
+      if (value !== "permit" && value !== "deny" && value !== "derived") {
+        throw new ProfileError(`actor/field matrix ${row[0]}, ${route}: "${value}" is not permit, deny or derived`);
+      }
     }
     if (Object.hasOwn(matrix, row[0])) throw new ProfileError(`actor/field matrix: ${row[0]} appears twice`);
     matrix[row[0]] = cells as Record<Route, Access>;
@@ -310,14 +423,7 @@ function parseMatrix(text: string, propertyIds: string[]): ProfilePack["matrix"]
   return matrix;
 }
 
-/**
- * Retention policies that came out of a verified pack load, with the digest of their canonical content at load time.
- * The durable store activates a policy only if it is one of these objects and still has that content, so a weaker
- * policy cannot be activated under a signed pin (C6-02).
- */
 const LOADED_RETENTION = new WeakMap<object, string>();
-
-/** The canonical-content digest recorded when `policy` was loaded from a verified pack, or undefined if it was not. */
 export const loadedRetentionDigest = (policy: object): string | undefined => LOADED_RETENTION.get(policy);
 
 export async function sha256Hex(text: string): Promise<string> {
@@ -334,7 +440,6 @@ function parseWith<T>(schema: z.ZodType<T>, path: string, text: string): T {
   return result.data;
 }
 
-/** Reads a code-list CSV: comment lines start with "#", then a header row, then one code per row. */
 function parseCodeList(text: string) {
   const lines = text.split(/\r?\n/);
   const description = lines.find((l) => l.startsWith("#"))?.replace(/^#\s*/, "") ?? "";
@@ -344,11 +449,6 @@ function parseCodeList(text: string) {
   return { description, codes: body.map((r) => (mapped ? { code: r[0], mapsTo: r[1] } : { code: r[0] })) };
 }
 
-/**
- * Verifies every file of the pack against its manifest digest, then resolves the profile.
- * Throws ProfileError on a changed, missing or unlisted file, a reference that is not an exact
- * version, or a definition or member that does not resolve to a governed term.
- */
 export async function loadProfilePack(source: PackSource): Promise<ProfilePack> {
   const { manifest, files } = source;
   const digests = new Map<string, string>();
@@ -381,7 +481,9 @@ export async function loadProfilePack(source: PackSource): Promise<ProfilePack> 
   }
   const profilePath = `profile/${manifest.profile}.yaml`;
   const profile = parseWith(ProfileDoc, profilePath, files[profilePath] ?? "");
-  if (`${profile.id}@${profile.version}` !== manifest.profile) throw new ProfileError(`manifest pins ${manifest.profile}, profile is ${profile.id}@${profile.version}`);
+  if (`${profile.id}@${profile.version}` !== manifest.profile) {
+    throw new ProfileError(`manifest pins ${manifest.profile}, profile is ${profile.id}@${profile.version}`);
+  }
   if (profile.properties.length !== 24) throw new ProfileError(`${profilePath}: ${profile.properties.length} properties, expected 24`);
 
   const pinned = (kind: string, ref: string, ext: string): PinnedFile => {
@@ -405,8 +507,7 @@ export async function loadProfilePack(source: PackSource): Promise<ProfilePack> 
     return { ...file, ...parseCodeList(files[file.path]) };
   });
 
-  // Mapping contracts and routes: each file states an exact version, and the profile pins exactly these (C1-02)
-  const contracts = (kind: string, prefix: string, refs: string[]): PinnedFile[] => {
+  const contractPins = (kind: string, prefix: string, refs: string[]): PinnedFile[] => {
     const found = Object.keys(files)
       .filter((path) => path.startsWith(prefix))
       .map((path) => {
@@ -420,8 +521,8 @@ export async function loadProfilePack(source: PackSource): Promise<ProfilePack> 
     return found;
   };
   const mappingPins = [
-    ...contracts("inputs", "inputs/", profile.pins.inputs),
-    ...contracts("routes", "routes/", profile.pins.route_contracts),
+    ...contractPins("inputs", "inputs/", profile.pins.inputs),
+    ...contractPins("routes", "routes/", profile.pins.route_contracts),
   ];
 
   const policyFamilies = ["READINESS-RULES", "DERIVED-RULES", "LIMITS", "RETENTION", "EXCEPTIONS", "OPERATIONAL-LIMITS"] as const;
@@ -444,6 +545,40 @@ export async function loadProfilePack(source: PackSource): Promise<ProfilePack> 
   const operationalLimits = pinnedDoc("policy", policyPinFor("OPERATIONAL-LIMITS"), OperationalLimitsSchema);
   LOADED_RETENTION.set(retention.doc, await sha256Hex(canonical(retention.doc)));
 
+  const loadJson = <T>(path: string): T => {
+    const text = files[path];
+    if (typeof text !== "string") throw new ProfileError(`pinned contract ${path} is missing`);
+    try {
+      return JSON.parse(text) as T;
+    } catch (e) {
+      throw new ProfileError(`${path}: invalid JSON (${e instanceof Error ? e.message : String(e)})`);
+    }
+  };
+  const contracts: PinnedReferenceContracts = {
+    catalogue: loadJson("contracts/catalogue.json"),
+    codeList: loadJson("contracts/code_list.json"),
+    contextLd: loadJson("contracts/context.jsonld"),
+    recordSchema: loadJson("contracts/record.schema.json"),
+    profilePolicy: loadJson("contracts/profile_policy.json"),
+    importErp: loadJson("contracts/import_erp.json"),
+    importLab: loadJson("contracts/import_lab.json"),
+    exportCustomer: loadJson("contracts/export_customer.json"),
+    exportInternal: loadJson("contracts/export_internal.json"),
+    exportRegistry: loadJson("contracts/export_registry.json"),
+    digests: {
+      catalogue: digests.get("contracts/catalogue.json")!,
+      codeList: digests.get("contracts/code_list.json")!,
+      contextLd: digests.get("contracts/context.jsonld")!,
+      recordSchema: digests.get("contracts/record.schema.json")!,
+      profilePolicy: digests.get("contracts/profile_policy.json")!,
+      importErp: digests.get("contracts/import_erp.json")!,
+      importLab: digests.get("contracts/import_lab.json")!,
+      exportCustomer: digests.get("contracts/export_customer.json")!,
+      exportInternal: digests.get("contracts/export_internal.json")!,
+      exportRegistry: digests.get("contracts/export_registry.json")!,
+    },
+  };
+
   const termById = new Map(terms.doc.terms.map((t) => [t.id, t]));
   const term = (owner: string, id: string) => {
     const found = termById.get(id);
@@ -465,6 +600,7 @@ export async function loadProfilePack(source: PackSource): Promise<ProfilePack> 
       id: p.id,
       definitionRef: p.definition_ref,
       definition: term(p.id, p.definition_ref),
+      datatype: p.datatype ?? "string",
       labels: p.labels,
       contextLabels: p.context_labels ?? [],
       unit: p.unit,
@@ -480,15 +616,36 @@ export async function loadProfilePack(source: PackSource): Promise<ProfilePack> 
   const propertyIds = profile.properties.map((p) => p.id);
   const matrix = parseMatrix(files[matrixPath] ?? "", propertyIds);
   for (const rule of derived.doc.rules) {
-    if (!propertyIds.includes(rule.property)) throw new ProfileError(`${derived.file.path}: ${rule.id} names ${rule.property}, which is not a profile property`);
+    if (!propertyIds.includes(rule.property)) {
+      throw new ProfileError(`${derived.file.path}: ${rule.id} names ${rule.property}, which is not a profile property`);
+    }
   }
   const routes = Object.fromEntries(
     ROUTES.map((r) => {
       const doc = parseWith(RouteDoc, `routes/${r}.yaml`, files[`routes/${r}.yaml`] ?? "");
       if (doc.id !== r) throw new ProfileError(`routes/${r}.yaml: id is ${doc.id}`);
-      return [r, { id: r, recipient: doc.recipient, format: doc.format, status: doc.status, output: doc.output.items, sections: doc.output.sections ?? [], ...(doc.hold_reason ? { holdReason: doc.hold_reason } : {}) }];
+      return [
+        r,
+        {
+          id: r,
+          recipient: doc.recipient,
+          ...(doc.purpose ? { purpose: doc.purpose } : {}),
+          format: doc.format,
+          ...(doc.target_contract ? { targetContract: doc.target_contract } : {}),
+          ...(doc.mapping_contract ? { mappingContract: doc.mapping_contract } : {}),
+          status: doc.status,
+          output: doc.output.items,
+          sections: doc.output.sections ?? [],
+          ...(doc.hold_reason ? { holdReason: doc.hold_reason } : {}),
+        },
+      ];
     }),
   ) as Record<Route, RouteInfo>;
+
+  const refPins: PinnedFile[] = Object.keys(files)
+    .filter((p) => p.startsWith("contracts/"))
+    .sort()
+    .map((path) => ({ ref: path.replace(/^contracts\//, ""), path, digest: digests.get(path)! }));
 
   return {
     dir: source.dir,
@@ -515,6 +672,7 @@ export async function loadProfilePack(source: PackSource): Promise<ProfilePack> 
       exceptions.file,
       operationalLimits.file,
       ...codeLists.map(({ ref, path, digest }) => ({ ref, path, digest })),
+      ...refPins,
     ],
     termCount: terms.doc.terms.length,
     legalNote: legal.doc.note,
@@ -535,16 +693,12 @@ export async function loadProfilePack(source: PackSource): Promise<ProfilePack> 
       exceptions: exceptions.doc,
     },
     operationalLimits: operationalLimits.doc,
+    contracts,
   };
 }
 
-/** Distinct nested members across the profile. */
 export const memberCount = (pack: ProfilePack) => new Set(pack.properties.flatMap((p) => p.members.map((m) => m.id))).size;
 
-/**
- * Local reference lookup by stable ID or label (FUNC-081 slice): an exact ID first, then any
- * property whose ID, English, German or sector label contains the query. No semantic search.
- */
 export function lookup(pack: ProfilePack, query: string): ResolvedProperty[] {
   const q = query.trim().toLowerCase();
   if (!q) return pack.properties;
@@ -555,7 +709,6 @@ export function lookup(pack: ProfilePack, query: string): ResolvedProperty[] {
   );
 }
 
-/** The label for a language, preferring the sector-specific one when a sector is chosen (C1-05). */
 export function labelFor(property: ResolvedProperty, lang: "en" | "de", sector?: string): string {
   const specific = sector && property.contextLabels.find((l) => l.lang === lang && l.context === sector);
   return specific ? specific.text : property.labels[lang];

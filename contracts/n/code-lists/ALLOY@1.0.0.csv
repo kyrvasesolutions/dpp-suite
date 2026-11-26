@@ -1,6 +1,3 @@
-# EN AW alloy designations in scope
-code
-EN AW-3003
-EN AW-5083
-EN AW-5754
-EN AW-6082
+# Supported wrought aluminium alloy codes
+code,maps_to
+5754,EN AW-5754

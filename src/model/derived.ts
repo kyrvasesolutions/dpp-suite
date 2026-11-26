@@ -1,19 +1,28 @@
 /**
- * Derived disclosure (Cycle 3: FUNC-046 slice, criterion C3-05).
+ * Derived disclosure (Cycle 3: FUNC-046 slice; aligned in Cycle 9 to PROFILE-ALU-24-01 1.0.0, C9-06, A-19).
  *
- * Where the actor/field matrix says `derived`, a recipient never receives the value. The only output is a
- * statement from a pinned derived rule: *within* or *outside* the limits for the alloy (and temper), with the
- * basis that names the standard. The limits table in the pack is illustrative. When the limits cannot decide
- * (a challenged or missing input, an alloy or temper the table does not cover), there is no statement at all
- * and the reason says why; nothing else is derived and nothing is guessed.
+ * The ONLY permitted derived representations for the customer route are:
+ *   1. `recycled_total_with_basis` (`DR-RECYCLED-TOTAL`): declared total recycled percentage with mass basis
+ *      (verifies total === pre + post, matching basis_id, method, and eligibility; withholds raw evidence).
+ *   2. `lead_screening` (`DR-LEAD-SCREENING`): synthetic customer screening rule (the pack's `screening_rule`)
+ *      testing unrounded `estimate + expanded_uncertainty < threshold_mg_per_kg` with k=2, expanded uncertainty,
+ *      accepted method & qualifier, and uncoated_alloy_specimen_mass basis. Never discloses raw estimate or uncertainty.
  */
 import { byRole, type Assertion, type ProductRecord, type RecordValue } from "./ingress";
+import { isDerivedAllowed } from "./policy";
 import type { ProfilePack } from "./profile";
 
 export interface DerivedStatement {
+  /** Human-readable derived statement shown on the customer sheet and recipient view. */
+  text: string;
+  /** True when the derived check passed (within screening rule / arithmetic balance verified). */
   within: boolean;
-  /** The standard, the alloy and (for strength) the temper the limits were taken for, for example "EN 485-2, EN AW-5754 H111". */
+  /** Basis / rule identifier (the mass-basis ID or the screening rule ID and version from the pack). */
   basis: string;
+  /** Mandatory qualification statement (synthetic / arithmetic check / screening outcome). */
+  qualification: string;
+  /** Representation key (`recycled_total_with_basis` or `lead_screening`). */
+  representation: "recycled_total_with_basis" | "lead_screening";
 }
 
 export type DerivedResult =
@@ -21,19 +30,11 @@ export type DerivedResult =
       ok: true;
       rule: string;
       statement: DerivedStatement;
-      /** Where the inputs used are: the value, the alloy and the temper. */
       sources: PublicSource[];
-      /** The assertions the statement was made from, whole (for lineage, never for a recipient). */
       inputs: Assertion[];
     }
   | { ok: false; rule: string; reason: string };
 
-const within = (v: number, b: { min: number | null; max: number | null }) => (b.min === null || v >= b.min) && (b.max === null || v <= b.max);
-
-/**
- * A source as a recipient may see it: the kind of file and the position in it, never the file's name, which the
- * uploader chose and which can carry anything (a code, a value).
- */
 export interface PublicSource {
   role: "ERP extract" | "Laboratory file" | "Operator correction";
   position: string;
@@ -41,68 +42,125 @@ export interface PublicSource {
 
 export function publicSource(source: Assertion["source"]): PublicSource {
   const prefix = `${source.file}, `;
-  return { role: source.role === "erp" ? "ERP extract" : source.role === "correction" ? "Operator correction" : "Laboratory file", position: source.location.startsWith(prefix) ? source.location.slice(prefix.length) : "" };
+  return {
+    role: source.role === "erp" ? "ERP extract" : source.role === "correction" ? "Operator correction" : "Laboratory file",
+    position: source.location.startsWith(prefix) ? source.location.slice(prefix.length) : "",
+  };
 }
 
-/** After an operator correction a value stands on the correction alone; the earlier values stay in the record but feed nothing. */
 const standing = (x: RecordValue) => (x.status === "corrected" ? x.assertions.slice(0, 1) : x.assertions);
 const locations = (v: RecordValue[]) => v.flatMap((x) => standing(x).map((a) => publicSource(a.source)));
 const assertionsOf = (v: RecordValue[]) => v.flatMap(standing);
 
-/** The one text a record states for a property, or why there is none: a challenged or repeated value cannot be relied on. */
-function onlyText(pack: ProfilePack, record: ProductRecord, role: "alloy" | "temper"): { text: string; from: RecordValue[] } | { problem: string } {
-  const property = byRole(pack, role);
-  const values = record.values.filter((v) => v.property === property && !v.member);
-  if (values.length !== 1) return { problem: `${role} is ${values.length ? "stated more than once" : "missing"}` };
-  if (values[0].status === "challenged") return { problem: `${role} is challenged` };
-  return { text: values[0].assertions[0].raw, from: values };
+function readings(record: ProductRecord, property: string): RecordValue[] {
+  return record.values.filter((v) => v.property === property && !v.member);
 }
 
-/** The numeric readings of one property, one per element for a composition and one in all for a strength. */
-const readings = (record: ProductRecord, property: string): RecordValue[] => record.values.filter((v) => v.property === property && !v.member);
-
 /**
- * Applies the derived rule of `property` to the record. A property with no derived rule is an error:
- * the matrix only says `derived` for properties the pack gives one.
+ * Applies the pinned derived rule of `property` to `record`.
+ * Throws if `property` has no derived rule in the pack.
  */
 export function derive(pack: ProfilePack, record: ProductRecord, property: string): DerivedResult {
   const rules = pack.policy.derived.rules.filter((r) => r.property === property);
   if (rules.length !== 1) throw new Error(`Property "${property}" has ${rules.length} derived rules, expected exactly one`);
-  const rule = rules[0];
-  // Limits marked illustrative are never presented as the standard's own: the basis says so.
-  const illustrative = rule.illustrative || pack.policy.derived.limits.illustrative;
-  const basisOf = (rest: string) => `${illustrative ? "illustrative limits after " : ""}${rule.standard}, ${rest}`;
+  const rule = rules[0]!;
   const fail = (reason: string): DerivedResult => ({ ok: false, rule: rule.id, reason });
-  const values = readings(record, property);
-  if (!values.length) return fail("no value to derive from");
-  if (values.some((v) => v.status === "challenged")) return fail("the value is challenged");
-  const numbers = values.map((v) => ({ qualifier: v.qualifier, n: v.assertions[0].value }));
-  if (numbers.some((x) => typeof x.n !== "number")) return fail("the value is not a number");
 
-  const alloy = onlyText(pack, record, "alloy");
-  if ("problem" in alloy) return fail(alloy.problem);
+  if (!isDerivedAllowed(pack, "customer", rule.representation)) {
+    return fail(`derived representation ${rule.representation} is not permitted by policy`);
+  }
 
-  if (rule.method === "limits-by-alloy-and-temper") {
-    if (values.length !== 1) return fail("more than one value");
-    const temper = onlyText(pack, record, "temper");
-    if ("problem" in temper) return fail(temper.problem);
-    const limit = pack.policy.derived.limits.tensile.entries.find((e) => e.alloy === alloy.text && e.temper === temper.text);
-    if (!limit) return fail(`no limits for ${alloy.text} ${temper.text}`);
+  if (rule.method === "recycled-total-with-basis") {
+    const totalVals = readings(record, byRole(pack, "recycledTotal"));
+    const preVals = readings(record, byRole(pack, "recycledPre"));
+    const postVals = readings(record, byRole(pack, "recycledPost"));
+    const basisVals = readings(record, byRole(pack, "recycledBasis"));
+    if (!totalVals.length || !preVals.length || !postVals.length || !basisVals.length) {
+      return fail("missing recycled-content total, split, or mass basis");
+    }
+    if ([...totalVals, ...preVals, ...postVals, ...basisVals].some((v) => v.status === "challenged")) {
+      return fail("recycled-content assertion is challenged or conflicting");
+    }
+    const total = standing(totalVals[0]!)[0]!.value;
+    const pre = standing(preVals[0]!)[0]!.value;
+    const post = standing(postVals[0]!)[0]!.value;
+    if (typeof total !== "number" || typeof pre !== "number" || typeof post !== "number") {
+      return fail("recycled-content values must be numeric");
+    }
+    if (Math.abs(total - pre - post) > 1e-9) {
+      return fail("recycled_balance_mismatch");
+    }
+    const basisA = standing(basisVals[0]!)[0]!;
+    const methodId = basisA.details?.method_id ?? "";
+    const eligibility = basisA.details?.eligibility ?? "";
+    if (rule.expected_method_id && methodId !== rule.expected_method_id) {
+      return fail("recycled_method_or_eligibility");
+    }
+    if (rule.expected_eligibility && eligibility !== rule.expected_eligibility) {
+      return fail("recycled_method_or_eligibility");
+    }
+    const basisId = basisA.details?.basis_id ?? String(basisA.value ?? "");
+    const denominator = basisA.details?.denominator ?? "total_uncoated_final_alloy_sheet_mass";
+    const qualification = rule.qualification ?? "Synthetic supplier declaration; arithmetic check only, no independent verification.";
+    const used = [...totalVals, ...preVals, ...postVals, ...basisVals];
     return {
       ok: true,
       rule: rule.id,
-      statement: { within: within(numbers[0].n as number, limit), basis: basisOf(`${alloy.text} ${temper.text}`) },
-      sources: locations([...values, ...alloy.from, ...temper.from]),
-      inputs: assertionsOf([...values, ...alloy.from, ...temper.from]),
+      statement: {
+        representation: "recycled_total_with_basis",
+        within: true,
+        text: `${total} % (basis ${basisId}: ${denominator})`,
+        basis: `${basisId} (${methodId})`,
+        qualification,
+      },
+      sources: locations(used),
+      inputs: assertionsOf(used),
     };
   }
 
-  // limits-by-alloy-and-element: every element reported must have limits for this alloy
-  let all = true;
-  for (const x of numbers) {
-    const limit = pack.policy.derived.limits.composition.entries.find((e) => e.alloy === alloy.text && e.element === x.qualifier);
-    if (!limit) return fail(`no limits for ${x.qualifier ?? "an unnamed element"} in ${alloy.text}`);
-    if (!within(x.n as number, limit)) all = false;
+  // uncertainty-guard-band-screen (lead_screening)
+  const sr = rule.screening_rule;
+  if (!sr) return fail("missing screening_rule in DERIVED-RULES");
+  const leadVals = readings(record, property);
+  if (leadVals.length !== 1) return fail(leadVals.length === 0 ? "missing lead measurement" : "lead_measurement_selection_ambiguous");
+  const leadVal = leadVals[0]!;
+  if (leadVal.status === "challenged") return fail("the value is challenged");
+  const a = standing(leadVal)[0]!;
+  if (a.flags.includes("source-assurance-unaccepted")) return fail("source_state_not_accepted");
+  if (a.flags.includes("shape-issue") || typeof a.value !== "number") return fail("lead_measurement_shape_invalid");
+  const d = a.details ?? {};
+  if (d.method_ref !== sr.accepted_method || d.qualifier !== sr.accepted_qualifier) {
+    return fail("lead_method_or_qualifier_incompatible");
   }
-  return { ok: true, rule: rule.id, statement: { within: all, basis: basisOf(alloy.text) }, sources: locations([...values, ...alloy.from]), inputs: assertionsOf([...values, ...alloy.from]) };
+  const uncVal = Number(d.uncertainty_value);
+  const k = Number(d.coverage_factor);
+  if (
+    a.unit !== "mg/kg" ||
+    d.uncertainty_unit !== "mg/kg" ||
+    d.uncertainty_kind !== sr.accepted_uncertainty_kind ||
+    !Number.isFinite(uncVal) ||
+    k !== sr.accepted_coverage_factor
+  ) {
+    return fail("lead_uncertainty_interpretation");
+  }
+  if (d.mass_basis !== "uncoated_alloy_specimen_mass") {
+    return fail("lead_basis_incompatible");
+  }
+  // Unrounded uncertainty-aware guard-band predicate: estimate + expanded_uncertainty < threshold
+  if (a.value + uncVal >= sr.threshold_mg_per_kg) {
+    return fail("synthetic_screen_not_passed");
+  }
+  return {
+    ok: true,
+    rule: rule.id,
+    statement: {
+      representation: "lead_screening",
+      within: true,
+      text: sr.statement,
+      basis: `${sr.id} v${sr.version}`,
+      qualification: sr.qualification,
+    },
+    sources: locations(leadVals),
+    inputs: assertionsOf(leadVals),
+  };
 }

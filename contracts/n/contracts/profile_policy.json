@@ -1,0 +1,134 @@
+{
+  "id": "PROFILE-ALU-24-01",
+  "version": "1.0.0",
+  "synthetic": true,
+  "source_assurance_required": "issuer_declared_synthetic",
+  "independent_verification_required": false,
+  "customer": {
+    "recipient": "ST-CUST-A",
+    "purpose": "synthetic_customer_data_request",
+    "forbid_raw_disclosure": [
+      "ALU-D114",
+      "ALU-D119",
+      "ALU-D123",
+      "ALU-D124"
+    ],
+    "allowed_derived_representations": [
+      "recycled_total_with_basis",
+      "lead_screening"
+    ],
+    "language": "en",
+    "expected_pcf_method": "ST-METHOD-PCF-001",
+    "expected_reference_unit": "ST-REFUNIT-001",
+    "expected_boundary": "ST-BOUNDARY-001",
+    "route_required_source_properties": [
+      "ALU-D101",
+      "ALU-D102",
+      "ALU-D103",
+      "ALU-D108",
+      "ALU-D109",
+      "ALU-D110",
+      "ALU-D112",
+      "ALU-D113",
+      "ALU-D115",
+      "ALU-D116",
+      "ALU-D117",
+      "ALU-D118",
+      "ALU-D119",
+      "ALU-D120",
+      "ALU-D121",
+      "ALU-D122",
+      "ALU-D123"
+    ],
+    "permitted_processing_properties": [
+      "ALU-D101",
+      "ALU-D102",
+      "ALU-D103",
+      "ALU-D108",
+      "ALU-D109",
+      "ALU-D110",
+      "ALU-D112",
+      "ALU-D113",
+      "ALU-D115",
+      "ALU-D116",
+      "ALU-D117",
+      "ALU-D118",
+      "ALU-D119",
+      "ALU-D120",
+      "ALU-D121",
+      "ALU-D122",
+      "ALU-D123"
+    ],
+    "deny_processing_properties": [],
+    "required_output_fields": [
+      "product_model",
+      "designation",
+      "alloy",
+      "temper",
+      "nominal_dimensions_m",
+      "customer_material_code",
+      "recycled_content",
+      "carbon_footprint",
+      "description",
+      "lead_screening"
+    ],
+    "permission_boundary": "Stand-in boundary: the derivation step may read the inputs it is allowed to read; what a recipient sees is limited to the listed output fields and derived statements."
+  },
+  "internal": {
+    "recipient": "ST-INTERNAL-TEAM",
+    "purpose": "synthetic_internal_staging",
+    "route_required_source_properties": [
+      "ALU-D101",
+      "ALU-D104",
+      "ALU-D110",
+      "ALU-D111",
+      "ALU-D112",
+      "ALU-D113",
+      "ALU-D114",
+      "ALU-D122",
+      "ALU-D123",
+      "ALU-D124"
+    ],
+    "permitted_processing_properties": [
+      "ALU-D101",
+      "ALU-D104",
+      "ALU-D110",
+      "ALU-D111",
+      "ALU-D112",
+      "ALU-D113",
+      "ALU-D114",
+      "ALU-D122",
+      "ALU-D123",
+      "ALU-D124"
+    ],
+    "deny_processing_properties": []
+  },
+  "registry": {
+    "recipient": "EU_REGISTRY_PREPARATION_ONLY",
+    "aluminium_registration_profile_confirmed": false,
+    "route_required_source_properties": [
+      "ALU-D101",
+      "ALU-D102",
+      "ALU-D105"
+    ],
+    "permitted_processing_properties": [
+      "ALU-D101",
+      "ALU-D102",
+      "ALU-D105"
+    ],
+    "deny_processing_properties": []
+  },
+  "screening_rule": {
+    "id": "ST-PB-SCREEN-01",
+    "version": "1.0.0",
+    "threshold_mg_per_kg": 80,
+    "accepted_method": "ST-LAB-PB-01",
+    "accepted_qualifier": "measured_estimate",
+    "accepted_uncertainty_kind": "expanded",
+    "accepted_coverage_factor": 2,
+    "predicate": "reported_estimate + reported_expanded_uncertainty < synthetic_customer_threshold",
+    "statement": "<80 mg/kg (stand-in screening rule)",
+    "qualification": "Stand-in screening result that includes the reported expanded uncertainty. It is not a limit value, a legal finding or a third-party check."
+  },
+  "deployment_boundary": "Stand-in pack for local and CI runs only; no live identity service, delivery to recipients or public endpoint."
+}
