@@ -1,119 +1,106 @@
-# ERP extract contract. PUBLIC STAND-IN for the private N pack (decision D1-01, option b): synthetic, renumbered
-# identifiers, stand-in definitions and codes. Generated from the private specification; do not edit by hand.
-id: INPUT-ERP-CSV
+# ERP extract contract (SRC-ERP-CSV-01). Synthetic public stand-in (renumbered IDs ALU-D101..ALU-D124, generic identifiers).
+# Generated automatically; do not edit by hand.
+id: SRC-ERP-CSV-01
 version: 1.0.0
 status: FROZEN
 media_type: text/csv
 encoding: UTF-8
 byte_order_mark: rejected
-delimiter: ;
+delimiter: ","
 decimal_separator: .
 header_row: required
 columns:
-  - name: company_code
-    maps_to: ALU-D102
+  - name: source_company
+    maps_to: ALU-D101/FLD-Identifier-issuer_ref
     unit: null
     code_list: COMPANY@1.0.0
     required: true
-  - name: product_model_scheme
-    maps_to: ALU-D101/FLD-Identifier-scheme
-    unit: null
-    required: true
-  - name: product_model_id
-    maps_to: ALU-D101/FLD-Identifier-value
-    unit: null
-    required: true
-  - name: product_model_scheme_version
+  - name: code_list_version
     maps_to: ALU-D101/FLD-Identifier-scheme_version
     unit: null
     required: true
-  - name: product_name_en
-    maps_to: ALU-D103
-    language: en
+  - name: material_code
+    maps_to: ALU-D101/FLD-Identifier-value
     unit: null
     required: true
-  - name: product_name_de
-    maps_to: ALU-D103
-    language: de
+  - name: product_revision
+    maps_to: ALU-D102
+    unit: null
+    required: true
+  - name: product_designation
+    maps_to: ALU-D103/FLD-ProductDesignation-designation
     unit: null
     required: true
   - name: batch_id
     maps_to: ALU-D104/FLD-Identifier-value
     unit: null
     required: true
-  - name: batch_scheme_version
-    maps_to: ALU-D104/FLD-Identifier-scheme_version
+  - name: manufacturer_id
+    maps_to: ALU-D105/FLD-PartyRef-party_id
+    unit: null
+    code_list: COMPANY@1.0.0
+    required: true
+  - name: manufacturer_name
+    maps_to: ALU-D105/FLD-PartyRef-legal_name
     unit: null
     required: true
-  - name: cn_code
-    maps_to: ALU-D105
+  - name: site_id
+    maps_to: ALU-D106/FLD-SiteRef-site_id
     unit: null
-    code_list: CN@1.0.0
     required: true
-  - name: alloy
-    maps_to: ALU-D106
-    unit: null
-    code_list: ALLOY@1.0.0
-    required: true
-  - name: temper
-    maps_to: ALU-D107
-    unit: null
-    code_list: TEMPER@1.0.0
-    required: true
-  - name: thickness_nominal_mm
-    maps_to: ALU-D108
-    unit: mm
-    required: true
-  - name: width_nominal_mm
-    maps_to: ALU-D110
-    unit: mm
-    required: true
-  - name: length_nominal_mm
-    maps_to: ALU-D111
-    unit: mm
-    required: true
-  - name: net_mass_kg
-    maps_to: ALU-D112
-    unit: kg
-    required: true
-  - name: surface_finish
-    maps_to: ALU-D113
-    unit: null
-    code_list: SURFACE@1.0.0
-    required: true
-  - name: recycled_content_pct
-    maps_to: ALU-D114
-    unit: "%"
-    required: false
-  - name: post_consumer_pct
-    maps_to: ALU-D120
-    unit: "%"
-    required: false
-  - name: country_of_casting
-    maps_to: ALU-D116
+  - name: site_country
+    maps_to: ALU-D106/FLD-SiteRef-country
     unit: null
     code_list: COUNTRY@1.0.0
     required: true
   - name: production_date
-    maps_to: ALU-D117
+    maps_to: ALU-D107
     unit: null
     format: ISO 8601 date
     required: true
-  - name: customer_code
-    maps_to: ALU-D122/FLD-Identifier-scope
+  - name: alloy_code
+    maps_to: ALU-D108/FLD-DesignationRef-designation
     unit: null
-    code_list: CUSTOMER@1.0.0
+    code_list: ALLOY@1.0.0
     required: true
-  - name: customer_article_no
+  - name: temper_code
+    maps_to: ALU-D109/FLD-DesignationRef-designation
+    unit: null
+    code_list: TEMPER@1.0.0
+    required: true
+  - name: nominal_thickness_mm
+    maps_to: ALU-D110
+    unit: mm
+    required: false
+  - name: nominal_width_mm
+    maps_to: ALU-D112
+    unit: mm
+    required: false
+  - name: nominal_length_mm
+    maps_to: ALU-D113
+    unit: mm
+    required: false
+  - name: recycled_total_percent
+    maps_to: ALU-D115
+    unit: "%"
+    required: false
+  - name: pre_consumer_percent
+    maps_to: ALU-D116
+    unit: "%"
+    required: false
+  - name: post_consumer_percent
+    maps_to: ALU-D117
+    unit: "%"
+    required: false
+  - name: customer_material_code
     maps_to: ALU-D122/FLD-Identifier-value
     unit: null
-    required: true
-  - name: supplier_code
+    required: false
+  - name: internal_conversion_cost_eur_per_kg
     maps_to: ALU-D124
-    unit: null
-    code_list: SUPPLIER@1.0.0
-    required: true
-unknown_codes: keep and flag
+    unit: EUR/kg
+    required: false
+unknown_codes: reject lookup; keep raw assertions
 ingress:
   stages:
     - bytes
@@ -127,3 +114,4 @@ ingress:
     - missing required column
     - unexpected column
     - other media type
+    - unknown or duplicate company-code lookup

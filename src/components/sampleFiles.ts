@@ -25,27 +25,27 @@ export interface Input {
 
 /** Sample files for the Import screen: a clean pair and one file for each kind of error. */
 export const IMPORT_SAMPLES: Sample[] = [
-  { id: "clean", label: "Clean pair", erp: "d03a-erp-extract.csv", lab: "d03a-lab-assessment.json" },
-  { id: "conflict", label: "Sources disagree on the alloy", erp: "d03a-erp-extract.csv", lab: "lab-conflicting-alloy.json" },
-  { id: "unknown-code", label: "Unknown company code", erp: "erp-unknown-company-code.csv", lab: "d03a-lab-assessment.json" },
-  { id: "two-footprints", label: "Two footprint results", erp: "d03a-erp-extract.csv", lab: "lab-two-footprints.json" },
-  { id: "digest", label: "Evidence without digest", erp: "d03a-erp-extract.csv", lab: "lab-evidence-digest-missing.json" },
+  { id: "clean", label: "Clean pair", erp: "erp-extract.csv", lab: "lab-assessment.json" },
+  { id: "conflict", label: "Conflicting pre-consumer recycled content (ERP vs laboratory)", erp: "erp-extract.csv", lab: "lab-conflicting-pre-consumer.json" },
+  { id: "unknown-code", label: "Unknown company material code", erp: "erp-unknown-company-code.csv", lab: "lab-assessment.json" },
+  { id: "two-footprints", label: "Incompatible footprint method", erp: "erp-extract.csv", lab: "lab-incompatible-footprint.json" },
+  { id: "digest", label: "Source assurance unavailable", erp: "erp-extract.csv", lab: "lab-assurance-unknown.json" },
   { id: "encoding", label: "ERP extract not UTF-8", erp: "erp-latin1.csv" },
   { id: "missing-column", label: "ERP extract without the alloy column", erp: "erp-missing-alloy-column.csv" },
   { id: "decimal-comma", label: "ERP value with a decimal comma", erp: "erp-decimal-comma.csv" },
   { id: "duplicate-key", label: "Lab file with a duplicate key", lab: "lab-duplicate-key.json" },
   { id: "non-finite", label: "Lab file with 1e999", lab: "lab-non-finite.json" },
   { id: "missing-unit", label: "Lab value without a unit", lab: "lab-missing-unit.json" },
-  { id: "wrong-unit", label: "Lab value in inches", lab: "lab-wrong-unit.json" },
-  { id: "unit-alias", label: "Lab value in N/mm²", lab: "lab-unit-alias.json" },
+  { id: "wrong-unit", label: "Lab thickness unit incompatible (kg)", lab: "lab-wrong-unit.json" },
+  { id: "unit-alias", label: "Lead qualifier below_LOQ", lab: "lab-below-loq.json" },
 ];
 
 /** Prepared record states for the Readiness screen. */
 export const READINESS_SAMPLES: Sample[] = [
-  { id: "clean", label: "Clean pair: customer PDF and ERP ready, registry on hold", erp: "d03a-erp-extract.csv", lab: "d03a-lab-assessment.json" },
-  { id: "conflict", label: "Conflicting alloy: challenged value", erp: "d03a-erp-extract.csv", lab: "lab-conflicting-alloy.json" },
-  { id: "two-footprints", label: "Two footprint results: no selection", erp: "d03a-erp-extract.csv", lab: "lab-two-footprints.json" },
-  { id: "blocked", label: "Blocked export: recycled content missing", erp: "erp-missing-recycled-content.csv", lab: "d03a-lab-assessment.json" },
+  { id: "clean", label: "Clean pair: customer & internal RELEASED, registry HOLD", erp: "erp-extract.csv", lab: "lab-assessment.json" },
+  { id: "conflict", label: "Conflicting pre-consumer recycled content: customer HOLD, internal RELEASED", erp: "erp-extract.csv", lab: "lab-conflicting-pre-consumer.json" },
+  { id: "two-footprints", label: "Incompatible footprint method: customer HOLD, internal RELEASED", erp: "erp-extract.csv", lab: "lab-incompatible-footprint.json" },
+  { id: "blocked", label: "Blocked export: nominal thickness missing", erp: "erp-missing-thickness.csv", lab: "lab-assessment.json" },
 ];
 
 export async function readFixture(name: string): Promise<Input> {
@@ -63,7 +63,7 @@ export async function importInputs(
   const startedAt = performance.now();
   const erp = inputs.erp ? await importErpCsv(profile, { ...inputs.erp, startedAt }) : undefined;
   const lab = inputs.lab ? await importLabJson(profile, { ...inputs.lab, startedAt }) : undefined;
-  const state = await buildRecords([erp, lab].filter((r): r is ImportResult => !!r));
+  const state = await buildRecords([erp, lab].filter((r): r is ImportResult => !!r), profile);
   return { results: { erp, lab }, state };
 }
 

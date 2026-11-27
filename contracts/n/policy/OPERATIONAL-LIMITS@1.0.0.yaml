@@ -1,5 +1,5 @@
-# Operational limits and design targets (ARTIFICIAL-DEMO design values, not measured limits). PUBLIC STAND-IN for the private N pack (decision D1-01, option b): synthetic, renumbered
-# identifiers, stand-in definitions and codes. Generated from the private specification; do not edit by hand.
+# Operational limits and design targets. Synthetic public stand-in (renumbered IDs ALU-D101..ALU-D124, generic identifiers).
+# Generated automatically; do not edit by hand.
 id: OPERATIONAL-LIMITS
 version: 1.0.0
 status: FROZEN

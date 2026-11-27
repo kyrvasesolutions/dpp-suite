@@ -395,9 +395,9 @@ function RouteOutput({ route, outcome, profile }: { route: Route; outcome: Relea
     );
   }
   const f = outcome.file;
-  const draft = f.status === "hold";
+  const draft = f.status === "HOLD";
   return (
-    <article className="route-card" data-testid="output-route" data-route={route} data-state={draft ? "hold-draft" : "ready"}>
+    <article className="route-card" data-testid="output-route" data-route={route} data-state={draft ? "hold-draft" : "RELEASED"}>
       <h3>{ROUTE_NAMES[route]}</h3>
       <p className="hint small">{info.recipient}</p>
       {draft && (
@@ -484,7 +484,7 @@ function Verify({ profile }: { profile: NonNullable<ReturnType<typeof useRecordS
 }
 
 function Lineage({ release, profile }: { release: Release; profile: NonNullable<ReturnType<typeof useRecordStore>["profile"]> }) {
-  const [route, setRoute] = useState<Route>("customer-pdf");
+  const [route, setRoute] = useState<Route>("customer");
   const file = release.files.find((f) => f.route === route);
   const present = useMemo(() => file?.items.filter((i) => i.present) ?? [], [file]);
   const [step, setStep] = useState("");

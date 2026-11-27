@@ -11,7 +11,7 @@ beforeAll(async () => {
   pack = await loadPack();
 });
 
-const corrected = () => recordFor(pack, { ...CLEAN, editErp: (csv) => csv.replace(";H111;2.0;", ";H22;2.0;") });
+const corrected = () => recordFor(pack, { ...CLEAN, editErp: (csv) => csv.replace(",1.50,", ",2.25,") });
 
 describe("snapshots", () => {
   it("stores the first import as version 1 with its sources and an actor", async () => {
@@ -43,10 +43,10 @@ describe("snapshots", () => {
     expect(JSON.stringify(read)).toBe(before);
     expect((await repo.history(first.model, first.batch)).map((s) => s.version)).toEqual([1, 2]);
     expect((await repo.latest(first.model, first.batch))?.digest).toBe(v2.digest);
-    // the temper changed in version 2 only
-    const temper = byRole(pack, "temper");
-    const text = (s: Snapshot) => s.record.values.find((v) => v.property === temper)!.assertions[0].raw;
-    expect([text(v1), text(v2)]).toEqual(["H111", "H22"]);
+    // the nominal thickness changed in version 2 only
+    const thickness = byRole(pack, "nominalThickness");
+    const text = (s: Snapshot) => s.record.values.find((v) => v.property === thickness)!.assertions[0].raw;
+    expect([text(v1), text(v2)]).toEqual(["1.50", "2.25"]);
   });
 
   it("stores nothing for an identical re-import", async () => {
@@ -87,7 +87,7 @@ describe("snapshots", () => {
   it("keeps different models and batches apart and lists them", async () => {
     const repo = new MemoryRepository();
     const a = await recordFor(pack, CLEAN);
-    const b = await recordFor(pack, { ...CLEAN, editErp: (csv) => csv.replaceAll("B-2026-0417", "B-2026-0418"), editLab: (d) => (d.product.batch_id = "B-2026-0418") });
+    const b = await recordFor(pack, { ...CLEAN, editErp: (csv) => csv.replaceAll("ST-LOT-2026-001", "ST-LOT-2026-002"), editLab: (d) => (d.batch_id = "ST-LOT-2026-002") });
     await storeRecord(repo, a);
     await storeRecord(repo, b);
     expect(await repo.records()).toEqual([{ model: a.model, batch: a.batch }, { model: b.model, batch: b.batch }]);

@@ -20,7 +20,7 @@ import { PolicyStore } from "../../server/store/policyStore";
 import type { ProfilePack } from "../../src/model/profile";
 import { fixtureBytes } from "../support/fixtures";
 import { createTestIdp } from "../support/oidc";
-import { CLEAN, loadPack } from "../support/records";
+import { CLEAN, loadPack, propertyBySlug } from "../support/records";
 import { TEST_SOFTWARE } from "../support/release";
 
 const tmpDir = mkdtempSync(join(tmpdir(), "dpp-c7-auth-"));
@@ -49,11 +49,11 @@ beforeAll(async () => {
   new PolicyStore(db).activate(pack.policy.retention, nowIso);
 
   const grants = new GrantStore(db, undefined, { now: () => nowIso });
-  grants.upsertUser({ sub: "admin-1", displayName: "Security Admin", roles: ["ADMIN"], actorSub: "bootstrap", reason: "Seed initial admin" });
+  grants.upsertUser({ sub: "admin-1", displayName: "Security Admin", roles: ["ACT-19"], actorSub: "bootstrap", reason: "Seed initial admin" });
   grants.upsertUser({ sub: "op-1", displayName: "Manufacturer Operator", roles: ["ACT-01"], actorSub: "admin-1", reason: "Seed operator" });
   grants.upsertUser({ sub: "cust-1", displayName: "Business Customer", roles: ["ACT-06"], actorSub: "admin-1", reason: "Seed customer" });
-  grants.upsertUser({ sub: "cur-1", displayName: "Config Curator", roles: ["CURATOR"], actorSub: "admin-1", reason: "Seed curator" });
-  grants.upsertUser({ sub: "aud-1", displayName: "Compliance Auditor", roles: ["AUDITOR"], actorSub: "admin-1", reason: "Seed auditor" });
+  grants.upsertUser({ sub: "cur-1", displayName: "Config Curator", roles: ["ACT-20"], actorSub: "admin-1", reason: "Seed curator" });
+  grants.upsertUser({ sub: "aud-1", displayName: "Compliance Auditor", roles: ["ACT-17"], actorSub: "admin-1", reason: "Seed auditor" });
 
   const server = createDppServer({
     db,
@@ -128,9 +128,9 @@ describe("Cycle 7 OIDC authentication and server-side RBAC (C7-01, C7-02)", () =
     // Only ACT-01 can submit imports
     for (const [label, tok] of [
       ["ACT-06", custTok],
-      ["ADMIN", adminTok],
-      ["CURATOR", curTok],
-      ["AUDITOR", audTok],
+      ["ACT-19", adminTok],
+      ["ACT-20", curTok],
+      ["ACT-17", audTok],
     ] as const) {
       const r = await fetch(`${baseUrl}/api/jobs/import`, {
         method: "POST",
@@ -173,10 +173,11 @@ describe("Cycle 7 OIDC authentication and server-side RBAC (C7-01, C7-02)", () =
       expect((await fetch(`${baseUrl}${path}`, { headers: authHeaders(custTok) })).status, `ACT-06 GET ${path}`).toBe(403);
     }
 
-    // AUDITOR: read-only everywhere, 403 on all writes
+    // ACT-17 (External Auditor): read-only; raw internal records DENIED by default (D9-05 / C9-11) until explicit grant
+    for (const path of ["/api/records", `/api/records/${m}/${b}/history`]) {
+      expect((await fetch(`${baseUrl}${path}`, { headers: authHeaders(audTok) })).status, `ACT-17 default deny ${path}`).toBe(403);
+    }
     for (const path of [
-      "/api/records",
-      `/api/records/${m}/${b}/history`,
       `/api/customer/records/${m}/${b}`,
       "/api/jobs",
       "/api/evidence",
@@ -185,15 +186,21 @@ describe("Cycle 7 OIDC authentication and server-side RBAC (C7-01, C7-02)", () =
       "/api/admin/audit",
       "/api/config-releases",
     ]) {
-      expect((await fetch(`${baseUrl}${path}`, { headers: authHeaders(audTok) })).status, `AUDITOR GET ${path}`).toBe(200);
+      expect((await fetch(`${baseUrl}${path}`, { headers: authHeaders(audTok) })).status, `ACT-17 GET ${path}`).toBe(200);
     }
-    const prop = pack.properties.find((p) => p.definitionRef.endsWith(":recycled-content"))!;
+
+    // Grant explicit raw-read scope to ACT-17 -> internal record endpoints now 200, writes still 403
+    new GrantStore(db, undefined, { now: () => nowIso }).setAuditorRawGrant("aud-1", true, "admin-1", "Formal audit scope granted");
+    for (const path of ["/api/records", `/api/records/${m}/${b}/history`]) {
+      expect((await fetch(`${baseUrl}${path}`, { headers: authHeaders(audTok) })).status, `ACT-17 explicit grant ${path}`).toBe(200);
+    }
+    const propId = propertyBySlug(pack, "recycled-content");
     expect(
       (
         await fetch(`${baseUrl}/api/records/${m}/${b}/correct`, {
           method: "POST",
           headers: jsonAuth(audTok),
-          body: JSON.stringify({ property: prop.id, raw: "44", reason: "Auditor write attempt" }),
+          body: JSON.stringify({ property: propId, raw: "44", reason: "Auditor write attempt" }),
         })
       ).status,
     ).toBe(403);
@@ -210,7 +217,7 @@ describe("Cycle 7 OIDC authentication and server-side RBAC (C7-01, C7-02)", () =
         await fetch(`${baseUrl}/api/records/${m}/${b}/correct`, {
           method: "POST",
           headers: jsonAuth(opTok),
-          body: JSON.stringify({ property: prop.id, raw: "45", reason: "Verified mill update" }),
+          body: JSON.stringify({ property: propId, raw: "45", reason: "Verified mill update" }),
         })
       ).status,
     ).toBe(200);

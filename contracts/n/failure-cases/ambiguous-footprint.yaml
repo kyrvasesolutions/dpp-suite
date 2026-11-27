@@ -1,6 +1,6 @@
 id: FC-AMBIGUOUS-FOOTPRINT
-class: several footprint results without selection
+class: ambiguous or incompatible footprint context
 criterion: C3-04
-input: The laboratory file holds two footprint results for the product with no rule that selects one.
-expected: The routes that need the footprint hold; both results stay visible with their method and context.
-fixture: fixtures/n/lab-two-footprints.json
+input: The laboratory file carries an incompatible footprint method reference.
+expected: Imported cleanly; customer route is HOLD (safe envelope); internal route remains RELEASED.
+fixture: fixtures/n/lab-incompatible-footprint.json

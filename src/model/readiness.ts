@@ -1,45 +1,40 @@
 /**
- * Route readiness (Cycle 3: FUNC-002, 012 and 126 slices; criteria C3-02, C3-03, C3-04, C3-06).
+ * Route readiness (Cycle 3: FUNC-002, 012 and 126 slices; aligned in Cycle 9 to PROFILE-ALU-24-01,
+ * RELEASED / HOLD outcomes, processing vs raw-disclosure separation, and S5-SEM-CONTEXT-rev2).
  *
- * For one product record, every route gets a verdict: `ready` or `on-hold`. Each property the route requires is in
- * exactly one of four states (present, missing, inaccessible to this recipient, challenged), and every hold names a
- * rule of the pinned READINESS-RULES file, the property, and the source assertions behind it. Missing data and the
- * standing hold of the registry route are the only holds that have no source assertion to point to.
- *
- * `assess` is pure: the same record and pack always give the same result. It reports selected structural, completeness
- * and route checks. It never says that a record or a product is conformant or compliant.
+ * Pure and deterministic: the same record, pack, and context always give the same verdict.
+ * Reports selected structural, completeness, and route checks; never claims legal conformity.
  */
-import { byRole, type Assertion, type Flag, type ProductRecord, type RecordValue } from "./ingress";
+import { buildOperationContextForRecord, validateOperationContext, type OperationContext } from "./context";
 import { derive } from "./derived";
-import { decide } from "./policy";
+import { byRole, type Assertion, type Flag, type ProductRecord, type RecordValue } from "./ingress";
+import { decide, isProcessingPermitted, isRawDisclosureForbidden } from "./policy";
 import { ROUTES, type ProfilePack, type Route } from "./profile";
+import { checkBoundedSchema } from "./recordSchemaCheck";
+import { exportReferenceRoute } from "./referencePipeline";
 
 export type PropertyState = "present" | "missing" | "inaccessible" | "challenged";
+
+/** Aligned route outcome vocabulary (A-16, C9-07). */
+export type RouteStatus = "RELEASED" | "HOLD";
 
 export interface RequiredProperty {
   property: string;
   state: PropertyState;
-  /** False when the value is missing, inaccessible, challenged, or carries a flag that makes it insufficiently assured. */
   assured: boolean;
-  /** The flags behind the state, from the source assertions. Empty for an inaccessible property: nothing about it is shown. */
   flags: Flag[];
 }
 
 export interface HoldReason {
   ruleId: string;
-  /** The property that causes the hold; null only for the standing hold of the route itself. */
   property: string | null;
   member?: string;
-  /** Further fact the rule names, for a hold made at output time (the code point for RR-PDF-CHARACTER). */
   detail?: string;
-  /** The key of the source object that holds the offending text, when it is not the value itself (RR-PDF-CHARACTER). */
   field?: string;
-  /** Where the assertions behind the hold are. Empty only for RR-MISSING and RR-STANDING-HOLD. */
   sources: Assertion["source"][];
 }
 
 export interface FootprintSelection {
-  /** `selected`: exactly one footprint result. `several`: more than one and no rule to select one, so none is selected. */
   state: "none" | "selected" | "several";
   candidates: Array<{ qualifier?: string; source: Assertion["source"] }>;
   selected?: { qualifier?: string; source: Assertion["source"] };
@@ -48,7 +43,7 @@ export interface FootprintSelection {
 export interface RouteReadiness {
   route: Route;
   recipient: string;
-  status: "ready" | "on-hold";
+  status: RouteStatus;
   required: RequiredProperty[];
   holds: HoldReason[];
   footprint: FootprintSelection;
@@ -62,22 +57,21 @@ export interface StructuralCheck {
 }
 
 export interface AssessOptions {
-  /**
-   * Extra properties a route requires, for a route variant such as the prohibited-disclosure failure fixture. They
-   * add to what the profile requires; they never remove anything.
-   */
+  /** Extra properties a route requires (for negative prohibited-disclosure route variants). */
   requires?: Partial<Record<Route, string[]>>;
-  /** Optional subset of routes to evaluate (defaults to all routes). */
+  /** Subset of routes to evaluate (defaults to all three routes). */
   routes?: readonly Route[];
+  /** Customer output language ("en" or "de"; defaults to pack policy language). */
+  language?: "en" | "de";
+  /** Optional S5-SEM-CONTEXT-rev2 17-field operation context to validate before release (C9-05). */
+  context?: Partial<Record<Route, OperationContext>>;
 }
 
 const sourceOf = (a: Assertion) => a.source;
-/** The assertions that stand for a value now: after an operator correction only the correction, whose earlier values stay visible but no longer count. */
 const effective = (v: RecordValue): Assertion[] => (v.status === "corrected" ? v.assertions.slice(0, 1) : v.assertions);
 const unique = <T>(xs: T[]) => [...new Set(xs)];
 const keyOf = (s: Assertion["source"]) => `${s.file}|${s.location}`;
 
-/** Exactly one footprint result is selected; several results with no selection rule select none (FUNC-126 slice). */
 export function selectFootprint(pack: ProfilePack, record: ProductRecord): FootprintSelection {
   const property = byRole(pack, "footprint");
   const candidates = record.values
@@ -88,46 +82,51 @@ export function selectFootprint(pack: ProfilePack, record: ProductRecord): Footp
   return { state: "several", candidates };
 }
 
-/** The text of a rule or check in the pack; an ID the pack does not have is an error, never a blank. */
 export function ruleText(pack: ProfilePack, id: string): string {
   const found = [...pack.policy.readiness.rules, ...pack.policy.readiness.checks].find((r) => r.id === id);
   if (!found) throw new Error(`The readiness rules have no ${id}`);
   return found.text;
 }
 
-/** Structural checks on the record (FUNC-002 slice). Each is listed with its outcome; none is a conformity claim. */
 export function structuralChecks(pack: ProfilePack, record: ProductRecord): StructuralCheck[] {
-  const identifier = (id: string, role: "model" | "batch"): StructuralCheck => {
-    const property = byRole(pack, role);
-    const mapped = unique(pack.inputs.erp.columns.filter((c) => c.maps_to.startsWith(`${property}/`)).map((c) => c.maps_to.split("/")[1]));
-    const have = new Set(record.values.filter((v) => v.property === property && v.member).map((v) => v.member));
-    const missing = mapped.filter((m) => !have.has(m));
-    const none = !record.values.some((v) => v.property === property);
-    return {
-      id,
-      text: ruleText(pack, id),
-      passed: !none && missing.length === 0,
-      ...(none ? { detail: "no value" } : missing.length ? { detail: `missing: ${missing.join(", ")}` } : {}),
-    };
-  };
+  const modelProp = byRole(pack, "model");
+  const revProp = byRole(pack, "revision");
+  const batchProp = byRole(pack, "batch");
+  const hasModel = record.values.some((v) => v.property === modelProp);
+  const hasRev = record.values.some((v) => v.property === revProp);
+  const hasBatch = record.values.some((v) => v.property === batchProp);
   const known = new Map(pack.properties.map((p) => [p.id, new Set(p.members.map((m) => m.id))]));
   const unknown = record.values.filter((v) => !known.has(v.property) || (v.member !== undefined && !known.get(v.property)!.has(v.member)));
+  const schemaErrors = record.dppPayload ? checkBoundedSchema(record.dppPayload, pack.contracts.recordSchema) : [];
   return [
-    identifier("CK-MODEL-IDENTIFIER", "model"),
-    identifier("CK-BATCH-IDENTIFIER", "batch"),
     {
-      id: "CK-KNOWN-PROPERTIES",
-      text: ruleText(pack, "CK-KNOWN-PROPERTIES"),
+      id: "CK-IDENTIFIERS",
+      text: ruleText(pack, "CK-IDENTIFIERS"),
+      passed: hasModel && hasRev && hasBatch,
+      ...(!hasModel || !hasRev || !hasBatch
+        ? { detail: `missing: ${[!hasModel && "model", !hasRev && "revision", !hasBatch && "batch"].filter(Boolean).join(", ")}` }
+        : {}),
+    },
+    {
+      id: "CK-PROFILE",
+      text: ruleText(pack, "CK-PROFILE"),
       passed: unknown.length === 0,
       ...(unknown.length ? { detail: `not in the profile: ${unique(unknown.map((v) => (v.member ? `${v.property}/${v.member}` : v.property))).join(", ")}` } : {}),
+    },
+    {
+      id: "CK-RECORD-SCHEMA",
+      text: ruleText(pack, "CK-RECORD-SCHEMA"),
+      passed: schemaErrors.length === 0,
+      ...(schemaErrors.length ? { detail: schemaErrors[0] } : {}),
     },
   ];
 }
 
-/** One verdict per route for one product record (FUNC-012 slice). Pure and deterministic. */
 export function assess(pack: ProfilePack, record: ProductRecord, options: AssessOptions = {}): RouteReadiness[] {
   const footprintProperty = byRole(pack, "footprint");
-  const evidenceProperty = byRole(pack, "evidence");
+  const narrativeProperty = byRole(pack, "narrative");
+  const modelProperty = byRole(pack, "model");
+  const revisionProperty = byRole(pack, "revision");
   const footprint = selectFootprint(pack, record);
   const byProp = new Map<string, RecordValue[]>();
   for (const v of record.values) {
@@ -139,22 +138,39 @@ export function assess(pack: ProfilePack, record: ProductRecord, options: Assess
     bucket.push(v);
   }
   const valuesOf = (property: string): RecordValue[] => byProp.get(property) ?? [];
-  const evidenceById = new Map(
-    valuesOf(evidenceProperty)
-      .filter((v) => v.qualifier !== undefined && !v.member)
-      .map((v) => [v.qualifier!, v] as const),
-  );
   const routes = options.routes ?? ROUTES;
+  const lang = options.language ?? (pack.contracts.profilePolicy.customer.language as "en" | "de");
+  const subjectRef = `${record.model}/${record.revision ?? valuesOf(revisionProperty)[0]?.assertions[0]?.raw ?? ""}`;
+
+  // Direct customer output properties whose raw disclosure denial holds customer output (REF-28)
+  const directCustomerProps = new Set([
+    modelProperty,
+    revisionProperty,
+    byRole(pack, "name"),
+    byRole(pack, "alloy"),
+    byRole(pack, "temper"),
+    byRole(pack, "nominalThickness"),
+    byRole(pack, "nominalWidth"),
+    byRole(pack, "nominalLength"),
+    byRole(pack, "recycledTotal"),
+    byRole(pack, "recycledBasis"),
+    footprintProperty,
+    narrativeProperty,
+    byRole(pack, "customerCode"),
+  ]);
+
+  const shapeInvalid =
+    record.importStatus === "IMPORTED_WITH_SHAPE_ISSUES" ||
+    record.values.some((v) => effective(v).some((a) => a.flags.includes("shape-issue")));
 
   return routes.map((route) => {
     const info = pack.routes[route];
-    const requiredIds = pack.properties
-      .filter((p) => p.requiredBy[route] || (options.requires?.[route] ?? []).includes(p.id))
-      .map((p) => p.id);
+    const extraReqs = new Set(options.requires?.[route] ?? []);
+    const requiredIds = pack.properties.filter((p) => p.requiredBy[route] || extraReqs.has(p.id)).map((p) => p.id);
     const holds: HoldReason[] = [];
     const holdIndex = new Map<string, { hold: HoldReason; seen: Set<string> }>();
-    const add = (ruleId: string, property: string | null, member: string | undefined, sources: Assertion["source"][]) => {
-      const hKey = `${ruleId}\0${property ?? ""}\0${member ?? ""}`;
+    const add = (ruleId: string, property: string | null, member: string | undefined, sources: Assertion["source"][], detail?: string) => {
+      const hKey = `${ruleId}\0${property ?? ""}\0${member ?? ""}\0${detail ?? ""}`;
       let entry = holdIndex.get(hKey);
       if (!entry) {
         const seen = new Set<string>();
@@ -166,87 +182,166 @@ export function assess(pack: ProfilePack, record: ProductRecord, options: Assess
             deduped.push(s);
           }
         }
-        const hold: HoldReason = { ruleId, property, ...(member ? { member } : {}), sources: deduped };
+        const hold: HoldReason = { ruleId, property, ...(member ? { member } : {}), ...(detail ? { detail } : {}), sources: deduped };
         holds.push(hold);
         entry = { hold, seen };
         holdIndex.set(hKey, entry);
-        return;
-      }
-      for (const s of sources) {
-        const sk = keyOf(s);
-        if (!entry.seen.has(sk)) {
-          entry.seen.add(sk);
-          entry.hold.sources.push(s);
+      } else {
+        for (const s of sources) {
+          const sk = keyOf(s);
+          if (!entry.seen.has(sk)) {
+            entry.seen.add(sk);
+            entry.hold.sources.push(s);
+          }
         }
       }
     };
-    if (info.status === "HOLD") add("RR-STANDING-HOLD", null, undefined, []);
 
-    const required: RequiredProperty[] = requiredIds.map((property) => {
-      const values = valuesOf(property);
-      const access = decide(pack, route, property);
-      if (access === "deny") {
-        // The recipient may not see it: the route holds, and only locations of the assertions are named, never a value.
-        // With no assertion there is no source to name; the hold is then both inaccessible and missing, so that the
-        // operator learns that supplying the value is not enough.
-        add("RR-INACCESSIBLE", property, undefined, values.flatMap((v) => v.assertions.map(sourceOf)));
-        if (!values.length) add("RR-MISSING", property, undefined, []);
-        return { property, state: "inaccessible", assured: false, flags: [] };
-      }
-      if (!values.length) {
-        add("RR-MISSING", property, undefined, []);
-        return { property, state: "missing", assured: false, flags: [] };
-      }
-      let assured = true;
-      for (const v of values) {
-        const sources = v.assertions.map(sourceOf);
-        if (v.status === "challenged") {
-          add("RR-CHALLENGED", property, v.member, sources);
-          assured = false;
-        }
-        const flagged = (flag: Flag) => effective(v).filter((a) => a.flags.includes(flag)).map(sourceOf);
-        for (const [flag, rule] of [["unknown-code", "RR-UNKNOWN-CODE"], ["draft-text", "RR-DRAFT-TEXT"]] as const) {
-          const at = flagged(flag);
-          if (at.length) {
-            add(rule, property, v.member, at);
-            assured = false;
-          }
-        }
-        // A value that rests on an evidence record without its digest is insufficiently assured, and so is the record itself.
-        const missingDigest = flagged("evidence-digest-missing");
-        if (missingDigest.length) {
-          add("RR-EVIDENCE-DIGEST", property, v.member, missingDigest);
-          assured = false;
-        }
-        for (const a of effective(v)) {
-          const evidence = a.details?.evidence_id ? evidenceById.get(a.details.evidence_id) : undefined;
-          const bare = evidence?.assertions.filter((e) => e.flags.includes("evidence-digest-missing")) ?? [];
-          if (bare.length) {
-            add("RR-EVIDENCE-DIGEST", property, v.member, [sourceOf(a), ...bare.map(sourceOf)]);
-            assured = false;
-          }
-        }
-      }
-      if (property === footprintProperty && footprint.state === "several") {
-        add("RR-SEVERAL-RESULTS", property, undefined, footprint.candidates.map((c) => c.source));
-        assured = false;
-      }
-      const challenged = values.some((v) => v.status === "challenged");
-      if (access === "derived" && !challenged) {
-        const result = derive(pack, record, property);
-        if (!result.ok) {
-          add("RR-DERIVED-UNDETERMINABLE", property, undefined, values.flatMap((v) => v.assertions.map(sourceOf)));
-          assured = false;
-        }
-      }
-      return {
-        property,
-        state: challenged ? "challenged" : "present",
-        assured,
-        flags: unique(values.flatMap((v) => v.assertions.flatMap((a) => a.flags))).sort(),
-      };
+    // 1. Standing hold (registry: TARGET_PROFILE_UNCONFIRMED)
+    if (info.status === "HOLD") {
+      add("RR-STANDING-HOLD", null, undefined, [], "TARGET_PROFILE_UNCONFIRMED");
+    }
+
+    // 2. Selected-record structural shape issues (REF-20, REF-21)
+    if (shapeInvalid) {
+      const shapeSources = record.values.flatMap((v) => effective(v).filter((a) => a.flags.includes("shape-issue")).map(sourceOf));
+      add("RR-SHAPE-ERROR", null, undefined, shapeSources, "selected_record_structure_invalid");
+    }
+
+    // 3. Mandatory S5-SEM-CONTEXT-rev2 17-field typed operation context validation (C9-05)
+    // If the caller passes `options.context`, the route's binding must be explicitly present (never defaulted).
+    // Otherwise derive the deterministic 17-field record context and validate all bindings against the pack.
+    const defaultCtx = buildOperationContextForRecord(pack, route, record);
+    const opCtx = options.context !== undefined ? options.context[route] : defaultCtx;
+    const pol = pack.contracts.profilePolicy;
+    const ctxRes = validateOperationContext(opCtx, {
+      route,
+      expectedProfileReleaseId: `${pol.id}@${pol.version}#sha256:${pack.contracts.digests.profilePolicy}`,
+      expectedRecipient: pol[route].recipient,
+      expectedPurpose: route === "registry" ? null : pol[route].purpose,
+      expectedOrganizationId: typeof defaultCtx.organization_id === "string" ? defaultCtx.organization_id : undefined,
+      expectedSubjectId: typeof defaultCtx.subject_id === "string" ? defaultCtx.subject_id : undefined,
+      expectedSubjectRevision: typeof defaultCtx.subject_revision === "string" ? defaultCtx.subject_revision : undefined,
+      expectedProductGroupId: typeof defaultCtx.product_group_id === "string" ? defaultCtx.product_group_id : undefined,
+      expectedChainNodeId: typeof defaultCtx.chain_node_id === "string" ? defaultCtx.chain_node_id : undefined,
     });
+    if (!ctxRes.ok) {
+      add("RR-CONTEXT-UNRESOLVED", null, undefined, [], `${ctxRes.code}: ${ctxRes.issues.join(", ")}`);
+    }
 
-    return { route, recipient: info.recipient, status: holds.length ? "on-hold" : "ready", required, holds, footprint };
+    const required: RequiredProperty[] = [];
+    for (const property of requiredIds) {
+      const access = decide(pack, route, property);
+      const processingOk = isProcessingPermitted(pack, route, property);
+      const rawDeniedDirect = route === "customer" && directCustomerProps.has(property) && isRawDisclosureForbidden(pack, route, property);
+      // Extra required properties (negative route variant FC-PROHIBITED-DISCLOSURE) are inaccessible if matrix denies them
+      const extraDenied = extraReqs.has(property) && access === "deny";
+
+      const own = valuesOf(property);
+      if (!processingOk || rawDeniedDirect || extraDenied) {
+        const deniedSources = own.flatMap(effective).map(sourceOf);
+        required.push({ property, state: "inaccessible", assured: false, flags: [] });
+        add("RR-INACCESSIBLE", property, undefined, deniedSources, !processingOk ? "processing_not_permitted" : "required_raw_output_disclosure_denied");
+        if (own.length === 0) add("RR-MISSING", property, undefined, []);
+        continue;
+      }
+
+      if (own.length === 0) {
+        required.push({ property, state: "missing", assured: false, flags: [] });
+        add("RR-MISSING", property, undefined, []);
+        continue;
+      }
+
+      const assertions = own.flatMap(effective);
+      const flags = unique(assertions.flatMap((a) => a.flags));
+      const sources = assertions.map(sourceOf);
+
+      if (own.some((v) => v.status === "challenged")) {
+        required.push({ property, state: "challenged", assured: false, flags });
+        add("RR-CHALLENGED", property, undefined, sources);
+        continue;
+      }
+
+      let assured = true;
+      if (flags.includes("unknown-code")) {
+        assured = false;
+        add("RR-UNKNOWN-CODE", property, undefined, sources);
+      }
+      if (flags.includes("source-assurance-unaccepted") || flags.includes("evidence-digest-missing")) {
+        assured = false;
+        add("RR-EVIDENCE-DIGEST", property, undefined, sources, "source_state_not_accepted");
+      }
+      if (flags.includes("wrong-unit")) {
+        assured = false;
+        add("RR-SHAPE-ERROR", property, undefined, sources, "unit_incompatible");
+      }
+
+      // Footprint selection & compatibility (REF-11, REF-25)
+      if (property === footprintProperty && route === "customer") {
+        if (footprint.state === "several") {
+          assured = false;
+          add("RR-SEVERAL-RESULTS", property, undefined, footprint.candidates.map((c) => c.source));
+        } else if (footprint.state === "selected") {
+          const fpA = assertions[0]!;
+          const d = fpA.details ?? {};
+          const custPol = pack.contracts.profilePolicy.customer;
+          if (
+            d.method_ref !== custPol.expected_pcf_method ||
+            d.reference_unit !== custPol.expected_reference_unit ||
+            d.system_boundary !== custPol.expected_boundary ||
+            (d.reference_product && d.reference_product !== subjectRef)
+          ) {
+            assured = false;
+            add("RR-DERIVED-UNDETERMINABLE", property, undefined, sources, "footprint_semantics_or_subject_mismatch");
+          }
+        }
+      }
+
+      // Authorised text for requested language & subject (REF-17, REF-25)
+      if (property === narrativeProperty && route === "customer") {
+        const matching = assertions.filter(
+          (a) =>
+            a.details?.language === lang &&
+            a.details?.sector === "cross_sector_material_description" &&
+            a.details?.market === "EU" &&
+            a.details?.approval_state === "authorised_in_synthetic_fixture" &&
+            (!a.details?.subject_ref || a.details.subject_ref === subjectRef),
+        );
+        if (matching.length !== 1) {
+          assured = false;
+          const langSources = assertions.filter((a) => a.details?.language === lang).map(sourceOf);
+          add("RR-DRAFT-TEXT", property, undefined, langSources.length ? langSources : sources, "authorised_text_missing_or_ambiguous");
+        }
+      }
+
+      // Derived representations (DR-RECYCLED-TOTAL, DR-LEAD-SCREENING)
+      if (access === "derived") {
+        const dRes = derive(pack, record, property);
+        if (!dRes.ok) {
+          assured = false;
+          add("RR-DERIVED-UNDETERMINABLE", property, undefined, sources, dRes.reason);
+        }
+      }
+
+      required.push({ property, state: "present", assured, flags });
+    }
+
+    // Cross-check against referencePipeline when dppPayload is present so zero REF-01..REF-28 holds can slip through
+    if (record.dppPayload && route !== "registry" && holds.length === 0) {
+      const refCheck = exportReferenceRoute(record.dppPayload, pack.contracts, route, { language: lang });
+      if (refCheck.output.status === "HOLD") {
+        const detail = refCheck.diagnostics.map((d) => d.private_detail ?? d.kind).join("; ");
+        add("RR-DERIVED-UNDETERMINABLE", null, undefined, [], detail || "route_validation_failure");
+      }
+    }
+
+    return {
+      route,
+      recipient: info.recipient,
+      status: holds.length === 0 ? "RELEASED" : "HOLD",
+      required,
+      holds,
+      footprint,
+    };
   });
 }

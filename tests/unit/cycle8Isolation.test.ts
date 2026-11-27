@@ -13,7 +13,7 @@ import { firstInvalidUtf8, importErpCsv, importLabJson, MAX_IDENTIFIER_LENGTH } 
 import { startChild, type Child } from "../support/c8Child";
 import { sizedVariant } from "../../scripts/load.mjs";
 import { fixtureBytes } from "../support/fixtures";
-import { CLEAN, loadPack } from "../support/records";
+import { ACCEPTED_ERP, ACCEPTED_LAB, CLEAN, loadPack } from "../support/records";
 import { b64, get, headers, importBody, limitsWith, NO_RATE_PRESSURE, post, sleep, startC8Server, until, type C8Server } from "../support/c8Server";
 
 const dec = (b: Uint8Array) => new TextDecoder().decode(b);
@@ -38,8 +38,8 @@ function maxPairBody(key: string): string {
   const v = sizedVariant(4321, 20971520);
   return JSON.stringify({
     idempotencyKey: key,
-    erp: { name: "d03a-erp-extract.csv", type: "text/csv", base64: v.erp.toString("base64") },
-    lab: { name: "d03a-lab-assessment.json", type: "application/json", base64: v.lab.toString("base64") },
+    erp: { name: "erp-extract.csv", type: "text/csv", base64: v.erp.toString("base64") },
+    lab: { name: "lab-assessment.json", type: "application/json", base64: v.lab.toString("base64") },
   });
 }
 
@@ -51,7 +51,7 @@ const MAX_RECORD_SERVER: Parameters<typeof startC8Server>[0] = {
   patch: { coordinator: { server_record_max_bytes: 20971520, max_inflight_record_bytes: 2 * 20971520 } as never },
 };
 
-const OP = [{ sub: "op-1", roles: ["ACT-01" as const] }, { sub: "op-2", roles: ["ACT-01" as const] }, { sub: "admin-1", roles: ["ADMIN" as const] }];
+const OP = [{ sub: "op-1", roles: ["ACT-01" as const] }, { sub: "op-2", roles: ["ACT-01" as const] }, { sub: "admin-1", roles: ["ACT-19" as const] }];
 
 describe("1. worker isolation of ingress (D8-10)", () => {
   const MAX_LAB = 10 * 1024 * 1024;
@@ -100,7 +100,7 @@ describe("1. worker isolation of ingress (D8-10)", () => {
     const before = s.state();
     // A file of the pinned record size (2 MiB) made only of line breaks: two million rows, each an array in the worker's heap. The worker's
     // heap is a quarter of the execution memory (32 MB here), so the parse runs out of memory long before any row limit is looked at.
-    const body = JSON.stringify({ idempotencyKey: "oom", erp: { name: "d03a-erp-extract.csv", type: "text/csv", base64: Buffer.from(`model\n${"\n".repeat(2 * 1024 * 1024 - 8)}`).toString("base64") } });
+    const body = JSON.stringify({ idempotencyKey: "oom", erp: { name: "erp-extract.csv", type: "text/csv", base64: Buffer.from(`model\n${"\n".repeat(2 * 1024 * 1024 - 8)}`).toString("base64") } });
     const res = await post(s, "/api/jobs/import", body);
     const answer = await json(res);
     expect(res.status).toBe(422);
@@ -270,8 +270,8 @@ describe("3. linear-time ingress at the maximum legal sizes (V1-01, V4-01)", () 
     for (const digits of [50_000, 1_000_000, 4_000_000]) {
       const zeros = "0".repeat(digits);
       const t = performance.now();
-      const e = await importErpCsv(pack, { bytes: enc(erp.replace(";2.0;", `;1.${zeros}1;`)), name: CLEAN.erp, type: "text/csv" });
-      const l = await importLabJson(pack, { bytes: enc(lab.replace('"value": 2.01,', `"value": 1.${zeros}1,`)), name: CLEAN.lab, type: "application/json" });
+      const e = await importErpCsv(pack, { bytes: enc(erp.replace(",1.50,", `,1.${zeros}1,`)), name: CLEAN.erp, type: "text/csv" });
+      const l = await importLabJson(pack, { bytes: enc(lab.replace('"value": 1.49,', `"value": 1.${zeros}1,`)), name: CLEAN.lab, type: "application/json" });
       const ms = performance.now() - t;
       // a CSV cell is a field, and a field is at most 2000 characters (R2-01): the cell is refused for its length; a JSON number is not a string and is refused for its precision
       expect(e.ok ? [] : e.errors.map((x) => x.code), `erp ${digits}`).toContain("field-too-long");
@@ -284,7 +284,7 @@ describe("3. linear-time ingress at the maximum legal sizes (V1-01, V4-01)", () 
     const pack = await loadPack();
     const erp = dec(fixtureBytes("n", CLEAN.erp));
     const t = performance.now();
-    const e = await importErpCsv(pack, { bytes: enc(erp.replace(";2.0;", `;${"1" + "0".repeat(9_000_000)};`)), name: CLEAN.erp, type: "text/csv" });
+    const e = await importErpCsv(pack, { bytes: enc(erp.replace(",1.50,", `,${"1" + "0".repeat(9_000_000)},`)), name: CLEAN.erp, type: "text/csv" });
     expect(e.ok).toBe(false);
     expect(performance.now() - t).toBeLessThan(2000);
   });
@@ -297,11 +297,11 @@ describe("4. identifier hygiene (V4-03)", () => {
     const erp = dec(fixtureBytes("n", CLEAN.erp));
     const lab = dec(fixtureBytes("n", CLEAN.lab));
     for (const ch of BAD) {
-      const e = await importErpCsv(pack, { bytes: enc(erp.replace("DEMO-PM", `DEMO${ch}-PM`)), name: CLEAN.erp, type: "text/csv" });
+      const e = await importErpCsv(pack, { bytes: enc(erp.replace("ST-LOT-2026-001", `ST${ch}-LOT-2026-001`)), name: CLEAN.erp, type: "text/csv" });
       expect(e.ok, `erp U+${ch.charCodeAt(0).toString(16)}`).toBe(false);
       expect(e.ok ? [] : e.errors.map((x) => x.code)).toContain("unsafe-identifier");
       expect(JSON.stringify(e)).not.toContain(ch);
-      const l = await importLabJson(pack, { bytes: enc(lab.replace('"batch_id": "B-2026-0417"', `"batch_id": "B-2026${ch}-0417"`)), name: CLEAN.lab, type: "application/json" });
+      const l = await importLabJson(pack, { bytes: enc(lab.replace('"batch_id": "ST-LOT-2026-001"', `"batch_id": "ST${ch}-LOT-2026-001"`)), name: CLEAN.lab, type: "application/json" });
       expect(l.ok ? [] : l.errors.map((x) => x.code), `lab U+${ch.charCodeAt(0).toString(16)}`).toContain("unsafe-identifier");
       expect(JSON.stringify(l)).not.toContain(ch);
     }
@@ -317,20 +317,20 @@ describe("4. identifier hygiene (V4-03)", () => {
       ["U+2028", "\u2028"], ["U+2029", "\u2029"], ["U+E000", "\ue000"], ["lone surrogate", "\ud800"],
     ];
     for (const [name, ch] of names) {
-      const quoted = ch === "\u2028" || ch === "\u2029" ? `"DEMO${ch}-PM"` : `DEMO${ch}-PM`;
-      const e = await importErpCsv(pack, { bytes: enc(erp.replace("DEMO-PM", quoted)), name: CLEAN.erp, type: "text/csv" });
+      const quoted = ch === "\u2028" || ch === "\u2029" ? `"ST${ch}-LOT-2026-001"` : `ST${ch}-LOT-2026-001`;
+      const e = await importErpCsv(pack, { bytes: enc(erp.replace("ST-LOT-2026-001", quoted)), name: CLEAN.erp, type: "text/csv" });
       expect(e.ok, `erp ${name}`).toBe(false);
-      const l = await importLabJson(pack, { bytes: enc(lab.replace('"batch_id": "B-2026-0417"', `"batch_id": "B-2026${ch}-0417"`)), name: CLEAN.lab, type: "application/json" });
+      const l = await importLabJson(pack, { bytes: enc(lab.replace('"batch_id": "ST-LOT-2026-001"', `"batch_id": "ST${ch}-LOT-2026-001"`)), name: CLEAN.lab, type: "application/json" });
       expect(l.ok, `lab ${name}`).toBe(false);
     }
     // look-alike letters and compatibility forms in the batch identifier
     for (const [name, letter] of [["full-width B (not its own NFKC form)", "\uff22"], ["Cyrillic Ve", "\u0412"]] as const) {
-      const e = await importErpCsv(pack, { bytes: enc(erp.replace("B-2026-0417", `${letter}-2026-0417`)), name: CLEAN.erp, type: "text/csv" });
+      const e = await importErpCsv(pack, { bytes: enc(erp.replace("ST-LOT-2026-001", `${letter}-LOT-2026-001`)), name: CLEAN.erp, type: "text/csv" });
       expect(e.ok ? [] : e.errors.map((x) => x.code), `erp ${name}`).toContain("unsafe-identifier");
-      const l = await importLabJson(pack, { bytes: enc(lab.replace('"batch_id": "B-2026-0417"', `"batch_id": "${letter}-2026-0417"`)), name: CLEAN.lab, type: "application/json" });
+      const l = await importLabJson(pack, { bytes: enc(lab.replace('"batch_id": "ST-LOT-2026-001"', `"batch_id": "${letter}-LOT-2026-001"`)), name: CLEAN.lab, type: "application/json" });
       expect(l.ok ? [] : l.errors.map((x) => x.code), `lab ${name}`).toContain("unsafe-identifier");
     }
-    // plain ASCII, including an inner space of a pack code ("EN AW-5754"), is still accepted
+    // plain ASCII is still accepted
     expect((await importErpCsv(pack, { bytes: fixtureBytes("n", CLEAN.erp), name: CLEAN.erp, type: "text/csv" })).ok).toBe(true);
   });
 
@@ -339,24 +339,29 @@ describe("4. identifier hygiene (V4-03)", () => {
     const erp = dec(fixtureBytes("n", CLEAN.erp));
     const lab = dec(fixtureBytes("n", CLEAN.lab));
     const name = (n: number) => "Aluminium sheet ".repeat(Math.ceil(n / 16)).slice(0, n).trim().padEnd(n, "x");
-    const withName = (n: number) => importErpCsv(pack, { bytes: enc(erp.replace("Aluminium sheet EN AW-5754 H111, 2.0 mm", name(n))), name: CLEAN.erp, type: "text/csv" });
+    const withName = (n: number) => importErpCsv(pack, { bytes: enc(erp.replace("Stand-in 5754 aluminium sheet", name(n))), name: CLEAN.erp, type: "text/csv" });
     expect((await withName(2000)).ok).toBe(true);
     const over = await withName(2001);
     expect(over.ok ? [] : over.errors.map((x) => x.code)).toEqual(["field-too-long"]);
     expect(JSON.stringify(over)).not.toContain("Aluminium sheet Aluminium");
-    const withMethod = (n: number) => importLabJson(pack, { bytes: enc(lab.replace('"method": "EN 485-4 thickness measurement"', `"method": "${name(n)}"`)), name: CLEAN.lab, type: "application/json" });
-    expect((await withMethod(2000)).ok).toBe(true);
-    const labOver = await withMethod(2001);
+    const withDesc = (n: number) =>
+      importLabJson(pack, {
+        bytes: enc(lab.replace('"description": "Stand-in dimension check; no test carried out"', `"description": "${name(n)}"`)),
+        name: CLEAN.lab,
+        type: "application/json",
+      });
+    expect((await withDesc(2000)).ok).toBe(true);
+    const labOver = await withDesc(2001);
     expect(labOver.ok ? [] : labOver.errors.map((x) => x.code)).toEqual(["field-too-long"]);
-    const key = await importLabJson(pack, { bytes: enc(lab.replace('"observations": [', `"${"k".repeat(2001)}": 1, "observations": [`)), name: CLEAN.lab, type: "application/json" });
+    const key = await importLabJson(pack, { bytes: enc(lab.replace('"methods": [', `"${"k".repeat(2001)}": 1, "methods": [`)), name: CLEAN.lab, type: "application/json" });
     expect(key.ok ? [] : key.errors.map((x) => x.code)).toEqual(["field-too-long"]);
   });
 
   it("refuses zero-width characters in the middle of an identifier too", async () => {
     const pack = await loadPack();
     const erp = dec(fixtureBytes("n", CLEAN.erp));
-    for (const ch of ["​", "‌", "‍", "﻿"]) {
-      const e = await importErpCsv(pack, { bytes: enc(erp.replace("DEMO-PM", `DEMO${ch}-PM`)), name: CLEAN.erp, type: "text/csv" });
+    for (const ch of ["\u200b", "\u200c", "\u200d", "\ufeff"]) {
+      const e = await importErpCsv(pack, { bytes: enc(erp.replace("ST-LOT-2026-001", `ST${ch}-LOT-2026-001`)), name: CLEAN.erp, type: "text/csv" });
       expect(e.ok).toBe(false);
     }
   });
@@ -365,14 +370,14 @@ describe("4. identifier hygiene (V4-03)", () => {
     const pack = await loadPack();
     expect(MAX_IDENTIFIER_LENGTH).toBe(128);
     const erp = dec(fixtureBytes("n", CLEAN.erp));
-    const ok = await importErpCsv(pack, { bytes: enc(erp.replace("B-2026-0417", "B".repeat(128))), name: CLEAN.erp, type: "text/csv" });
+    const ok = await importErpCsv(pack, { bytes: enc(erp.replace("ST-LOT-2026-001", "B".repeat(128))), name: CLEAN.erp, type: "text/csv" });
     expect(ok.ok).toBe(true);
-    const long = await importErpCsv(pack, { bytes: enc(erp.replace("B-2026-0417", "B".repeat(129))), name: CLEAN.erp, type: "text/csv" });
+    const long = await importErpCsv(pack, { bytes: enc(erp.replace("ST-LOT-2026-001", "B".repeat(129))), name: CLEAN.erp, type: "text/csv" });
     expect(long.ok ? [] : long.errors.map((x) => x.code)).toContain("unsafe-identifier");
-    for (const f of ["d03a-erp-extract.csv", "erp-missing-recycled-content.csv", "erp-unknown-company-code.csv"]) {
+    for (const f of ACCEPTED_ERP) {
       expect((await importErpCsv(pack, { bytes: fixtureBytes("n", f), name: f, type: "text/csv" })).ok, f).toBe(true);
     }
-    for (const f of ["d03a-lab-assessment.json", "lab-conflicting-alloy.json", "lab-two-footprints.json", "lab-evidence-digest-missing.json"]) {
+    for (const f of ACCEPTED_LAB) {
       expect((await importLabJson(pack, { bytes: fixtureBytes("n", f), name: f, type: "application/json" })).ok, f).toBe(true);
     }
   });
@@ -420,7 +425,7 @@ describe("5. cancel authorisation and record per run (V1-03, V1-05)", () => {
 
 describe("6. metrics visibility, route template and fixed error bodies", () => {
   it("only an ADMIN sees the per-domain split; an AUDITOR sees totals only (V2-04)", async () => {
-    const s = await start({ mode: "oidc", domains: ["tenant-b"], users: [{ sub: "admin-1", roles: ["ADMIN"] }, { sub: "aud-1", roles: ["AUDITOR"] }, { sub: "op-b", roles: ["ACT-01"], domain: "tenant-b" }], extra: { testHooks: { stageHook: async (st) => { if (st === "received") await sleep(400); } } } });
+    const s = await start({ mode: "oidc", domains: ["tenant-b"], users: [{ sub: "admin-1", roles: ["ACT-19"] }, { sub: "aud-1", roles: ["ACT-17"] }, { sub: "op-b", roles: ["ACT-01"], domain: "tenant-b" }], extra: { testHooks: { stageHook: async (st) => { if (st === "received") await sleep(400); } } } });
     const pending = fetch(`${s.baseUrl}/api/jobs/import`, { method: "POST", headers: headers(s.token("op-b"), { "X-Security-Domain": "tenant-b" }), body: importBody({ key: "tb" }) });
     await sleep(150);
     const admin = await json(await get(s, "/api/admin/metrics", s.token("admin-1")));
@@ -449,7 +454,7 @@ describe("6. metrics visibility, route template and fixed error bodies", () => {
 
   it("409, 404 and 400 bodies from the stores are fixed text and echo no id, version, digest, path or role (F3)", async () => {
     const CAN = "CANARY-f3-zz9";
-    const s = await start({ mode: "oidc", users: [{ sub: "admin-1", roles: ["ADMIN"] }, { sub: "op-1", roles: ["ACT-01"] }] });
+    const s = await start({ mode: "oidc", users: [{ sub: "admin-1", roles: ["ACT-19"] }, { sub: "op-1", roles: ["ACT-01"] }] });
     const [op, admin] = [s.token("op-1"), s.token("admin-1")];
     const imp = await json(await post(s, "/api/jobs/import", importBody({ key: "f3" }), op));
     const { model, batch } = imp.snapshot;

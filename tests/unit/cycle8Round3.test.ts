@@ -23,7 +23,7 @@ afterEach(async () => {
 });
 
 const USERS = [
-  { sub: "admin-1", roles: ["ADMIN" as const] },
+  { sub: "admin-1", roles: ["ACT-19" as const] },
   { sub: "op-1", roles: ["ACT-01" as const] },
 ];
 
@@ -45,12 +45,12 @@ describe("R3-01: linear assess() and buildLineage() on large evidence records", 
         erp: CLEAN.erp,
         lab: CLEAN.lab,
         editLab: (doc) => {
-          const base = doc.evidence[0];
+          const base = doc.recycled_content.evidence[0];
           for (let i = 0; i < 9000; i++) {
-            doc.evidence.push({
+            doc.recycled_content.evidence.push({
               ...base,
               evidence_id: `EV-R3-${i}`,
-              digest: missingDigest ? null : base.digest,
+              digest: missingDigest ? null : "a".repeat(64),
             });
           }
         },
@@ -82,17 +82,17 @@ describe("R3-01: linear assess() and buildLineage() on large evidence records", 
   });
 });
 
-describe("R3-02 & R3-03: identifier allow-list and length cap on corrections and lab.product.alloy", () => {
-  it("importLabJson refuses unsafe or padded lab.product.alloy while accepting EN AW-5754 (R3-03)", async () => {
+describe("R3-02 & R3-03: identifier allow-list and length cap on corrections and lab identifiers", () => {
+  it("importLabJson refuses unsafe or padded lab batch_id while accepting clean stand-in batch_id (R3-03)", async () => {
     const pack = await loadPack();
     const base = JSON.parse(new TextDecoder().decode(fixtureBytes("n", CLEAN.lab)));
     for (const [bad, code] of [
-      ["EN AW-5754\u061c\u0412", "unsafe-identifier"],
-      ["EN AW-5754\u202e", "unsafe-identifier"],
-      [" EN AW-5754", "padded-identifier"],
-      ["EN AW-5754 ", "padded-identifier"],
+      ["ST-LOT-2026-001\u061c\u0412", "unsafe-identifier"],
+      ["ST-LOT-2026-001\u202e", "unsafe-identifier"],
+      [" ST-LOT-2026-001", "padded-identifier"],
+      ["ST-LOT-2026-001 ", "padded-identifier"],
     ] as const) {
-      const mutated = { ...base, product: { ...base.product, alloy: bad } };
+      const mutated = { ...base, batch_id: bad };
       const res = await importLabJson(pack, { name: CLEAN.lab, type: "application/json", bytes: new TextEncoder().encode(JSON.stringify(mutated)) });
       expect(res.ok, bad).toBe(false);
       if (!res.ok) expect(res.errors.map((i) => i.code)).toContain(code);
@@ -108,15 +108,11 @@ describe("R3-02 & R3-03: identifier allow-list and length cap on corrections and
     const snap = ((await imp.json()) as { snapshot: { model: string; batch: string } }).snapshot;
     const baseUrl = `/api/records/${encodeURIComponent(snap.model)}/${encodeURIComponent(snap.batch)}/correct`;
 
-    // Find customer_article_no (identifier) and product_name_en (free text) from pack
-    const idCol = s.pack.inputs.erp.columns.find((c) => c.name === "customer_article_no")!;
+    // Find customer_material_code (identifier) and product_designation (free text) from pack
+    const idCol = s.pack.inputs.erp.columns.find((c) => c.name === "customer_material_code")!;
     const [idProp, idMember] = idCol.maps_to.split("/");
-    const nameCol = s.pack.inputs.erp.columns.find((c) => c.name === "product_name_en")!;
-    const nameProp = nameCol.maps_to;
-    const nameQual = nameCol.language;
-    const nameDeCol = s.pack.inputs.erp.columns.find((c) => c.name === "product_name_de")!;
-    const nameDeProp = nameDeCol.maps_to;
-    const nameDeQual = nameDeCol.language;
+    const nameCol = s.pack.inputs.erp.columns.find((c) => c.name === "product_designation")!;
+    const [nameProp, nameMember] = nameCol.maps_to.split("/");
 
     // 1. Confusable/bidi/overlong identifier is refused
     const badId = await post(
@@ -131,7 +127,7 @@ describe("R3-02 & R3-03: identifier allow-list and length cap on corrections and
     const badText = await post(
       s,
       baseUrl,
-      JSON.stringify({ property: nameProp, qualifier: nameQual, raw: "W".repeat(MAX_TEXT_FIELD_CHARS + 1), reason: "too long" }),
+      JSON.stringify({ property: nameProp, member: nameMember, raw: "W".repeat(MAX_TEXT_FIELD_CHARS + 1), reason: "too long" }),
       s.token("op-1"),
     );
     expect(badText.status).toBe(400);
@@ -141,7 +137,7 @@ describe("R3-02 & R3-03: identifier allow-list and length cap on corrections and
     const badAlloy = await post(
       s,
       baseUrl,
-      JSON.stringify({ property: alloyProp, raw: "EN AW-5754\u0412", reason: "confusable alloy" }),
+      JSON.stringify({ property: alloyProp, member: "FLD-DesignationRef-designation", raw: "5754\u0412", reason: "confusable alloy" }),
       s.token("op-1"),
     );
     expect(badAlloy.status).toBe(400);
@@ -150,7 +146,7 @@ describe("R3-02 & R3-03: identifier allow-list and length cap on corrections and
     const okDe = await post(
       s,
       baseUrl,
-      JSON.stringify({ property: nameDeProp, qualifier: nameDeQual, raw: "Aluminiumblech geprüfte Qualität, 2.0 mm", reason: "valid German text" }),
+      JSON.stringify({ property: nameProp, member: nameMember, raw: "Aluminiumblech geprüfte Qualität, 2.0 mm", reason: "valid German text" }),
       s.token("op-1"),
     );
     expect(okDe.status).toBe(200);

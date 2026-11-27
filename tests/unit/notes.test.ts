@@ -46,7 +46,7 @@ describe.runIf(existsSync("docs/operator/install-notes.md"))("install notes", ()
   });
 
   it("states the sha256 of the three outputs of the sample run, as the golden files have them", () => {
-    for (const route of ["customer-pdf", "erp-staging-csv", "registry-prep-json"]) expect(notes, route).toContain(golden[route]);
+    for (const route of ["customer", "internal", "registry"]) expect(notes, route).toContain(golden[route]);
   });
 
   it("says how to reset, and what the demonstrator does not do", () => {

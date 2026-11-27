@@ -202,9 +202,9 @@ const makeToken = (sub: string, overrides: Partial<SimToken> = {}): SimToken => 
 describe("Layer 2 Cycle 7 deterministic contract simulator (P03 + P04)", () => {
   it("calibrates field-level customer PEP against N disclosure matrix (no denied/raw-derived fields leak)", async () => {
     const rec = await recordFor(pack, CLEAN);
-    const cust = project(pack, rec, "customer-pdf");
-    const denied = pack.properties.filter((p) => decide(pack, "customer-pdf", p.id) === "deny").map((p) => p.id);
-    const derived = pack.properties.filter((p) => decide(pack, "customer-pdf", p.id) === "derived").map((p) => p.id);
+    const cust = project(pack, rec, "customer");
+    const denied = pack.properties.filter((p) => decide(pack, "customer", p.id) === "deny").map((p) => p.id);
+    const derived = pack.properties.filter((p) => decide(pack, "customer", p.id) === "derived").map((p) => p.id);
     expect(denied.length).toBeGreaterThanOrEqual(2);
     expect(derived.length).toBeGreaterThanOrEqual(2);
     expect(cust.values.some((v) => denied.includes(v.property))).toBe(false);
@@ -237,7 +237,7 @@ describe("Layer 2 Cycle 7 deterministic contract simulator (P03 + P04)", () => {
 
   it("enforces deployment surface separation between internal and customer listeners (C7-03)", () => {
     const custSurface = new Cycle7ContractSimulator("https://idp.example.test", "dpp-suite-api", "customer");
-    custSurface.upsertUser("admin-1", ["ADMIN", "ACT-01", "ACT-06"]);
+    custSurface.upsertUser("admin-1", ["ACT-19", "ACT-01", "ACT-06"]);
     const tok = makeToken("admin-1");
     expect(custSurface.authorize(tok, "record-read-customer", NOW).surface).toBe("customer");
     expect(custSurface.authorize(tok, "release-customer", NOW).surface).toBe("customer");
@@ -251,8 +251,8 @@ describe("Layer 2 Cycle 7 deterministic contract simulator (P03 + P04)", () => {
 
   it("enforces four-eyes config release & rollback and drop-one-input contract tightness (C7-04)", () => {
     const sim = new Cycle7ContractSimulator("https://idp.example.test", "dpp-suite-api");
-    sim.upsertUser("curator-a", ["CURATOR"]);
-    sim.upsertUser("approver-b", ["ADMIN"]);
+    sim.upsertUser("curator-a", ["ACT-20"]);
+    sim.upsertUser("approver-b", ["ACT-19"]);
     const curTok = makeToken("curator-a");
     const appTok = makeToken("approver-b");
 

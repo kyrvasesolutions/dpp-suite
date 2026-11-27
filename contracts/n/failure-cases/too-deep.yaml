@@ -2,5 +2,5 @@ id: FC-TOO-DEEP
 class: JSON nested past the limit
 criterion: C5-04
 input: The laboratory file holds a value nested deeper than the declared depth limit.
-expected: Rejected at stage "parse" with the error too-deep, checked inside the strict parser; no output.
+expected: Rejected at stage "parse" with too-deep (import outcome REJECT); no output.
 fixture: fixtures/n/lab-too-deep.json

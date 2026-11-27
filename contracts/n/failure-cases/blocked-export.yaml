@@ -1,6 +1,6 @@
 id: FC-BLOCKED-EXPORT
-class: blocked export
-criterion: C3-03
-input: A required property of a route is missing.
-expected: The route holds; the hold names the property, the rule and the source; no output file is produced for that route.
-fixture: fixtures/n/erp-missing-recycled-content.csv
+class: missing required nominal thickness
+criterion: C4-02
+input: Nominal thickness is blank in the ERP extract.
+expected: Missing value stays null; customer and internal routes are HOLD; no invented value.
+fixture: fixtures/n/erp-missing-thickness.csv

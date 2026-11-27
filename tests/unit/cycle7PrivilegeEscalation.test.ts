@@ -50,10 +50,10 @@ beforeAll(async () => {
   initialReleaseId = initial.releaseId;
 
   const grants = new GrantStore(db, undefined, { now: () => NOW });
-  grants.upsertUser({ sub: "sole-admin", displayName: "Sole Admin", roles: ["ADMIN"], actorSub: "bootstrap", reason: "Initial sole admin" });
+  grants.upsertUser({ sub: "sole-admin", displayName: "Sole Admin", roles: ["ACT-19"], actorSub: "bootstrap", reason: "Initial sole admin" });
   grants.upsertUser({ sub: "op-1", displayName: "Operator", roles: ["ACT-01"], actorSub: "sole-admin", reason: "Seed operator" });
   grants.upsertUser({ sub: "cust-1", displayName: "Customer", roles: ["ACT-06"], actorSub: "sole-admin", reason: "Seed customer" });
-  grants.upsertUser({ sub: "cur-1", displayName: "Curator 1", roles: ["CURATOR"], actorSub: "sole-admin", reason: "Seed curator" });
+  grants.upsertUser({ sub: "cur-1", displayName: "Curator 1", roles: ["ACT-20"], actorSub: "sole-admin", reason: "Seed curator" });
 
   const oidcServer = createDppServer({
     db,
@@ -140,11 +140,11 @@ describe("Cycle 7 AT-X privilege-escalation & token-forgery resistance", () => {
     const curTok = idp.signRs256({ sub: "cur-1" });
     const adminTok = idp.signRs256({ sub: "sole-admin" });
 
-    // Operator cannot self-escalate to ADMIN
+    // Operator cannot self-escalate to ACT-19
     const selfEsc = await fetch(`${baseUrl}/api/admin/users/op-1/roles`, {
       method: "POST",
       headers: { Authorization: `Bearer ${opTok}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ role: "ADMIN", reason: "Escalation attempt" }),
+      body: JSON.stringify({ role: "ACT-19", reason: "Escalation attempt" }),
     });
     expect(selfEsc.status).toBe(403);
 
@@ -162,7 +162,7 @@ describe("Cycle 7 AT-X privilege-escalation & token-forgery resistance", () => {
         await fetch(`${localDevUrl}/api/admin/users`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sub: "rogue", displayName: "Rogue", roles: ["ADMIN"], reason: "Local escalation" }),
+          body: JSON.stringify({ sub: "rogue", displayName: "Rogue", roles: ["ACT-19"], reason: "Local escalation" }),
         })
       ).status,
     ).toBe(403);
@@ -181,11 +181,11 @@ describe("Cycle 7 AT-X privilege-escalation & token-forgery resistance", () => {
     expect(() => createDppServer({ db, pack, host: "192.168.1.50", authMode: "local-dev" })).toThrow(/non-loopback/i);
     expect(() => createDppServer({ db, pack, authMode: "oidc" })).toThrow(/OIDC configuration/i);
 
-    // Last active ADMIN cannot revoke own ADMIN role or deactivate self
+    // Last active ACT-19 cannot revoke own ACT-19 role or deactivate self
     const revokeLast = await fetch(`${baseUrl}/api/admin/users/sole-admin/roles/revoke`, {
       method: "POST",
       headers: { Authorization: `Bearer ${adminTok}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ role: "ADMIN", reason: "Accidental lockout" }),
+      body: JSON.stringify({ role: "ACT-19", reason: "Accidental lockout" }),
     });
     expect(revokeLast.status).toBe(409);
     expect(((await revokeLast.json()) as { code: string }).code).toBe("last-admin-protected");
@@ -281,7 +281,7 @@ describe("Cycle 7 AT-X privilege-escalation & token-forgery resistance", () => {
     // Fail-closed clock tolerance / nowSec NaN and unrecognized surface
     expect(() => new OidcVerifier({ ...idp.oidcConfig, clockToleranceSec: Number.NaN })).toThrow(/finite/i);
     expect(() => new OidcVerifier(idp.oidcConfig).verifyToken(adminTok, Number.NaN)).toThrow(/finite/i);
-    expect(evaluateRoleAction({ roles: ["ADMIN"], surface: "Customer" as never }, "role-manage")).toMatchObject({
+    expect(evaluateRoleAction({ roles: ["ACT-19"], surface: "Customer" as never }, "role-manage")).toMatchObject({
       permitted: false,
       deniedBy: "surface",
     });

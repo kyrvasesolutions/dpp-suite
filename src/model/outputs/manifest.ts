@@ -40,6 +40,7 @@ export const ManifestSchema = z.object({
       inputs: z.array(Pin),
       routes: z.array(Pin),
       policy: z.array(Pin),
+      contracts: z.array(Pin),
     }),
   }),
   inputs: z.array(z.object({ role: z.enum(["erp", "lab", "correction"]), name: z.string(), sha256: Sha })),
@@ -50,7 +51,7 @@ export const ManifestSchema = z.object({
       fileName: z.string().nullable(),
       mediaType: z.string(),
       sha256: Sha.nullable(),
-      status: z.enum(["ready", "hold"]),
+      status: z.enum(["RELEASED", "HOLD"]),
       holds: z.array(Hold),
     }),
   ),
@@ -127,7 +128,7 @@ export async function buildManifest(input: ReleaseInput): Promise<ReleaseManifes
     if ("file" in o) {
       outputs.push({ route: o.route, fileName: o.file.fileName, mediaType: o.file.mediaType, sha256: await sha256Bytes(o.file.bytes), status: o.file.status, holds: o.file.holds.map(holdOf) });
       lineage.push(...o.file.lineage);
-    } else outputs.push({ route: o.route, fileName: null, mediaType: info.format, sha256: null, status: "hold", holds: o.refused.holds.map(holdOf) });
+    } else outputs.push({ route: o.route, fileName: null, mediaType: info.format, sha256: null, status: "HOLD", holds: o.refused.holds.map(holdOf) });
   }
   const body: Omit<ReleaseManifest, "substantiveDigest"> = {
     format: "dpp-release-manifest",
@@ -144,6 +145,7 @@ export async function buildManifest(input: ReleaseInput): Promise<ReleaseManifes
         inputs: pinsOf(pack, "inputs/"),
         routes: pinsOf(pack, "routes/"),
         policy: pinsOf(pack, "policy/"),
+        contracts: pinsOf(pack, "contracts/"),
       },
     },
     inputs: record.sources.map((s) => ({ role: s.role, name: s.name, sha256: s.sha256 })),

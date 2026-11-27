@@ -17,15 +17,14 @@ test("a clean pair is accepted through every stage and builds one record", async
   await expect(page.getByTestId("import-erp").locator('[data-state="passed"]')).toHaveCount(5);
   await expect(page.getByTestId("record-digest")).toHaveCount(1);
   await expect(page.locator('[data-testid="record-value"][data-status="challenged"]')).toHaveCount(0);
-  await expect(page.locator('[data-testid="record-value"][data-status="agreeing"]')).toHaveCount(3);
 });
 
 test("disagreeing sources show one challenged value with both assertions", async ({ page }) => {
-  await importSample(page, "Sources disagree on the alloy");
+  await importSample(page, "Conflicting pre-consumer recycled content (ERP vs laboratory)");
   const challenged = page.locator('[data-testid="record-value"][data-status="challenged"]');
   await expect(challenged).toHaveCount(1);
-  await expect(challenged).toContainText("EN AW-5754");
-  await expect(challenged).toContainText("EN AW-5083");
+  await expect(challenged).toContainText("15");
+  await expect(challenged).toContainText("13");
 });
 
 test("a faulty file shows its typed error, stage and location", async ({ page }) => {
@@ -34,17 +33,17 @@ test("a faulty file shows its typed error, stage and location", async ({ page })
   const error = page.getByTestId("import-error");
   await expect(error).toHaveAttribute("data-code", "decimal-comma");
   await expect(error).toHaveAttribute("data-stage", "semantics");
-  await expect(error).toContainText("column thickness_nominal_mm");
+  await expect(error).toContainText("column nominal_thickness_mm");
 });
 
-test("an unknown code is kept and flagged", async ({ page }) => {
-  await importSample(page, "Unknown company code");
-  await expect(page.locator('[data-flag="unknown-code"]').first()).toBeVisible();
-  await expect(page.getByText("SI99")).toBeVisible();
+test("an unknown company material code lookup is rejected with unknown-code", async ({ page }) => {
+  await importSample(page, "Unknown company material code");
+  await expect(page.getByTestId("import-erp")).toHaveAttribute("data-ok", "false");
+  await expect(page.getByTestId("import-error")).toHaveAttribute("data-code", "unknown-code");
 });
 
 test("a file chosen by the operator is imported the same way", async ({ page }) => {
-  await page.getByTestId("pick-erp").setInputFiles("fixtures/n/d03a-erp-extract.csv");
+  await page.getByTestId("pick-erp").setInputFiles("fixtures/n/erp-extract.csv");
   await expect(page.getByTestId("import-erp")).toHaveAttribute("data-ok", "true");
   await page.getByTestId("pick-lab").setInputFiles("fixtures/n/lab-duplicate-key.json");
   await expect(page.getByTestId("import-lab")).toHaveAttribute("data-ok", "false");

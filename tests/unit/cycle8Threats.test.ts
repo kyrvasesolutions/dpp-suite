@@ -371,13 +371,13 @@ describe("hostile CSV", () => {
   it("unbalanced quotes, embedded CR, LF and NUL, wrong delimiters and ragged rows are refused", async () => {
     const hostile: Array<[string, string]> = [
       ["unbalanced quote", `${header}\n"${firstRow}\n`],
-      ["embedded LF inside quotes", `${header}\n"a\nb";${firstRow}\n`],
-      ["embedded CR", `${header}\n${firstRow}\r;x\n`],
-      ["comma delimiter", `${header.replace(/;/g, ",")}\n${firstRow.replace(/;/g, ",")}\n`],
-      ["tab delimiter", `${header.replace(/;/g, "\t")}\n${firstRow.replace(/;/g, "\t")}\n`],
-      ["fewer cells", `${header}\n${firstRow.split(";").slice(0, 5).join(";")}\n`],
-      ["more cells", `${header}\n${firstRow};extra;cells\n`],
-      ["only delimiters", `${";".repeat(60)}\n${";".repeat(60)}\n`],
+      ["embedded LF inside quotes", `${header}\n"a\nb",${firstRow}\n`],
+      ["embedded CR", `${header}\n${firstRow}\r,x\n`],
+      ["semicolon delimiter", `${header.replace(/,/g, ";")}\n${firstRow.replace(/,/g, ";")}\n`],
+      ["tab delimiter", `${header.replace(/,/g, "\t")}\n${firstRow.replace(/,/g, "\t")}\n`],
+      ["fewer cells", `${header}\n${firstRow.split(",").slice(0, 5).join(",")}\n`],
+      ["more cells", `${header}\n${firstRow},extra,cells\n`],
+      ["only delimiters", `${",".repeat(60)}\n${",".repeat(60)}\n`],
     ];
     for (const [name, text] of hostile) {
       const r = await erp(text);
@@ -394,7 +394,7 @@ describe("hostile CSV", () => {
 
   it("oversize input is refused before parsing it all", async () => {
     const max = pack.policy.limits.max_file_bytes;
-    const big = `${header}\n${firstRow.replace("SI01", "S".repeat(max + 1024))}\n`;
+    const big = `${header}\n${firstRow.replace("ST-MFR-01", "S".repeat(max + 1024))}\n`;
     const r = await erp(big);
     expect(r.ok).toBe(false);
     expect(r.ok ? [] : r.errors.map((e) => e.code)).toEqual(expect.arrayContaining([expect.stringMatching(/too-large|limit/)]));
@@ -443,23 +443,21 @@ describe("CSV formula injection", () => {
     expect(csvCell("normal", false)).toEqual({ cell: "normal", prefixed: false });
     expect(csvCell("5-3", false).prefixed).toBe(false);
     expect(csvCell("a=b", false).prefixed).toBe(false);
-    expect(csvCell("=1;2", false).cell).toBe(`"'=1;2"`);
+    expect(csvCell("=1,2", false).cell).toBe(`"'=1,2"`);
     expect(csvCell('=1"2', false).cell).toBe(`"'=1""2"`);
   });
 
   it("the ERP staging file has no unprefixed dangerous cell, whatever the lab file carries", async () => {
     const record = await recordFor(pack, {
       ...CLEAN,
+      editErp: (csv) => csv.replace(",004215,", ',"=HYPERLINK(""http://x"")",'),
       editLab: (d) => {
-        d.footprints[0].calculated_by = "=HYPERLINK(\"http://x\")";
-        d.footprints[0].method = "@SUM(1+1)";
-        d.footprints[0].evidence_id = "-2+3";
-        d.evidence[1].evidence_id = "-2+3";
+        d.lab_tests.lead.qualifier = "@SUM(1+1)";
       },
     });
     const f = buildErpCsv(pack, record);
-    expect(f.formulaPrefixedCells).toBeGreaterThanOrEqual(3);
-    const cells = f.text.split("\n").slice(0, 2).flatMap((l) => l.split(";"));
+    expect(f.formulaPrefixedCells).toBeGreaterThanOrEqual(2);
+    const cells = f.text.split("\n").slice(0, 2).flatMap((l) => l.split(","));
     for (const c of cells) expect(/^[=+\-@\t\r\uFF1D\uFF0B\uFF0D\uFF20]/.test(unquote(c)) && !/^-?\d+(\.\d+)?([eE][+-]?\d+)?$/.test(unquote(c)), c).toBe(false);
   });
 
@@ -516,7 +514,7 @@ describe("SQL injection literals round-trip", () => {
 
     // a correction with a hostile reason is stored literally (one line, no control characters)
     const { model, batch } = impBody.snapshot!;
-    const prop = pack.properties.find((p) => p.definitionRef.endsWith(":recycled-content"))!;
+    const prop = pack.properties.find((p) => p.definitionRef.endsWith("/declaredTotalRecycledContent"))!;
     const reason = "'; DROP TABLE records;-- \" OR 1=1 é";
     const corr = await post(`/api/records/${encodeURIComponent(model)}/${encodeURIComponent(batch)}/correct`, { property: prop.id, raw: "44", reason, expectedVersion: impBody.snapshot!.version });
     notServerError(corr, "correction");
@@ -546,7 +544,7 @@ describe("SQL injection literals round-trip", () => {
 
   it("an ERP file whose model and batch identifiers are SQL text is stored under those literal ids, or refused", async () => {
     const clean = dec(fixtureBytes("n", CLEAN.erp));
-    const evil = clean.replace("B-2026-0417", "B'||(SELECT 1)||'--").replace("PM-5754-H111-2000", "PM' OR '1'='1");
+    const evil = clean.replace("ST-LOT-2026-001", "B'||(SELECT 1)||'--").replace("STM004215", "PM' OR '1'='1");
     const schema = tables();
     const r = await postImport({ erp: { name: CLEAN.erp, type: "text/csv", base64: b64(evil) } });
     notServerError(r, "evil ids");

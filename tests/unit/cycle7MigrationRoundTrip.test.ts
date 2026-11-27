@@ -27,7 +27,7 @@ import type { PackSource, ProfilePack } from "../../src/model/profile";
 import { OPERATOR } from "../../src/model/recordRepository";
 import { fixtureBytes } from "../support/fixtures";
 import { buildPackageProposal } from "../support/oidc";
-import { CLEAN, loadPack } from "../support/records";
+import { CLEAN, loadPack, propertyBySlug } from "../support/records";
 import { TEST_SOFTWARE } from "../support/release";
 
 const tmpDir = mkdtempSync(join(tmpdir(), "dpp-c7-mig-"));
@@ -89,17 +89,17 @@ describe("Cycle 7 forward/backward migration checksum preservation on a producti
     const batch2ErpText = cleanErpText.replaceAll(batch, batch2);
     expect(batch2ErpText).not.toBe(cleanErpText);
 
-    const prop = pack.properties.find((p) => p.definitionRef.endsWith(":recycled-content"))!;
+    const propId = propertyBySlug(pack, "recycled-content");
     const c2 = runner.repository.correctRecordAtomic(
       pack,
-      { model, batch, property: prop.id, raw: "43", reason: "First production QA adjustment" },
+      { model, batch, property: propId, raw: "43", reason: "First production QA adjustment" },
       { actor: OPERATOR, expectedVersion: 1, timeEnvelope: resolveCallerTimeEnvelope(undefined, NOW) },
     );
     await runner.logCorrection(model, batch, c2.snapshot.version);
 
     const c3 = runner.repository.correctRecordAtomic(
       pack,
-      { model, batch, property: prop.id, raw: "44", reason: "Second production QA adjustment" },
+      { model, batch, property: propId, raw: "44", reason: "Second production QA adjustment" },
       { actor: OPERATOR, expectedVersion: 2, timeEnvelope: resolveCallerTimeEnvelope(undefined, NOW) },
     );
     await runner.logCorrection(model, batch, c3.snapshot.version);
@@ -147,25 +147,25 @@ describe("Cycle 7 forward/backward migration checksum preservation on a producti
     prodDb.backup(copyPath);
     prodDb.close();
 
-    // 2. Open production-like copy and run forward migration v5 -> v6
+    // 2. Open production-like copy and run forward migration v5 -> latest (v8)
     const copyDb = new SqliteAdapter({ path: copyPath });
     try {
       expect(currentMigrationVersion(copyDb)).toBe(5);
       expect(computeStoreChecksum(copyDb)).toBe(baselineChecksum);
 
-      migrateUp(copyDb, 6);
-      expect(currentMigrationVersion(copyDb)).toBe(6);
+      migrateUp(copyDb);
+      expect(currentMigrationVersion(copyDb)).toBe(8);
       expect(computeStoreChecksum(copyDb)).toBe(baselineChecksum);
 
-      // Populate Cycle 7 identity + multi-release predecessor chain in config_packages while on v6
+      // Populate Cycle 7/9 identity + multi-release predecessor chain in config_packages while on v8
       const grants = new GrantStore(copyDb, undefined, { now: () => NOW });
-      grants.upsertUser({ sub: "admin-1", displayName: "Admin", roles: ["ADMIN"], actorSub: "bootstrap", reason: "Migration test" });
+      grants.upsertUser({ sub: "admin-1", displayName: "Admin", roles: ["ACT-19"], actorSub: "bootstrap", reason: "Migration test" });
       const cfg = new ConfigReleaseStore(copyDb, undefined, { now: () => NOW });
       const initRel = await cfg.bootstrapActivePack(packSource, pack.id, pack.version);
       const nextProp = buildPackageProposal(packSource, {
         version: "1.1.0",
         predecessorReleaseId: initRel.releaseId,
-        note: "Predecessor chain test before v6->v5 rollback",
+        note: "Predecessor chain test before v8->v5 rollback",
         mutateFiles: (files) => {
           files["code-lists/TEMPER@1.0.0.csv"] = `${files["code-lists/TEMPER@1.0.0.csv"]}H14\n`;
         },
@@ -177,11 +177,11 @@ describe("Cycle 7 forward/backward migration checksum preservation on a producti
         copyDb.run("UPDATE config_packages SET release_id = NULL WHERE release_id = ?", initRel.releaseId),
       ).toThrow(/immutable|NOT NULL/i);
 
-      // Atomic refusal: rolling back past v5 (into v4, which drops retained triggers) fails atomically at v6!
+      // Atomic refusal: rolling back past v5 (into v4, which drops retained triggers) fails atomically at v8!
       expect(() => migrateDown(copyDb, 4)).toThrow(/retained or legal-hold/i);
-      expect(currentMigrationVersion(copyDb)).toBe(6);
+      expect(currentMigrationVersion(copyDb)).toBe(8);
 
-      // 3. Backward migration v6 -> v5 (with 2-release predecessor chain!): exact baseline checksum preserved
+      // 3. Backward migration v8 -> v5 (with 2-release predecessor chain!): exact baseline checksum preserved
       migrateDown(copyDb, 5);
       expect(currentMigrationVersion(copyDb)).toBe(5);
       expect(computeStoreChecksum(copyDb)).toBe(baselineChecksum);
@@ -191,9 +191,9 @@ describe("Cycle 7 forward/backward migration checksum preservation on a producti
       );
       expect(c7Tables).toHaveLength(0);
 
-      // 4. Re-forward migration v5 -> v6: exact baseline checksum STILL preserved, every record/blob intact
-      migrateUp(copyDb, 6);
-      expect(currentMigrationVersion(copyDb)).toBe(6);
+      // 4. Re-forward migration v5 -> v8: exact baseline checksum STILL preserved, every record/blob intact
+      migrateUp(copyDb);
+      expect(currentMigrationVersion(copyDb)).toBe(8);
       expect(computeStoreChecksum(copyDb)).toBe(baselineChecksum);
 
       const afterRunner = new ImportJobRunner(copyDb, pack, undefined, { now: () => NOW });
@@ -204,6 +204,66 @@ describe("Cycle 7 forward/backward migration checksum preservation on a producti
       expect(afterRunner.logStore.allSync()).toHaveLength(baselineLogCount);
     } finally {
       copyDb.close();
+    }
+  });
+
+  it("translates legacy ADMIN/CURATOR/AUDITOR role grants to ACT-19/ACT-20/ACT-17 across v7 -> v8 -> v7 -> v8 (C9-11)", () => {
+    const dbPath = join(tmpDir, "c9-roles-mig.sqlite");
+    const db = new SqliteAdapter({ path: dbPath });
+    try {
+      migrateUp(db, 7);
+      expect(currentMigrationVersion(db)).toBe(7);
+      const now = NOW;
+      for (const [sub, role] of [
+        ["u-admin", "ADMIN"],
+        ["u-curator", "CURATOR"],
+        ["u-auditor", "AUDITOR"],
+        ["u-op", "ACT-01"],
+      ] as const) {
+        db.run(
+          "INSERT INTO users(security_domain, sub, display_name, active, grant_epoch, created_at, updated_at) VALUES ('default', ?, ?, 1, 1, ?, ?)",
+          sub,
+          sub,
+          now,
+          now,
+        );
+        db.run(
+          "INSERT INTO role_grants(security_domain, sub, role, granted_by, granted_at) VALUES ('default', ?, ?, 'bootstrap', ?)",
+          sub,
+          role,
+          now,
+        );
+      }
+
+      migrateUp(db, 8);
+      expect(currentMigrationVersion(db)).toBe(8);
+      const v8Roles = db.query<{ sub: string; role: string }>("SELECT sub, role FROM role_grants ORDER BY sub");
+      expect(v8Roles).toEqual([
+        { sub: "u-admin", role: "ACT-19" },
+        { sub: "u-auditor", role: "ACT-17" },
+        { sub: "u-curator", role: "ACT-20" },
+        { sub: "u-op", role: "ACT-01" },
+      ]);
+      const audGrant = db.get<{ explicit_raw_grant: number }>(
+        "SELECT explicit_raw_grant FROM role_grants WHERE sub = 'u-auditor' AND role = 'ACT-17'",
+      )!;
+      expect(audGrant.explicit_raw_grant).toBe(0);
+
+      migrateDown(db, 7);
+      expect(currentMigrationVersion(db)).toBe(7);
+      const v7Roles = db.query<{ sub: string; role: string }>("SELECT sub, role FROM role_grants ORDER BY sub");
+      expect(v7Roles).toEqual([
+        { sub: "u-admin", role: "ADMIN" },
+        { sub: "u-auditor", role: "AUDITOR" },
+        { sub: "u-curator", role: "CURATOR" },
+        { sub: "u-op", role: "ACT-01" },
+      ]);
+
+      migrateUp(db, 8);
+      expect(currentMigrationVersion(db)).toBe(8);
+      expect(db.query<{ sub: string; role: string }>("SELECT sub, role FROM role_grants ORDER BY sub")).toEqual(v8Roles);
+    } finally {
+      db.close();
     }
   });
 });

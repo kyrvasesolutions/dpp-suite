@@ -1,8 +1,6 @@
 id: FC-PROHIBITED-DISCLOSURE
-class: prohibited disclosure
-criterion: C3-02
-also_tested_by:
-  - C3-03
-input: A route requires a property that the matrix denies to that route's recipient.
-expected: The route holds with reason "required but inaccessible to this recipient"; the value is never written to the output.
-fixture: fixtures/n/routes/customer-pdf-requires-denied.yaml
+class: prohibited raw disclosure on required customer field
+criterion: C3-05
+input: Route policy forbids raw disclosure of a required customer output field.
+expected: Customer route is HOLD (safe envelope); internal route remains RELEASED.
+fixture: fixtures/n/routes/customer-requires-denied.yaml

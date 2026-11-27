@@ -607,10 +607,10 @@ function allowlistHas(host: string, allowlist: string[]): boolean {
 // ---------------------------------------------------------------------------------------------
 
 export const C8_ACTIONS = {
-  /** The submitter (ACT-01, same `sub`) may cancel its own jobs; ADMIN may cancel any job. */
-  "job:cancel": { roles: ["ACT-01", "ADMIN"], ownJobsOnly: ["ACT-01"] },
-  /** Counters only, never values. */
-  "metrics:read": { roles: ["ADMIN", "AUDITOR"], ownJobsOnly: [] },
+  /** The submitter (ACT-01, same `sub`) may cancel its own jobs; ACT-19 (platform operator) may cancel any job. */
+  "job:cancel": { roles: ["ACT-01", "ACT-19"], ownJobsOnly: ["ACT-01"] },
+  /** Counters only, never values (ACT-19 platform operator and ACT-17 external auditor). */
+  "metrics:read": { roles: ["ACT-19", "ACT-17"], ownJobsOnly: [] },
 } as const satisfies Record<string, { roles: readonly string[]; ownJobsOnly: readonly string[] }>;
 
 export type C8Action = keyof typeof C8_ACTIONS;

@@ -134,7 +134,7 @@ function RecordReadiness({ profile, record }: { profile: ProfilePack; record: Pr
   }, [log, record, readiness]);
   const checks = useMemo(() => structuralChecks(profile, record), [profile, record]);
   const label = useMemo(() => new Map(profile.properties.map((p) => [p.id, p.labels.en])), [profile]);
-  const [viewRoute, setViewRoute] = useState<Route>("customer-pdf");
+  const [viewRoute, setViewRoute] = useState<Route>("customer");
   const projection = useMemo(() => project(profile, record, viewRoute), [profile, record, viewRoute]);
   const propertyName = (id: string | null) => (id === null ? "the route itself" : (label.get(id) ?? id));
 
@@ -186,7 +186,7 @@ function RouteCard({ readiness: r, profile, label }: { readiness: RouteReadiness
   return (
     <article className="import-file readiness-route" data-testid="route-status" data-route={r.route} data-state={r.status}>
       <h3>
-        {ROUTE_NAMES[r.route]} <span className="import-verdict">{r.status === "ready" ? "Ready" : "On hold"}</span>
+        {ROUTE_NAMES[r.route]} <span className="import-verdict">{r.status === "RELEASED" ? "RELEASED" : "HOLD"}</span>
       </h3>
       <p className="small hint">Recipient: {r.recipient}</p>
 
@@ -279,7 +279,8 @@ function RecipientView({ projection, label }: { projection: Projection; label: (
             <tr key={d.property} data-testid="recipient-derived" data-property={d.property}>
               <td>{label(d.property)}</td>
               <td>
-                {d.within ? "Within" : "Outside"} the limits ({d.basis})
+                {d.text}
+                <div className="small hint">{d.qualification}</div>
                 <div className="small hint">{[...new Set(d.sources.map((s) => `${s.role}, ${s.position}`))].join("; ")}</div>
               </td>
             </tr>

@@ -14,7 +14,7 @@ import { PolicyStore } from "../../server/store/policyStore";
 import { ConcurrencyConflictError } from "../../src/model/pContracts";
 import type { ProfilePack } from "../../src/model/profile";
 import { fixtureBytes } from "../support/fixtures";
-import { CLEAN, loadPack, text } from "../support/records";
+import { CLEAN, loadPack, propertyBySlug, text } from "../support/records";
 
 const tmpDirs: string[] = [];
 const mkDbPath = () => {
@@ -27,7 +27,7 @@ const enc = (s: string) => new TextEncoder().encode(s);
 
 function erpWithRecycled(pct: string): Uint8Array {
   const base = text(CLEAN.erp);
-  const mutated = base.replace(";62.0;", `;${pct};`);
+  const mutated = base.replace(",1.50,", `,${pct},`);
   expect(mutated).not.toBe(base);
   return enc(mutated);
 }
@@ -147,7 +147,7 @@ describe("Cycle 6 multi-operator concurrency and idempotency (C6-03)", () => {
 
       const erpA = fixtureBytes("n", CLEAN.erp);
       const labA = fixtureBytes("n", CLEAN.lab);
-      const origBatch = JSON.parse(text(CLEAN.lab)).product.batch_id as string;
+      const origBatch = JSON.parse(text(CLEAN.lab)).batch_id as string;
       const batchB = "B-2026-CONC-2";
       const erpB = enc(text(CLEAN.erp).replace(origBatch, batchB));
       const labB = enc(text(CLEAN.lab).replaceAll(origBatch, batchB));
@@ -213,10 +213,10 @@ describe("Cycle 6 multi-operator concurrency and idempotency (C6-03)", () => {
       ).rejects.toMatchObject({ name: "ConcurrencyConflictError", code: "idempotency-conflict" });
 
       // Stale correction rejected under optimistic locking while fresh expectedVersion succeeds
-      const prop = pack.properties.find((p) => p.definitionRef.endsWith(":recycled-content"))!;
+      const propId = propertyBySlug(pack, "recycled-content");
       const corr1 = runner.repository.correctRecordAtomic(
         pack,
-        { model: first.snapshot!.model, batch: first.snapshot!.batch, property: prop.id, raw: "45", reason: "Operator A correction" },
+        { model: first.snapshot!.model, batch: first.snapshot!.batch, property: propId, raw: "45", reason: "Operator A correction" },
         { expectedVersion: 1 },
       );
       expect(corr1.snapshot.version).toBe(2);
@@ -224,14 +224,14 @@ describe("Cycle 6 multi-operator concurrency and idempotency (C6-03)", () => {
       expect(() =>
         runner.repository.correctRecordAtomic(
           pack,
-          { model: first.snapshot!.model, batch: first.snapshot!.batch, property: prop.id, raw: "48", reason: "Operator B stale correction" },
+          { model: first.snapshot!.model, batch: first.snapshot!.batch, property: propId, raw: "48", reason: "Operator B stale correction" },
           { expectedVersion: 1 },
         ),
       ).toThrow(ConcurrencyConflictError);
 
       const corr2 = runner.repository.correctRecordAtomic(
         pack,
-        { model: first.snapshot!.model, batch: first.snapshot!.batch, property: prop.id, raw: "48", reason: "Operator B refreshed correction" },
+        { model: first.snapshot!.model, batch: first.snapshot!.batch, property: propId, raw: "48", reason: "Operator B refreshed correction" },
         { expectedVersion: 2 },
       );
       expect(corr2.snapshot.version).toBe(3);

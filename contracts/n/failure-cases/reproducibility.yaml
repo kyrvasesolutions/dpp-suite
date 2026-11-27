@@ -1,6 +1,6 @@
 id: FC-REPRODUCIBILITY
-class: reproducibility
-criterion: C4-04
-input: The same inputs and pinned contract versions are processed twice, on two machines.
-expected: All three outputs are canonically identical, and the release manifests list the same digests.
-fixture: fixtures/n/d03a-erp-extract.csv
+class: deterministic replay
+criterion: C4-05
+input: Same pinned inputs and contracts run twice.
+expected: Byte-identical customer PDF, internal CSV, RegistryRequest, DPPPayload, and substantive manifest digest.
+fixture: fixtures/n/erp-extract.csv

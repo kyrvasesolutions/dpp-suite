@@ -16,18 +16,18 @@ const sha = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
 async function current() {
   const { release } = await releaseFor();
   const file = (route: string) => release.files.find((f) => f.route === route)!;
-  const pdf = file("customer-pdf");
+  const pdf = file("customer");
   const text = {
-    "erp-staging.csv": new TextDecoder().decode(file("erp-staging-csv").bytes),
-    "registry-draft.json": new TextDecoder().decode(file("registry-prep-json").bytes),
+    "erp-staging.csv": new TextDecoder().decode(file("internal").bytes),
+    "registry-draft.json": new TextDecoder().decode(file("registry").bytes),
     // the manifest is compared without its generated time and role: those change on every run
     "release-manifest.json": release.manifestFile.substantiveText,
     "customer-sheet.txt": `${await pdfText(pdf.bytes)}\n`,
   };
   const digests = {
-    "customer-pdf": sha(pdf.bytes),
-    "erp-staging-csv": sha(file("erp-staging-csv").bytes),
-    "registry-prep-json": sha(file("registry-prep-json").bytes),
+    customer: sha(pdf.bytes),
+    internal: sha(file("internal").bytes),
+    registry: sha(file("registry").bytes),
     "release-manifest": release.manifestFile.substantiveDigest,
   };
   return { text, digests };
@@ -49,7 +49,7 @@ describe("golden files (AT-S)", () => {
 
   it("cites input digests that are the sha256 of the committed fixture files", () => {
     const manifest = JSON.parse(readFileSync(`${DIR}/release-manifest.json`, "utf8")) as { inputs: Array<{ name: string; sha256: string }>; lineage: Array<{ assertion: { file: string; sha256: string } }> };
-    expect(manifest.inputs.map((i) => i.name).sort()).toEqual(["d03a-erp-extract.csv", "d03a-lab-assessment.json"]);
+    expect(manifest.inputs.map((i) => i.name).sort()).toEqual(["erp-extract.csv", "lab-assessment.json"]);
     for (const i of manifest.inputs) expect(i.sha256, i.name).toBe(sha(readFileSync(`fixtures/n/${i.name}`)));
     for (const e of manifest.lineage) expect(e.assertion.sha256).toBe(sha(readFileSync(`fixtures/n/${e.assertion.file}`)));
   });
@@ -59,8 +59,8 @@ describe("golden files (AT-S)", () => {
     const json = JSON.parse(readFileSync(`${DIR}/registry-draft.json`, "utf8"));
     const manifest = JSON.parse(readFileSync(`${DIR}/release-manifest.json`, "utf8"));
     expect(csv.split("\n")).toHaveLength(3);
-    expect(json).toMatchObject({ status: "HOLD", submission: "never" });
-    expect(manifest.outputs.map((o: { route: string; status: string }) => `${o.route}:${o.status}`)).toEqual(["customer-pdf:ready", "erp-staging-csv:ready", "registry-prep-json:hold"]);
+    expect(json).toMatchObject({ status: "HOLD", submission: "never", code: "TARGET_PROFILE_UNCONFIRMED" });
+    expect(manifest.outputs.map((o: { route: string; status: string }) => `${o.route}:${o.status}`)).toEqual(["customer:RELEASED", "internal:RELEASED", "registry:HOLD"]);
     expect(manifest.software).toEqual({ name: "dpp-traceability", version: "0.0.0-golden", commit: "golden" });
   });
 });

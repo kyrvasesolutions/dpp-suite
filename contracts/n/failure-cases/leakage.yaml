@@ -1,9 +1,6 @@
 id: FC-LEAKAGE
-class: leakage
+class: confidential field leakage attempt
 criterion: C3-05
-also_tested_by:
-  - C4-01
-  - C5-04
-input: A field denied to the business customer in the actor/field matrix has a valid value.
-expected: The value is absent from the customer PDF and from every view shown for that recipient.
-fixture: fixtures/n/d03a-erp-extract.csv
+input: Baseline valid pair with restricted raw fields (Mg, evidence, Pb, internal conversion cost) and nested private canary.
+expected: Customer route withholds raw Mg, evidence, Pb, cost, and private nested fields; discloses only derived recycled_total_with_basis and lead_screening.
+fixture: fixtures/n/erp-extract.csv

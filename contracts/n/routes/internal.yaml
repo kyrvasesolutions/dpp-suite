@@ -1,0 +1,131 @@
+# Route internal. Synthetic public stand-in (renumbered IDs ALU-D101..ALU-D124, generic identifiers).
+# Generated automatically; do not edit by hand.
+id: internal
+version: 1.0.0
+recipient: ST-INTERNAL-TEAM
+purpose: synthetic_internal_staging
+format: text/csv
+target_contract: TARGET-INTERNAL-CSV-01
+mapping_contract: MAP-EXP-INTERNAL-01
+formula_safe_cells: required
+status: FROZEN
+fields:
+  - ALU-D101
+  - ALU-D104
+  - ALU-D110
+  - ALU-D111
+  - ALU-D112
+  - ALU-D113
+  - ALU-D114
+  - ALU-D122
+  - ALU-D123
+  - ALU-D124
+output:
+  items:
+    - step: MAP-ERP-001
+      role: field
+      property: ALU-D101
+      reads:
+        kind: value
+      csv:
+        name: product_model
+        header: product_model
+        format: text
+    - step: MAP-ERP-002
+      role: field
+      property: ALU-D104
+      reads:
+        kind: value
+      csv:
+        name: batch
+        header: batch
+        format: text
+    - step: MAP-ERP-003
+      role: field
+      property: ALU-D122
+      reads:
+        kind: value
+      csv:
+        name: customer_material_code
+        header: customer_material_code
+        format: text
+    - step: MAP-ERP-004
+      role: field
+      property: ALU-D110
+      reads:
+        kind: value
+      unit: mm
+      csv:
+        name: nominal_thickness_mm
+        header: nominal_thickness_mm
+        format: number
+    - step: MAP-ERP-005
+      role: field
+      property: ALU-D111
+      reads:
+        kind: value
+      unit: mm
+      csv:
+        name: measured_thickness_mm
+        header: measured_thickness_mm
+        format: number
+    - step: MAP-ERP-006
+      role: field
+      property: ALU-D112
+      reads:
+        kind: value
+      unit: mm
+      csv:
+        name: nominal_width_mm
+        header: nominal_width_mm
+        format: number
+    - step: MAP-ERP-007
+      role: field
+      property: ALU-D113
+      reads:
+        kind: value
+      unit: mm
+      csv:
+        name: nominal_length_mm
+        header: nominal_length_mm
+        format: number
+    - step: MAP-ERP-008
+      role: field
+      property: ALU-D114
+      reads:
+        kind: value
+      unit: "%"
+      csv:
+        name: magnesium_mass_percent
+        header: magnesium_mass_percent
+        format: number
+    - step: MAP-ERP-009
+      role: field
+      property: ALU-D123
+      reads:
+        kind: value
+      unit: mg/kg
+      csv:
+        name: lead_mg_per_kg
+        header: lead_mg_per_kg
+        format: number
+    - step: MAP-ERP-010
+      role: context
+      property: ALU-D123
+      reads:
+        kind: member
+        member: FLD-Measurement-qualifier
+      csv:
+        name: lead_qualifier
+        header: lead_qualifier
+        format: text
+    - step: MAP-ERP-011
+      role: field
+      property: ALU-D124
+      reads:
+        kind: value
+      unit: EUR/kg
+      csv:
+        name: internal_conversion_cost_eur_per_kg
+        header: internal_conversion_cost_eur_per_kg
+        format: number

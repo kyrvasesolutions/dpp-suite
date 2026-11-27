@@ -1,0 +1,24 @@
+{
+  "id": "MAP-EXP-REGISTRY-01",
+  "version": "1.0.0",
+  "direction": "export",
+  "source_contract": "REC-ALU-24-01",
+  "target_contract": "TARGET-EU-REGISTRY-PREPARATION-01",
+  "rules": [
+    {
+      "id": "MO-R01",
+      "target": "semantic_core_metadata_preview",
+      "selector": [
+        "ALU-D101",
+        "ALU-D102",
+        "ALU-D105"
+      ],
+      "operator": "registry_preparation",
+      "loss": "Stand-in: preview metadata only; no measurements, costs or evidence. Not a registration request."
+    }
+  ],
+  "preconditions": [
+    "stand-in: registration profile confirmed first; it is not"
+  ],
+  "failure": "Stand-in: always HOLD (TARGET_PROFILE_UNCONFIRMED); preview metadata is not a submission."
+}

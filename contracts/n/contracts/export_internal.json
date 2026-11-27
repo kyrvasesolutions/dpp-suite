@@ -1,0 +1,32 @@
+{
+  "id": "MAP-EXP-INTERNAL-01",
+  "version": "1.0.0",
+  "direction": "export",
+  "source_contract": "REC-ALU-24-01",
+  "target_contract": "TARGET-INTERNAL-CSV-01",
+  "rules": [
+    {
+      "id": "MO-I01",
+      "target": "internal_staging_row",
+      "selector": [
+        "ALU-D101",
+        "ALU-D104",
+        "ALU-D110",
+        "ALU-D111",
+        "ALU-D112",
+        "ALU-D113",
+        "ALU-D114",
+        "ALU-D122",
+        "ALU-D123",
+        "ALU-D124"
+      ],
+      "operator": "internal_csv",
+      "loss": "Stand-in: a flat selection for staging; everything else stays in the record and manifest. Not a full passport."
+    }
+  ],
+  "preconditions": [
+    "stand-in: internal recipient context given",
+    "stand-in: every field the route needs is accepted"
+  ],
+  "failure": "Stand-in: hold this route only when one of its own inputs fails."
+}

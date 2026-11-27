@@ -2,7 +2,8 @@
 /** Cycle 4: portable export and import of the central record (C4-08). */
 import { beforeAll, describe, expect, it } from "vitest";
 import { canonical, canonicalPretty, utf8 } from "../../src/model/canonical";
-import { CentralRecordError, exportCentralRecord, importCentralRecord, restoreCentralRecord } from "../../src/model/centralRecord";
+import { CentralRecordError, exportCentralRecord, exportDppPayload, importCentralRecord, restoreCentralRecord } from "../../src/model/centralRecord";
+import { buildRegistryJson } from "../../src/model/outputs/registryJson";
 import type { ProfilePack } from "../../src/model/profile";
 import { MemoryRepository, ORIGIN_IMPORTED, snapshotDigest, storeRecord, type Snapshot } from "../../src/model/recordRepository";
 import { sha256Hex } from "../../src/model/profile";
@@ -14,11 +15,11 @@ beforeAll(async () => {
   pack = await loadPack();
 });
 
-const withTemper = (t: string) => recordFor(pack, { ...CLEAN, editErp: (csv) => csv.replace(";H111;2.0;", `;${t};2.0;`) });
+const withWidth = (w: string) => recordFor(pack, { ...CLEAN, editErp: (csv) => csv.replace(",1250,", `,${w},`) });
 
 async function build(versions: number) {
   const repo = new MemoryRepository();
-  for (const t of ["H111", "H22", "H24"].slice(0, versions)) await storeRecord(repo, await withTemper(t));
+  for (const w of ["1250", "1510", "1520"].slice(0, versions)) await storeRecord(repo, await withWidth(w));
   const first = (await repo.records())[0];
   return { repo, ...first };
 }
@@ -104,8 +105,8 @@ describe("refusals", () => {
   it("does not merge a record that differs from what the target already holds", async () => {
     const a = await build(2);
     const b = new MemoryRepository();
-    await storeRecord(b, await withTemper("H111"));
-    await storeRecord(b, await withTemper("H24"));
+    await storeRecord(b, await withWidth("1250"));
+    await storeRecord(b, await withWidth("1520"));
     const imported = await importCentralRecord((await exportCentralRecord(a.repo, pack, a.model, a.batch)).bytes, pack);
     await expect(restoreCentralRecord(b, imported)).rejects.toThrow(/differs/);
     expect((await b.history(a.model, a.batch)).map((s) => s.record.values.length)).toHaveLength(2);
@@ -151,55 +152,76 @@ describe("re-checks on import: a file sealed again consistently is still checked
   });
 
   it("refuses a status that the assertions do not give, and a challenged flag that does not match", async () => {
-    await expect(importCentralRecord(await resealed((s) => (valueOf(s, "alloy-designation").status = "single")), pack)).rejects.toThrow(/status is single, the assertions make it agreeing/);
-    const conflict = { erp: CLEAN.erp, lab: "lab-conflicting-alloy.json" };
     await expect(
-      importCentralRecord(await resealed((s) => (valueOf(s, "alloy-designation").status = "agreeing"), conflict), pack),
+      importCentralRecord(await resealed((s) => (valueOf(s, "nominal-thickness").status = "agreeing")), pack),
+    ).rejects.toThrow(/status is agreeing, the assertions make it single/);
+    const conflict = { erp: CLEAN.erp, lab: "lab-conflicting-pre-consumer.json" };
+    await expect(
+      importCentralRecord(await resealed((s) => (valueOf(s, "pre-consumer-share").status = "agreeing"), conflict), pack),
     ).rejects.toThrow(/status is agreeing, the assertions make it challenged/);
     await expect(
-      importCentralRecord(await resealed((s) => valueOf(s, "alloy-designation").assertions.forEach((a) => (a.flags = a.flags.filter((f) => f !== "challenged"))), conflict), pack),
+      importCentralRecord(
+        await resealed((s) => valueOf(s, "pre-consumer-share").assertions.forEach((a) => (a.flags = a.flags.filter((f) => f !== "challenged"))), conflict),
+        pack,
+      ),
     ).rejects.toThrow(/challenged flag/);
   });
 
   it("refuses cleared or added flags", async () => {
-    const unknownCode = { erp: "erp-unknown-company-code.csv", lab: CLEAN.lab };
     await expect(
-      importCentralRecord(await resealed((s) => (valueOf(s, "manufacturer-id").assertions[0].flags = ["declared"]), unknownCode), pack),
-    ).rejects.toThrow(/flags are \[declared\]/);
-    await expect(importCentralRecord(await resealed((s) => valueOf(s, "nominal-thickness").assertions[0].flags.push("unknown-code")), pack), ).rejects.toThrow(/flags are/);
+      importCentralRecord(await resealed((s) => valueOf(s, "nominal-thickness").assertions[0].flags.push("unknown-code")), pack),
+    ).rejects.toThrow(/flags are/);
     await expect(
-      importCentralRecord(await resealed((s) => (valueOf(s, "evidence-references").assertions[0].flags = ["declared"]), { erp: CLEAN.erp, lab: "lab-evidence-digest-missing.json" }), pack),
-    ).rejects.toThrow(/evidence-digest-missing/);
-    await expect(
-      importCentralRecord(await resealed((s) => (valueOf(s, "carbon-footprint").assertions[0].flags = ["calculated-externally", "unit-stated", "evidence-linked"]), { erp: CLEAN.erp, lab: "lab-two-footprints.json" }), pack),
-    ).rejects.toThrow(/several-results/);
+      importCentralRecord(
+        await resealed((s) => {
+          const a = valueOf(s, "alloy-designation", "FLD-DesignationRef-designation").assertions[0];
+          a.raw = "9999";
+          a.value = "9999";
+          a.flags = ["declared"];
+        }),
+        pack,
+      ),
+    ).rejects.toThrow(/unknown-code/);
   });
 
   it("refuses a code that the pinned code list does not hold, and a mapping that does not follow it", async () => {
     // a known code changed to an unknown one without the flag
-    await expect(importCentralRecord(await resealed((s) => (valueOf(s, "manufacturer-id").assertions[0].raw = "SI77")), pack)).rejects.toThrow(/flags are|value is/);
+    await expect(
+      importCentralRecord(await resealed((s) => (valueOf(s, "manufacturer-id", "FLD-PartyRef-party_id").assertions[0].raw = "ST-UNKNOWN-99")), pack),
+    ).rejects.toThrow(/flags are|value is/);
     // the mapped value changed
-    await expect(importCentralRecord(await resealed((s) => (valueOf(s, "manufacturer-id").assertions[0].value = "SOMEONE-ELSE")), pack)).rejects.toThrow(/the value is "SOMEONE-ELSE"/);
+    await expect(
+      importCentralRecord(await resealed((s) => (valueOf(s, "manufacturer-id", "FLD-PartyRef-party_id").assertions[0].value = "SOMEONE-ELSE")), pack),
+    ).rejects.toThrow(/the value is "SOMEONE-ELSE"/);
   });
 
   it("refuses numbers out of range, a changed literal, and units the contract does not allow", async () => {
-    await expect(importCentralRecord(await resealed((s) => Object.assign(valueOf(s, "recycled-content").assertions[0], { raw: "620", value: 620 })), pack)).rejects.toThrow(/out of range/);
-    await expect(importCentralRecord(await resealed((s) => (valueOf(s, "net-mass").assertions[0].value = 9999)), pack)).rejects.toThrow(/the value is 9999/);
-    await expect(importCentralRecord(await resealed((s) => (valueOf(s, "net-mass").assertions[0].unit = "lb")), pack)).rejects.toThrow(/the unit is lb/);
-    await expect(importCentralRecord(await resealed((s) => (valueOf(s, "tensile-strength").assertions[0].unit = "inch")), pack)).rejects.toThrow(/not allowed/);
-    await expect(importCentralRecord(await resealed((s) => Object.assign(valueOf(s, "tensile-strength").assertions[0], { raw: "-5", value: -5 })), pack)).rejects.toThrow(/out of range/);
+    await expect(
+      importCentralRecord(await resealed((s) => Object.assign(valueOf(s, "recycled-content").assertions[0], { raw: "620", value: 620 })), pack),
+    ).rejects.toThrow(/out of range/);
+    await expect(importCentralRecord(await resealed((s) => (valueOf(s, "nominal-width").assertions[0].value = 9999)), pack)).rejects.toThrow(/the value is 9999/);
+    await expect(importCentralRecord(await resealed((s) => (valueOf(s, "nominal-width").assertions[0].unit = "lb")), pack)).rejects.toThrow(/the unit is lb/);
+    await expect(importCentralRecord(await resealed((s) => (valueOf(s, "measured-thickness").assertions[0].unit = "inch")), pack)).rejects.toThrow(/not allowed/);
+    await expect(
+      importCentralRecord(await resealed((s) => Object.assign(valueOf(s, "measured-thickness").assertions[0], { raw: "-5", value: -5 })), pack),
+    ).rejects.toThrow(/out of range/);
   });
 
   it("refuses a value that does not belong to its column, a property the profile lacks, and a source the record does not list", async () => {
-    await expect(importCentralRecord(await resealed((s) => (valueOf(s, "net-mass").assertions[0].source.location = valueOf(s, "net-mass").assertions[0].source.location.replace("net_mass_kg", "alloy"))), pack)).rejects.toThrow(/maps to/);
-    await expect(importCentralRecord(await resealed((s) => (valueOf(s, "net-mass").property = "ALU-D999")), pack)).rejects.toThrow(/not a property of the profile/);
-    await expect(importCentralRecord(await resealed((s) => (valueOf(s, "net-mass").assertions[0].source.sha256 = "1".repeat(64))), pack)).rejects.toThrow(/not listed in the record/);
+    await expect(
+      importCentralRecord(
+        await resealed((s) => (valueOf(s, "nominal-width").assertions[0].source.location = valueOf(s, "nominal-width").assertions[0].source.location.replace("nominal_width_mm", "alloy_code"))),
+        pack,
+      ),
+    ).rejects.toThrow(/maps to/);
+    await expect(importCentralRecord(await resealed((s) => (valueOf(s, "nominal-width").property = "ALU-D999")), pack)).rejects.toThrow(/not a property of the profile/);
+    await expect(importCentralRecord(await resealed((s) => (valueOf(s, "nominal-width").assertions[0].source.sha256 = "1".repeat(64))), pack)).rejects.toThrow(/not listed in the record/);
   });
 
-  it("cannot tell a changed value that is still valid: that needs signing (documented limit)", async () => {
-    const bytes = await resealed((s) => Object.assign(valueOf(s, "net-mass").assertions[0], { raw: "9999", value: 9999 }));
+  it("cannot tell a changed value that is still valid: that needs cryptographic signing (documented limit)", async () => {
+    const bytes = await resealed((s) => Object.assign(valueOf(s, "nominal-width").assertions[0], { raw: "1600", value: 1600 }));
     const imported = await importCentralRecord(bytes, pack);
-    expect(valueOf(imported.snapshots[0], "net-mass").assertions[0].raw).toBe("9999");
+    expect(valueOf(imported.snapshots[0], "nominal-width").assertions[0].raw).toBe("1600");
   });
 });
 
@@ -233,24 +255,41 @@ describe("the origin in a file is not trusted", () => {
 describe("re-checks against the laboratory contract's own schema rules", () => {
   const lab = (slug: string, i = 0) => (s: Snapshot) => valueOf(s, slug).assertions[i];
 
-  it("refuses an evidence digest that does not match the pattern, an enum value the contract lacks, and a negative uncertainty", async () => {
+  it("refuses an evidence digest that does not match the pattern, an unsupported language, and invalid uncertainty", async () => {
     await expect(importCentralRecord(await resealed((s) => (lab("evidence-references")(s).details!.digest = "sha256:" + "zz".repeat(32))), pack)).rejects.toThrow(/laboratory contract: .*Does not match/);
-    await expect(importCentralRecord(await resealed((s) => (lab("evidence-references")(s).details!.record_kind = "rumour")), pack)).rejects.toThrow(/Must be one of/);
     await expect(importCentralRecord(await resealed((s) => (lab("product-narrative")(s).details!.language = "fr")), pack)).rejects.toThrow(/Must be one of en, de/);
-    await expect(importCentralRecord(await resealed((s) => (lab("measured-thickness")(s).details!.expanded_uncertainty = "-5")), pack)).rejects.toThrow(/Must be at least 0/);
+    await expect(importCentralRecord(await resealed((s) => (lab("measured-thickness")(s).details!.uncertainty_value = "-5")), pack)).rejects.toThrow(/Must be at least 0/);
     await expect(importCentralRecord(await resealed((s) => (lab("measured-thickness")(s).details!.coverage_factor = "0")), pack)).rejects.toThrow(/Must be more than 0/);
-    await expect(importCentralRecord(await resealed((s) => (lab("carbon-footprint")(s).details!.system_boundary = "cradle-to-grave")), pack)).rejects.toThrow(/Must be one of cradle-to-gate/);
-    await expect(importCentralRecord(await resealed((s) => (lab("carbon-footprint")(s).details!.reference_year = "20.5")), pack)).rejects.toThrow(/integer/);
   });
 
   it("accepts what ingress accepts: a method that starts with = is a valid text", async () => {
-    const imported = await importCentralRecord(await resealed((s) => (lab("tensile-strength")(s).details!.method = "=cmd|calc")), pack);
-    expect(valueOf(imported.snapshots[0], "tensile-strength").assertions[0].details!.method).toBe("=cmd|calc");
+    const imported = await importCentralRecord(await resealed((s) => (lab("measured-thickness")(s).details!.method_ref = "=cmd|calc")), pack);
+    expect(valueOf(imported.snapshots[0], "measured-thickness").assertions[0].details!.method_ref).toBe("=cmd|calc");
   });
 
   it("refuses snapshot sources that disagree with the record's sources", async () => {
     await expect(importCentralRecord(await resealed((s) => (s.sources[0].sha256 = "2".repeat(64))), pack)).rejects.toThrow(/sources are not the record's sources/);
     await expect(importCentralRecord(await resealed((s) => s.sources.pop()), pack)).rejects.toThrow(/sources are not the record's sources/);
     await expect(importCentralRecord(await resealed((s) => (s.sources[0].name = "other.csv")), pack)).rejects.toThrow(/sources are not the record's sources/);
+  });
+});
+
+describe("C9-04 S5-EXCHANGE-rev2 portable DPPPayload and RegistryRequest separation", () => {
+  it("exports a deterministic REC-ALU-24-01 DPPPayload with inline @context", async () => {
+    const record = await recordFor(pack, CLEAN);
+    const a = await exportDppPayload(pack, record);
+    const b = await exportDppPayload(pack, record);
+    expect(a.text).toBe(b.text);
+    const doc = JSON.parse(a.text) as Record<string, unknown>;
+    expect(doc["@context"]).toBeTypeOf("object");
+    expect(doc.synthetic).toBe(true);
+    expect(Object.keys(doc.properties as Record<string, unknown>)).toHaveLength(24);
+  });
+
+  it("refuses a RegistryRequest document on the central-record import path", async () => {
+    const record = await recordFor(pack, CLEAN);
+    const reg = buildRegistryJson(pack, record);
+    expect(reg.exchangeType).toBe("RegistryRequest");
+    await expect(importCentralRecord(reg.bytes, pack)).rejects.toThrow(/RegistryRequest|not a central-record/);
   });
 });

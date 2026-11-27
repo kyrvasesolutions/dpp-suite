@@ -1,4 +1,3 @@
-# ERP company codes and the manufacturer identifier each stands for
+# Source company identifiers
 code,maps_to
-SI01,STANDIN-MFR-01
-SI02,STANDIN-MFR-02
+ST-MFR-01,Stand-in Aluminium Sheet Producer

@@ -1,19 +1,17 @@
 /**
- * Strict import of the two fixed N source files (Cycle 2, N03): the ERP CSV extract and the laboratory and
- * assessment JSON, each against its pinned input contract (FUNC-039, FUNC-125 import side).
+ * Strict import of the two fixed N source files (Cycle 2: FUNC-039, FUNC-125 import side;
+ * aligned in Cycle 9 to SRC-ERP-CSV-01 comma-delimited 21-column extract and SRC-LAB-JSON-01
+ * with MAP-IMP-ERP-01 / MAP-IMP-LAB-01 and REC-ALU-24-01 DPPPayload).
  *
- * Every file passes the ingress stages in order: bytes, parse, structure, semantics, authorisation. The first
- * stage with a problem rejects the file with typed errors that name the stage and the location (C2-02).
- * An accepted file becomes source assertions: the verbatim text, where it came from, and explicit flags
- * (C2-03, C2-06). Unknown codes are kept and flagged, never dropped or guessed. Units are checked against
- * the contract and never converted, because the frozen mappings need no conversion (C2-04, FUNC-030).
- * Combining the two files keeps both assertions when they disagree and marks the value challenged (C2-05).
- * The resulting record state depends only on the file bytes and the pack, so importing again gives the
- * same record and the same digest (C2-07). There is no overall quality score (FUNC-017 slice).
+ * Retains every Cycle 2/5/8 ingress security & limit guard: bytes/UTF-8/BOM check, strict JSON
+ * duplicate-key & non-finite rejection, depth/node/field-length/identifier allow-list caps,
+ * cooperative cancellation & job deadline, and deterministic record digesting.
  */
 import { canonical } from "./canonical";
-import { JsonSyntaxError, parseStrictJson, type JsonValue } from "./strictJson";
+import { JsonSyntaxError, parseStrictJson, toPlain, type JsonValue } from "./strictJson";
 import { sha256Hex, type CodeList, type ProfilePack } from "./profile";
+import { checkBoundedSchema } from "./recordSchemaCheck";
+import { importReferencePair, type DppPayloadRecord, type ReferenceImportStatus } from "./referencePipeline";
 
 export const STAGES = ["bytes", "parse", "structure", "semantics", "authorisation", "route"] as const;
 export type Stage = (typeof STAGES)[number];
@@ -50,6 +48,7 @@ export type IngressCode =
   | "invalid-date"
   | "missing-unit"
   | "wrong-unit"
+  | "unknown-code"
   | "unknown-evidence"
   | "precision-loss"
   | "duplicate-record"
@@ -58,7 +57,6 @@ export type IngressCode =
   | "subject-mismatch"
   | "not-authorised";
 
-/** What each error means for the operator, in the words of the operator notes (C2-08). */
 export const ERROR_TEXT: Record<IngressCode, string> = {
   "media-type": "The file is not of the expected type. Use the ERP extract as .csv and the laboratory file as .json.",
   "byte-order-mark": "The file starts with a byte order mark. Save it as UTF-8 without BOM.",
@@ -87,16 +85,17 @@ export const ERROR_TEXT: Record<IngressCode, string> = {
   "missing-value": "A required value is empty.",
   "not-a-number": "A numeric value is not a plain number with a point as decimal separator.",
   "decimal-comma": "A numeric value uses a comma as decimal separator. The contract requires a point.",
-  "out-of-range": "A value is outside its possible range, such as a negative length or a share over 100 %.",
+  "out-of-range": "A value is outside its possible range, such as a non-positive dimension or a share over 100 %.",
   "invalid-date": "A date is not a real calendar date in the form YYYY-MM-DD.",
   "missing-unit": "A measured value has no unit. It is not accepted as unitless.",
   "wrong-unit": "A measured value has a unit the contract does not allow for this property. Nothing is converted.",
+  "unknown-code": "The company/code-list/material code lookup is unknown or ambiguous.",
   "unknown-evidence": "A value refers to an evidence record that the file does not contain.",
   "precision-loss": "A number has more significant digits than can be kept exactly, or is too small to represent.",
   "duplicate-record": "Two rows describe the same product model and batch. Keep one row per batch.",
   "duplicate-id": "Two entries in the file have the same identifier, so it is unclear which one is meant.",
   "padded-identifier": "An identifier or code has spaces at its ends or invisible characters, so it would not match the same identifier written plainly.",
-  "subject-mismatch": "A text is about another product model than the one this laboratory file reports on.",
+  "subject-mismatch": "A text is about another product model/revision than the one this record reports on.",
   "not-authorised": "This role may not import source files.",
 };
 
@@ -104,7 +103,6 @@ export interface IngressIssue {
   stage: Stage;
   code: IngressCode;
   message: string;
-  /** File and position: row and column for CSV, JSON pointer for JSON. */
   location: string;
 }
 
@@ -114,16 +112,19 @@ export type Flag =
   | "calculated-externally"
   | "unit-from-contract"
   | "unit-stated"
+  | "wrong-unit"
   | "uncertainty-stated"
   | "evidence-linked"
   | "evidence-digest-missing"
+  | "source-assurance-unaccepted"
   | "code-mapped"
   | "unknown-code"
   | "several-results"
   | "draft-text"
   | "challenged"
   | "corrected"
-  | "source-changed";
+  | "source-changed"
+  | "shape-issue";
 
 export const FLAG_TEXT: Record<Flag, string> = {
   declared: "Declared in the ERP extract",
@@ -131,23 +132,28 @@ export const FLAG_TEXT: Record<Flag, string> = {
   "calculated-externally": "Calculated outside this tool and imported as is",
   "unit-from-contract": "Unit given by the ERP contract column",
   "unit-stated": "Unit stated in the source",
+  "wrong-unit": "Measurement unit incompatible with the target route contract",
   "uncertainty-stated": "Measurement uncertainty stated",
   "evidence-linked": "Linked to an evidence record",
   "evidence-digest-missing": "Evidence record has no digest",
-  "code-mapped": "Company code mapped through the code list",
-  "unknown-code": "Code not in the code list: kept as given",
+  "source-assurance-unaccepted": "Source assurance state does not satisfy the pinned profile policy",
+  "code-mapped": "Company code mapped through the pinned code list",
+  "unknown-code": "Code not in the pinned code list: kept as given",
   "several-results": "Several results and no rule to select one",
-  "draft-text": "Text not yet approved",
-  challenged: "The sources disagree: both values are kept",
-  "corrected": "Corrected by the operator: the earlier value stays visible",
+  "draft-text": "Text not authorised for release",
+  challenged: "The sources disagree or a challenge is open: both assertions are kept",
+  corrected: "Corrected by the operator: the earlier value stays visible",
   "source-changed": "The source now says something else than the value the operator corrected: both are kept until the operator decides",
+  "shape-issue": "Selected-record structural shape issue detected against record.schema.json",
 };
 
-/** The flag's text for the kind of file the value came from (the ERP text says "ERP extract", which is wrong for a laboratory value). */
 export const flagTextFor = (flag: Flag, role: SourceRole): string =>
-  flag === "declared" && role === "lab" ? "Declared in the laboratory file" : flag === "declared" && role === "correction" ? "Stated by the operator" : FLAG_TEXT[flag];
+  flag === "declared" && role === "lab"
+    ? "Declared in the laboratory file"
+    : flag === "declared" && role === "correction"
+      ? "Stated by the operator"
+      : FLAG_TEXT[flag];
 
-/** Where a source assertion comes from: an imported file, or an operator correction (Cycle 5). */
 export type SourceRole = "erp" | "lab" | "correction";
 
 export interface SourceFile {
@@ -161,25 +167,30 @@ export interface SourceFile {
 export interface Assertion {
   property: string;
   member?: string;
-  /** Distinguishes several assertions of one property: language, element, result or evidence ID. */
   qualifier?: string;
-  /** The source text exactly as it appears in the file. */
   raw: string;
   value: string | number | null;
   unit: string | null;
   details?: Record<string, string>;
-  /** Where the text is; `row` is the ERP data row (1 for the first after the header), never parsed from text. */
   source: { file: string; role: SourceFile["role"]; sha256: string; location: string; row?: number };
   flags: Flag[];
-  /** Only for an operator correction: the record version it made, who made it, and why. */
   correction?: { version: number; actor: string; reason: string };
 }
 
 export type ImportResult =
-  | { ok: true; file: SourceFile; assertions: Assertion[]; records: Array<{ model: string; batch: string }> }
-  | { ok: false; file: SourceFile; stage: Stage; errors: IngressIssue[] };
+  | {
+      ok: true;
+      importStatus: ReferenceImportStatus;
+      file: SourceFile;
+      assertions: Assertion[];
+      records: Array<{ model: string; batch: string; revision?: string }>;
+      /** Raw UTF-8 text preserved for REC-ALU-24-01 DPPPayload construction (not serialised into public logs). */
+      rawText?: string;
+      /** Parsed plain JSON object for lab imports (used to construct REC-ALU-24-01 DPPPayload). */
+      parsedLab?: Record<string, unknown>;
+    }
+  | { ok: false; importStatus: "REJECT"; file: SourceFile; stage: Stage; errors: IngressIssue[]; rawText?: string };
 
-/** Roles that may import source files in the local N build (trusted local context, no identity proof). */
 export const IMPORT_ROLES = ["ACT-01"] as const;
 
 class StageFailure extends Error {
@@ -202,7 +213,6 @@ const failIf = (stage: Stage, errors: IngressIssue[]) => {
   if (errors.length) throw new StageFailure(stage, errors);
 };
 
-/** The job deadline: checked at each stage boundary and inside the parsers, so a slow input stops with a bounded error. */
 class Deadline {
   private readonly start: number;
   constructor(
@@ -212,12 +222,9 @@ class Deadline {
     startedAt?: number,
     private readonly budget?: IngressBudget,
   ) {
-    // the deadline belongs to the job (the whole import of the pair), so a second file inherits the time the first one used
     this.start = startedAt ?? clock();
   }
   check(stage: Stage) {
-    // The server's job budget (cancellation token + wall-clock deadline) throws a LimitError, which is not a stage failure:
-    // it stops the whole job, never one file (C8-02). It runs at every stage boundary and at every parser tick.
     this.budget?.check(stage);
     if (this.clock() - this.start > this.limitMs) {
       throw new StageFailure(stage, [issue(stage, "deadline", this.name, `The limit is ${this.limitMs / 1000} s.`)]);
@@ -225,36 +232,28 @@ class Deadline {
   }
 }
 
-/** The server's job budget as ingress sees it: `check` throws when the job was cancelled or passed its deadline (Cycle 8). */
 export interface IngressBudget {
   check(stage: string): void;
 }
 
-/** Execution budgets that replace the pinned input limits for one job (the server passes OPERATIONAL-LIMITS here; the browser passes none). */
 export interface IngressLimits {
   maxFileBytes?: number;
   maxJsonDepth?: number;
   maxRows?: number;
-  /** Most JSON values in one document; exceeding it stops the parse with `too-many-nodes`. */
   maxParserNodes?: number;
   deadlineMs?: number;
 }
 
-/** Optional clock, so tests can run a job past its deadline without waiting for it. */
 export interface ImportInput {
   bytes: Uint8Array;
   name: string;
   type: string;
   now?: () => number;
-  /** When the job began, on the same clock: the deadline counts from here, not from this file. */
   startedAt?: number;
-  /** Cycle 8: cooperative cancellation and deadline of the job. Absent in the browser. */
   budget?: IngressBudget;
-  /** Cycle 8: budgets that override the pinned input limits. Absent in the browser. */
   limits?: IngressLimits;
 }
 
-/** The effective input limits of one import: the pinned ones, overridden by the job's budgets. */
 function effectiveLimits(pinned: ProfilePack["policy"]["limits"], over: IngressLimits | undefined) {
   return {
     ...pinned,
@@ -265,15 +264,13 @@ function effectiveLimits(pinned: ProfilePack["policy"]["limits"], over: IngressL
   };
 }
 
-/** An ingress issue built from a code, for a caller outside this file (a job-level budget stop). */
 export const ingressIssue = (stage: Stage, code: IngressCode, location: string, detail?: string): IngressIssue => issue(stage, code, location, detail);
 
-/** The offset of the first byte that is not part of a valid UTF-8 sequence, in one pass. */
 export function firstInvalidUtf8(b: Uint8Array): number {
   let i = 0;
   const n = b.length;
   while (i < n) {
-    const c = b[i];
+    const c = b[i]!;
     if (c < 0x80) {
       i++;
       continue;
@@ -298,8 +295,6 @@ export function firstInvalidUtf8(b: Uint8Array): number {
 
 async function bytesStage(bytes: Uint8Array, name: string, declaredType: string, role: SourceFile["role"], maxBytes: number) {
   const expected = role === "erp" ? { type: "text/csv", ext: ".csv" } : { type: "application/json", ext: ".json" };
-  // Browsers often send no type, or an Excel type for .csv, so the extension decides when the type is absent.
-  // Windows browsers send application/vnd.ms-excel for .csv when Excel is installed.
   const tolerated = role === "erp" ? ["", "application/vnd.ms-excel"] : [""];
   const typeOk = declaredType === expected.type || (tolerated.includes(declaredType) && name.toLowerCase().endsWith(expected.ext));
   const extOk = name.toLowerCase().endsWith(expected.ext);
@@ -311,7 +306,7 @@ async function bytesStage(bytes: Uint8Array, name: string, declaredType: string,
   try {
     text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch {
-    const at = firstInvalidUtf8(bytes); // one pass: never a quadratic search, so a bad byte at the end of a 10 MiB file costs the same as one at the start
+    const at = firstInvalidUtf8(bytes);
     throw new StageFailure("bytes", [issue("bytes", "wrong-encoding", `${name}, byte ${at}`)]);
   }
   const file: SourceFile = { name, role, mediaType: expected.type, sha256: await sha256Hex(text), size: bytes.length };
@@ -322,15 +317,10 @@ function authorise(actor: string, name: string) {
   failIf("authorisation", (IMPORT_ROLES as readonly string[]).includes(actor) ? [] : [issue("authorisation", "not-authorised", name, `Role ${actor}.`)]);
 }
 
-// ---------- ERP CSV ----------
-
-/** RFC 4180 rows with a one-character delimiter; quotes may enclose delimiters, quotes ("") and line breaks. */
 function csvRows(text: string, delimiter: string, name: string, tick: () => void): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
   let field = "";
-  // A run of plain characters is copied with one slice when it ends, not character by character: a 10 MiB cell would otherwise
-  // build ten million string pieces before it is flattened.
   let runStart = -1;
   const flush = (end: number) => {
     if (runStart >= 0) {
@@ -343,8 +333,7 @@ function csvRows(text: string, delimiter: string, name: string, tick: () => void
   let line = 1;
   for (let i = 0; i < text.length; i++) {
     if (i % 4096 === 0) tick();
-    const c = text[i];
-    // C0 control characters are never part of a value: only the delimiter, CR and LF may appear below U+0020.
+    const c = text[i]!;
     if (c < " " && c !== delimiter && c !== "\n" && c !== "\r") {
       throw new StageFailure("parse", [issue("parse", "control-character", `${name}, line ${line}`)]);
     }
@@ -392,81 +381,98 @@ function csvRows(text: string, delimiter: string, name: string, tick: () => void
     row.push(field);
     rows.push(row);
   }
-  // Blank lines at the very end of the file are padding, not rows; a blank line between rows stays an error.
-  while (rows.length && rows[rows.length - 1].length === 1 && rows[rows.length - 1][0] === "") rows.pop();
+  while (rows.length && rows[rows.length - 1]!.length === 1 && rows[rows.length - 1]![0] === "") rows.pop();
   return rows;
 }
 
 const DECIMAL = /^-?(?:0|[1-9]\d*)(?:\.\d+)?$/;
-
-/** Characters that print as nothing: zero-width spaces and joiners, word joiner, byte order mark, soft hyphen. */
 const INVISIBLE = /[\u200B-\u200D\u2060\uFEFF\u00AD]/g;
-/** The same set without the global flag, for test(), which would otherwise keep state between calls. */
 const HAS_INVISIBLE = /[\u200B-\u200D\u2060\uFEFF\u00AD]/;
-
-/**
- * Whether a number literal survives as a double without changing: at most 15 significant digits, and no
- * nonzero literal that underflows to 0. Longer numbers would be silently rounded (re-assessment R2-5).
- */
-/** The longest number literal that is looked at; anything longer cannot be exact in a double and is refused as precision-loss without further work. */
 const MAX_NUMBER_LITERAL = 64;
-/** The longest identifier or code accepted in a cell or a JSON identifier field. */
 export const MAX_IDENTIFIER_LENGTH = 128;
-/** The longest text of one field (an ERP cell, a string in the laboratory file): the file is refused above it, before any layout or output sees it (R2-01). */
 export const MAX_TEXT_FIELD_CHARS = 2000;
-/**
- * An identifier or code is plain printable ASCII (an inner space is allowed: "EN AW-5754"; the ends are checked as padding), at most `MAX_IDENTIFIER_LENGTH` long (R2-03). Every identifier of the
- * pinned pack and of the fixtures is ASCII, so an allow-list closes what a deny-list of invisible, combining and direction characters
- * could not: look-alike letters (Cyrillic, full-width), format and tag characters, combining marks, line and paragraph separators,
- * private-use characters, surrogates and non-ASCII spaces. Such a value is also not its own NFKC form, which is checked as well.
- */
 const SAFE_IDENTIFIER = /^[\u0020-\u007e]+$/;
 const unsafeIdentifier = (raw: string) => raw.length > MAX_IDENTIFIER_LENGTH || (raw !== "" && (!SAFE_IDENTIFIER.test(raw) || raw !== raw.normalize("NFKC")));
 
 function exact(raw: string) {
   if (raw.length > MAX_NUMBER_LITERAL) return false;
-  const mantissa = raw.replace(/^-/, "").split(/[eE]/)[0].replace(".", "").replace(/^0+/, "");
+  const mantissa = raw.replace(/^-/, "").split(/[eE]/)[0]!.replace(".", "").replace(/^0+/, "");
   const digits = mantissa.replace(/0+$/, "").length;
   return digits <= 15 && !(Number(raw) === 0 && /[1-9]/.test(mantissa));
 }
 
-/** Physical range of a value by unit: lengths, masses and strengths are positive; shares lie in 0..100 %. */
 function inRange(value: number, unit: string) {
   if (unit === "%") return value >= 0 && value <= 100;
-  if (unit === "mm" || unit === "kg" || unit === "MPa") return value > 0;
+  if (unit === "mm" || unit === "m" || unit === "kg") return value > 0;
   return value >= 0;
 }
+
 const DECIMAL_COMMA = /^-?\d+,\d+$/;
 
 function isCalendarDate(s: string) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
   if (!m) return false;
-  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
-  return d.getUTCFullYear() === +m[1] && d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3];
+  const d = new Date(Date.UTC(+m[1]!, +m[2]! - 1, +m[3]!));
+  return d.getUTCFullYear() === +m[1]! && d.getUTCMonth() === +m[2]! - 1 && d.getUTCDate() === +m[3]!;
 }
 
 const codeListOf = (pack: ProfilePack, ref?: string): CodeList | undefined => (ref ? pack.codeLists.find((c) => c.ref === ref) : undefined);
 
-export async function importErpCsv(
-  pack: ProfilePack,
-  input: ImportInput,
-  actor = "ACT-01",
-): Promise<ImportResult> {
+// ---------- Roles resolved by semantic URI suffix (never hard-coded property IDs) ----------
+
+const ROLE_SUFFIXES = {
+  model: "productModelIdentifier",
+  revision: "productDefinitionRevision",
+  name: "commercialProductDesignation",
+  batch: "batchIdentifier",
+  manufacturer: "manufacturerParty",
+  site: "manufacturingSite",
+  productionDate: "batchProductionDate",
+  alloy: "alloyDesignation",
+  temper: "temperDesignation",
+  nominalThickness: "nominalSheetThickness",
+  measuredThickness: "measuredSheetThickness",
+  nominalWidth: "nominalSheetWidth",
+  nominalLength: "nominalSheetLength",
+  magnesium: "measuredMagnesiumMassFraction",
+  recycledTotal: "declaredTotalRecycledContent",
+  recycledPre: "preConsumerRecycledContent",
+  recycledPost: "postConsumerRecycledContent",
+  recycledBasis: "recycledContentMassBasis",
+  evidence: "recycledContentEvidenceReferences",
+  footprint: "productCarbonFootprintResult",
+  narrative: "authorisedProductDescriptions",
+  customerCode: "customerMaterialCode",
+  lead: "measuredLeadMassFraction",
+  conversionCost: "internalUnitConversionCost",
+} as const;
+export type Role = keyof typeof ROLE_SUFFIXES;
+
+export function byRole(pack: ProfilePack, role: Role): string {
+  const suffix = ROLE_SUFFIXES[role];
+  const found = pack.properties.find((p) => p.definitionRef.endsWith(`/${suffix}`));
+  if (!found) throw new Error(`The profile has no ${role} property (/${suffix})`);
+  return found.id;
+}
+
+// ---------- ERP CSV (SRC-ERP-CSV-01, comma-delimited, 21 columns) ----------
+
+export async function importErpCsv(pack: ProfilePack, input: ImportInput, actor = "ACT-01"): Promise<ImportResult> {
   const contract = pack.inputs.erp;
   const limits = effectiveLimits(pack.policy.limits, input.limits);
   const deadline = new Deadline(limits.job_deadline_ms, input.now ?? (() => performance.now()), input.name, input.startedAt, input.budget);
   let file: SourceFile = { name: input.name, role: "erp", mediaType: input.type, sha256: "", size: input.bytes.length };
+  let rawText: string | undefined;
   try {
     deadline.check("bytes");
     const decoded = await bytesStage(input.bytes, input.name, input.type, "erp", limits.max_file_bytes);
     file = decoded.file;
+    rawText = decoded.text;
     const name = input.name;
 
-    // parse
     deadline.check("parse");
     const rows = csvRows(decoded.text, contract.delimiter, name, () => deadline.check("parse"));
     const [header = [], ...body] = rows;
-    // R2-01: one field is never longer than `MAX_TEXT_FIELD_CHARS`; the first that is names the file and the place, never the text.
     for (let r = 0; r < rows.length; r++) {
       const long = rows[r]!.findIndex((cell) => cell.length > MAX_TEXT_FIELD_CHARS);
       if (long !== -1) throw new StageFailure("parse", [issue("parse", "field-too-long", `${name}, row ${r + 1}, column ${long + 1}`)]);
@@ -478,7 +484,6 @@ export async function importErpCsv(
       ),
     );
 
-    // structure
     const expected = contract.columns.map((c) => c.name);
     const seen = new Set<string>();
     const structure: IngressIssue[] = [];
@@ -494,37 +499,74 @@ export async function importErpCsv(
     }
     failIf("structure", structure);
 
-    // semantics
     deadline.check("semantics");
     const at = (row: number, col: string) => `${name}, row ${row}, column ${col}`;
     const assertions: Assertion[] = [];
     const errors: IngressIssue[] = [];
-    const records: Array<{ model: string; batch: string }> = [];
+    const records: Array<{ model: string; batch: string; revision?: string }> = [];
     const seenRecords = new Map<string, number>();
+
     body.forEach((r, i) => {
       const rowNo = i + 2;
-      const cell = Object.fromEntries(header.map((h, j) => [h, r[j]]));
-      const key = `${cell.product_model_id}|${cell.batch_id}`;
+      const cell = Object.fromEntries(header.map((h, j) => [h, r[j]!]));
+
+      // Check identifiers on lookup keys first so padded/unsafe identifiers give clear errors
+      for (const keyCol of ["source_company", "code_list_version", "material_code", "product_revision", "batch_id", "manufacturer_id", "site_id", "customer_material_code"]) {
+        const val = cell[keyCol];
+        if (!val) continue;
+        if (val !== val.trim() || HAS_INVISIBLE.test(val)) {
+          errors.push(issue("semantics", "padded-identifier", at(rowNo, keyCol), JSON.stringify(val)));
+        } else if (unsafeIdentifier(val)) {
+          errors.push(issue("semantics", "unsafe-identifier", at(rowNo, keyCol)));
+        }
+      }
+
+      // Company/code-list/material lookup (MAP-IMP-ERP-01 MI-E01, REF-02, REF-03)
+      const lookupMatches = pack.contracts.codeList.entries.filter(
+        (x) => x.source_company === cell.source_company && x.code_list_version === cell.code_list_version && x.material_code === cell.material_code,
+      );
+      if (lookupMatches.length !== 1 && !errors.some((e) => e.location.includes("material_code") || e.location.includes("source_company"))) {
+        errors.push(issue("semantics", "unknown-code", at(rowNo, "material_code"), `No unique code-list match for "${cell.source_company}/${cell.code_list_version}/${cell.material_code}".`));
+      }
+      const modelId = lookupMatches.length === 1 ? lookupMatches[0]!.model_id : cell.material_code ?? "";
+      const key = `${modelId}|${cell.batch_id}`;
       if (seenRecords.has(key)) {
         errors.push(issue("semantics", "duplicate-record", `${name}, row ${rowNo}`, `Same model and batch as row ${seenRecords.get(key)}.`));
       }
       seenRecords.set(key, rowNo);
-      records.push({ model: cell.product_model_id, batch: cell.batch_id });
+      records.push({ model: modelId, batch: cell.batch_id ?? "", revision: cell.product_revision });
+
+      // Emit the mapped model identifier assertion (from lookup_model)
+      if (lookupMatches.length === 1) {
+        assertions.push({
+          property: byRole(pack, "model"),
+          raw: cell.material_code!,
+          value: modelId,
+          unit: null,
+          details: {
+            scheme_id: `${pack.contracts.profilePolicy.customer.recipient.split("-")[0] ?? "ST"}-PRODUCT-MODEL`,
+            scheme_version: cell.code_list_version!,
+            issuer_ref: cell.manufacturer_id!,
+          },
+          source: { file: name, role: "erp", sha256: file.sha256, location: at(rowNo, "material_code"), row: i + 1 },
+          flags: ["declared", "code-mapped"],
+        });
+      }
+
       for (const c of contract.columns) {
-        const raw = cell[c.name];
+        const raw = cell[c.name]!;
         const loc = at(rowNo, c.name);
         if (raw.replace(INVISIBLE, "").trim() === "") {
-          // A value of only spaces is as empty as no value; an optional one is simply absent.
           if (c.required) errors.push(issue("semantics", "missing-value", loc, raw === "" ? undefined : "The cell holds only spaces."));
           continue;
         }
         const [property, member] = c.maps_to.split("/");
         if ((c.code_list || member?.startsWith("FLD-Identifier-")) && (raw !== raw.trim() || HAS_INVISIBLE.test(raw))) {
-          errors.push(issue("semantics", "padded-identifier", loc, JSON.stringify(raw)));
+          if (!errors.some((e) => e.location === loc)) errors.push(issue("semantics", "padded-identifier", loc, JSON.stringify(raw)));
           continue;
         }
         if ((c.code_list || member?.startsWith("FLD-Identifier-")) && unsafeIdentifier(raw)) {
-          errors.push(issue("semantics", "unsafe-identifier", loc));
+          if (!errors.some((e) => e.location === loc)) errors.push(issue("semantics", "unsafe-identifier", loc));
           continue;
         }
         const flags: Flag[] = ["declared"];
@@ -561,10 +603,9 @@ export async function importErpCsv(
             value = known.mapsTo;
             flags.push("code-mapped");
           }
-          if (!known && list.codes.some((x) => x.mapsTo !== undefined)) value = null;
         }
         assertions.push({
-          property,
+          property: property!,
           ...(member ? { member } : {}),
           ...(c.language ? { qualifier: c.language } : {}),
           raw,
@@ -575,73 +616,33 @@ export async function importErpCsv(
         });
       }
     });
+
     failIf("semantics", errors);
     authorise(actor, name);
-    return { ok: true, file, assertions, records };
+    return { ok: true, importStatus: "IMPORTED", file, assertions, records, rawText };
   } catch (e) {
-    if (e instanceof StageFailure) return { ok: false, file, stage: e.stage, errors: e.errors };
+    if (e instanceof StageFailure) return { ok: false, importStatus: "REJECT", file, stage: e.stage, errors: e.errors };
     throw e;
   }
 }
 
-// ---------- Laboratory and assessment JSON ----------
-
-type Schema = Record<string, unknown>;
-
-/** Checks the subset of JSON Schema the contract uses; reports every violation with its JSON pointer. */
-function validate(schema: Schema, v: JsonValue, path: string, name: string, out: IngressIssue[]) {
-  const at = `${name}, ${path || "/"}`;
-  const typeOf = (x: JsonValue) => (x.kind === "number" && Number.isInteger(x.value) ? ["number", "integer"] : [x.kind]);
-  if ("const" in schema && !(v.kind === "string" && v.value === schema.const)) {
-    out.push(issue("structure", "schema", at, `Must be ${JSON.stringify(schema.const)}.`));
-    return;
-  }
-  if (Array.isArray(schema.enum) && !(v.kind === "string" && schema.enum.includes(v.value))) {
-    out.push(issue("structure", "schema", at, `Must be one of ${schema.enum.join(", ")}.`));
-    return;
-  }
-  if (schema.type) {
-    const types = Array.isArray(schema.type) ? (schema.type as string[]) : [schema.type as string];
-    if (!typeOf(v).some((t) => types.includes(t))) {
-      out.push(issue("structure", "schema", at, `Must be ${types.join(" or ")}, found ${v.kind}.`));
-      return;
-    }
-  }
-  if (v.kind === "number") {
-    if (typeof schema.minimum === "number" && v.value < schema.minimum) out.push(issue("structure", "schema", at, `Must be at least ${schema.minimum}.`));
-    if (typeof schema.exclusiveMinimum === "number" && v.value <= schema.exclusiveMinimum) out.push(issue("structure", "schema", at, `Must be more than ${schema.exclusiveMinimum}.`));
-  }
-  if (v.kind === "string" && typeof schema.pattern === "string" && !new RegExp(schema.pattern).test(v.value)) {
-    out.push(issue("structure", "schema", at, `Does not match ${schema.pattern}.`));
-  }
-  if (v.kind === "array" && schema.items) v.items.forEach((x, i) => validate(schema.items as Schema, x, `${path}/${i}`, name, out));
-  if (v.kind === "object") {
-    const props = (schema.properties ?? {}) as Record<string, Schema>;
-    for (const k of (schema.required as string[] | undefined) ?? []) if (!v.entries.has(k)) out.push(issue("structure", "schema", at, `"${k}" is required.`));
-    for (const [k, x] of v.entries) {
-      if (Object.hasOwn(props, k)) validate(props[k], x, `${path}/${k}`, name, out);
-      else if (schema.additionalProperties === false) out.push(issue("structure", "schema", `${name}, ${path}/${k}`, `"${k}" is not allowed.`));
-    }
-  }
-}
+// ---------- Laboratory and assessment JSON (SRC-LAB-JSON-01) ----------
 
 const get = (v: JsonValue, key: string): JsonValue => (v.kind === "object" ? (v.entries.get(key) ?? { kind: "null" }) : { kind: "null" });
-const str = (v: JsonValue) => (v.kind === "string" ? v.value : v.kind === "number" ? v.raw : "");
+const str = (v: JsonValue) => (v.kind === "string" ? v.value : v.kind === "number" ? v.raw : v.kind === "boolean" ? String(v.value) : "");
 const list = (v: JsonValue) => (v.kind === "array" ? v.items : []);
 
-export async function importLabJson(
-  pack: ProfilePack,
-  input: ImportInput,
-  actor = "ACT-01",
-): Promise<ImportResult> {
+export async function importLabJson(pack: ProfilePack, input: ImportInput, actor = "ACT-01"): Promise<ImportResult> {
   const contract = pack.inputs.lab;
   const limits = effectiveLimits(pack.policy.limits, input.limits);
   const deadline = new Deadline(limits.job_deadline_ms, input.now ?? (() => performance.now()), input.name, input.startedAt, input.budget);
   let file: SourceFile = { name: input.name, role: "lab", mediaType: input.type, sha256: "", size: input.bytes.length };
+  let rawText: string | undefined;
   try {
     deadline.check("bytes");
     const decoded = await bytesStage(input.bytes, input.name, input.type, "lab", limits.max_file_bytes);
     file = decoded.file;
+    rawText = decoded.text;
     const name = input.name;
 
     let doc: JsonValue;
@@ -664,11 +665,11 @@ export async function importLabJson(
               : e.code === "too-many-nodes"
                 ? "too-many-nodes"
                 : "json-syntax";
-      // The node-limit text never carries the offset or the path: neither is needed, and neither is echoed.
-      throw new StageFailure("parse", [issue("parse", code, code === "too-many-nodes" ? name : `${name}, ${e.path || "/"}`, code === "too-many-nodes" ? undefined : e.message)]);
+      throw new StageFailure("parse", [
+        issue("parse", code, code === "too-many-nodes" ? name : `${name}, ${e.path || "/"}`, code === "too-many-nodes" ? undefined : e.message),
+      ]);
     }
 
-    // An escaped control character (\u0000) inside a string or key is refused like a raw one: the parser already refuses raw ones.
     const hasControl = (v: JsonValue): boolean =>
       v.kind === "string"
         ? /[\u0000-\u001f]/.test(v.value)
@@ -678,7 +679,7 @@ export async function importLabJson(
             ? [...v.entries].some(([k, x]) => /[\u0000-\u001f]/.test(k) || hasControl(x))
             : false;
     if (hasControl(doc)) throw new StageFailure("parse", [issue("parse", "control-character", name)]);
-    // R2-01: one string is never longer than `MAX_TEXT_FIELD_CHARS` (keys included).
+
     const longText = (v: JsonValue): boolean =>
       v.kind === "string"
         ? v.value.length > MAX_TEXT_FIELD_CHARS
@@ -691,202 +692,293 @@ export async function importLabJson(
 
     deadline.check("structure");
     const structure: IngressIssue[] = [];
-    validate(contract.structure as Schema, doc, "", name, structure);
+    if (doc.kind !== "object") {
+      structure.push(issue("structure", "schema", `${name}, /`, "Root must be a JSON object."));
+    } else {
+      for (const reqKey of ["synthetic", "batch_id", "source_assurance", "lab_tests", "recycled_content", "assessment", "authorised_texts", "methods", "cost_context"]) {
+        if (!doc.entries.has(reqKey)) structure.push(issue("structure", "schema", `${name}, /`, `"${reqKey}" is required.`));
+      }
+      const syn = get(doc, "synthetic");
+      if (syn.kind !== "boolean" || syn.value !== true) {
+        structure.push(issue("structure", "schema", `${name}, /synthetic`, "Must be boolean true."));
+      }
+      const lt = get(doc, "lab_tests");
+      if (lt.kind !== "object") structure.push(issue("structure", "schema", `${name}, /lab_tests`, "Must be an object."));
+      else {
+        for (const k of ["thickness", "magnesium", "lead"]) {
+          if (!lt.entries.has(k)) structure.push(issue("structure", "schema", `${name}, /lab_tests`, `"${k}" is required.`));
+        }
+      }
+    }
     failIf("structure", structure);
 
+    deadline.check("semantics");
     const errors: IngressIssue[] = [];
     const assertions: Assertion[] = [];
     const src = (location: string) => ({ file: name, role: "lab" as const, sha256: file.sha256, location: `${name}, ${location}` });
-    const product = get(doc, "product");
-    const model = str(get(product, "model_id"));
-    const batch = str(get(product, "batch_id"));
-    // The lab file names the model, batch and alloy it reports on, so they become assertions too (FUNC-065).
-    const reference = (key: string, property: string, member?: string) => {
-      const raw = str(get(product, key));
-      // The same rule as for identifiers in the ERP extract: padding would keep the value from matching its record (R3-03: applies to alloy too).
-      if (raw !== raw.trim() || HAS_INVISIBLE.test(raw)) {
-        errors.push(issue("semantics", "padded-identifier", `${name}, /product/${key}`, JSON.stringify(raw)));
-        return;
-      }
-      if (unsafeIdentifier(raw)) {
-        errors.push(issue("semantics", "unsafe-identifier", `${name}, /product/${key}`));
-        return;
-      }
-      assertions.push({ property, ...(member ? { member } : {}), raw, value: raw, unit: null, source: src(`/product/${key}`), flags: ["declared"] });
-    };
-    reference("model_id", byRole(pack, "model"), "FLD-Identifier-value");
-    reference("batch_id", byRole(pack, "batch"), "FLD-Identifier-value");
-    reference("alloy", byRole(pack, "alloy"));
+    const batch = str(get(doc, "batch_id"));
+    if (batch !== batch.trim() || HAS_INVISIBLE.test(batch)) {
+      errors.push(issue("semantics", "padded-identifier", `${name}, /batch_id`, JSON.stringify(batch)));
+    } else if (unsafeIdentifier(batch)) {
+      errors.push(issue("semantics", "unsafe-identifier", `${name}, /batch_id`));
+    }
 
-    const evidence = list(get(doc, "evidence"));
-    const evidenceIds = new Set(evidence.map((e) => str(get(e, "evidence_id"))));
-    // Identifiers inside the file must be unique, or two entries would silently share one identity.
-    const unique = (items: JsonValue[], key: string, path: string) => {
-      const seen = new Map<string, number>();
-      items.forEach((x, i) => {
-        const id = str(get(x, key));
-        if (unsafeIdentifier(id)) errors.push(issue("semantics", "unsafe-identifier", `${name}, ${path}/${i}/${key}`));
-        if (seen.has(id)) errors.push(issue("semantics", "duplicate-id", `${name}, ${path}/${i}/${key}`, `"${id}" also at ${path}/${seen.get(id)}.`));
-        seen.set(id, i);
-      });
-    };
-    unique(evidence, "evidence_id", "/evidence");
-    unique(list(get(doc, "observations")), "observation_id", "/observations");
-    unique(list(get(doc, "footprints")), "result_id", "/footprints");
-    unique(list(get(doc, "texts")), "text_id", "/texts");
-    const linked = (e: JsonValue, path: string, flags: Flag[]) => {
-      const id = str(get(e, "evidence_id"));
-      if (!evidenceIds.has(id)) errors.push(issue("semantics", "unknown-evidence", `${name}, ${path}/evidence_id`, `"${id}".`));
-      else flags.push("evidence-linked");
-    };
-    const unitCheck = (property: string, unit: JsonValue, path: string) => {
-      if (unit.kind === "null") {
-        errors.push(issue("semantics", "missing-unit", `${name}, ${path}/unit`, `${property}.`));
-        return false;
+    const sourceAssurance = str(get(doc, "source_assurance"));
+    const requiredAssurance = pack.contracts.profilePolicy.source_assurance_required;
+
+    // Validate state_overrides keys against the 24 profile properties
+    const allowedProps = new Set(pack.properties.map((p) => p.id));
+    const overridesObj = get(doc, "state_overrides");
+    const overrides = new Map<string, { challenge_status?: string; source_assurance?: string }>();
+    if (overridesObj.kind === "object") {
+      for (const [propId, val] of overridesObj.entries) {
+        if (!allowedProps.has(propId)) {
+          errors.push(issue("semantics", "schema", `${name}, /state_overrides/${propId}`, `Unknown property state override "${propId}".`));
+          continue;
+        }
+        if (val.kind === "object") {
+          const cs = get(val, "challenge_status");
+          const sa = get(val, "source_assurance");
+          overrides.set(propId, {
+            ...(cs.kind === "string" ? { challenge_status: cs.value } : {}),
+            ...(sa.kind === "string" ? { source_assurance: sa.value } : {}),
+          });
+        }
       }
-      const allowed = contract.allowed_units[property] ?? [];
-      if (!allowed.includes(str(unit))) {
-        errors.push(issue("semantics", "wrong-unit", `${name}, ${path}/unit`, `"${str(unit)}" for ${property}; allowed: ${allowed.join(", ")}.`));
-        return false;
-      }
-      return true;
+    }
+
+    const applyOverrideFlags = (propId: string, flags: Flag[]) => {
+      const ov = overrides.get(propId);
+      if (ov?.challenge_status && ov.challenge_status !== "none") flags.push("challenged");
+      const effAssurance = ov?.source_assurance ?? sourceAssurance;
+      if (effAssurance !== requiredAssurance) flags.push("source-assurance-unaccepted");
     };
 
-    list(get(doc, "observations")).forEach((o, i) => {
-      const path = `/observations/${i}`;
-      const property = str(get(o, "property"));
-      const flags: Flag[] = ["measured", "unit-stated", "uncertainty-stated"];
-      const unitOk = unitCheck(property, get(o, "unit"), path);
-      linked(o, path, flags);
-      if (!unitOk) return;
+    // Unique observation IDs across lab_tests
+    const lt = get(doc, "lab_tests");
+    const seenObs = new Map<string, string>();
+    const obsSpecs: Array<{ key: "thickness" | "magnesium" | "lead"; role: Role }> = [
+      { key: "thickness", role: "measuredThickness" },
+      { key: "magnesium", role: "magnesium" },
+      { key: "lead", role: "lead" },
+    ];
+    let hasShapeIssue = false;
+
+    for (const { key, role } of obsSpecs) {
+      const o = get(lt, key);
+      const path = `/lab_tests/${key}`;
+      if (o.kind !== "object") continue;
+      const obsId = str(get(o, "observation_id"));
+      if (unsafeIdentifier(obsId)) errors.push(issue("semantics", "unsafe-identifier", `${name}, ${path}/observation_id`));
+      if (seenObs.has(obsId)) errors.push(issue("semantics", "duplicate-id", `${name}, ${path}/observation_id`, `"${obsId}" also at ${seenObs.get(obsId)}.`));
+      seenObs.set(obsId, `${path}/observation_id`);
+
+      const property = byRole(pack, role);
+      const unitNode = get(o, "unit_id");
+      const flags: Flag[] = ["measured", "unit-stated"];
+      if (unitNode.kind === "null") {
+        errors.push(issue("semantics", "missing-unit", `${name}, ${path}/unit_id`, `${property}.`));
+        continue;
+      }
+      const unit = str(unitNode);
+      const allowedUnits = contract.allowed_units[property] ?? [];
+      if (!allowedUnits.includes(unit)) {
+        flags.push("wrong-unit");
+      }
+
       const v = get(o, "value");
       const u = get(o, "uncertainty");
-      if (v.kind === "number" && !exact(v.raw)) {
-        errors.push(issue("semantics", "precision-loss", `${name}, ${path}/value`, `"${v.raw}".`));
-        return;
+      if (v.kind === "number") {
+        if (!exact(v.raw)) {
+          errors.push(issue("semantics", "precision-loss", `${name}, ${path}/value`, `"${v.raw}".`));
+          continue;
+        }
+        if (allowedUnits.includes(unit) && !inRange(v.value, unit)) {
+          errors.push(issue("semantics", "out-of-range", `${name}, ${path}/value`, `${v.raw} ${unit}.`));
+          continue;
+        }
+      } else {
+        // Non-numeric value on measurement -> record shape issue (REF-20)
+        hasShapeIssue = true;
+        flags.push("shape-issue");
       }
-      if (v.kind === "number" && !inRange(v.value, str(get(o, "unit")))) {
-        errors.push(issue("semantics", "out-of-range", `${name}, ${path}/value`, `${v.raw} ${str(get(o, "unit"))}.`));
-        return;
+      if (u.kind === "object") flags.push("uncertainty-stated");
+      else {
+        hasShapeIssue = true;
+        flags.push("shape-issue");
       }
-      const element = str(get(o, "element"));
+      const evRefs = list(get(o, "evidence_refs"));
+      if (evRefs.length > 0) flags.push("evidence-linked");
+      applyOverrideFlags(property, flags);
+
       assertions.push({
         property,
-        ...(element ? { qualifier: element } : {}),
         raw: str(v),
         value: v.kind === "number" ? v.value : null,
-        unit: str(get(o, "unit")),
+        unit,
         details: {
-          observation_id: str(get(o, "observation_id")),
-          method: str(get(o, "method")),
-          expanded_uncertainty: str(get(u, "expanded")),
-          coverage_factor: str(get(u, "coverage_factor")),
-          uncertainty_kind: str(get(u, "uncertainty_kind")),
-          evidence_id: str(get(o, "evidence_id")),
+          observation_id: obsId,
+          property_ref: str(get(o, "property_ref")),
+          specimen_ref: str(get(o, "specimen_ref")),
+          method_ref: str(get(o, "method_ref")),
+          qualifier: str(get(o, "qualifier")),
+          mass_basis: str(get(o, "mass_basis")),
+          uncertainty_value: u.kind === "object" ? str(get(u, "value")) : "",
+          uncertainty_unit: u.kind === "object" ? str(get(u, "unit_id")) : "",
+          coverage_factor: u.kind === "object" ? str(get(u, "coverage_factor")) : "",
+          uncertainty_kind: u.kind === "object" ? str(get(u, "uncertainty_kind")) : "",
+          evidence_refs: evRefs.map(str).join(","),
         },
         source: src(`${path}/value`),
         flags,
       });
-    });
+    }
 
-    const footprints = list(get(doc, "footprints"));
-    footprints.forEach((f, i) => {
-      const path = `/footprints/${i}`;
-      const property = str(get(f, "property"));
-      const flags: Flag[] = ["calculated-externally", "unit-stated"];
-      if (footprints.length > 1) flags.push("several-results");
-      const unitOk = unitCheck(property, get(f, "unit"), path);
-      linked(f, path, flags);
-      if (!unitOk) return;
-      const v = get(f, "value");
-      if (v.kind === "number" && !exact(v.raw)) {
-        errors.push(issue("semantics", "precision-loss", `${name}, ${path}/value`, `"${v.raw}".`));
-        return;
-      }
-      assertions.push({
-        property,
-        qualifier: str(get(f, "result_id")),
-        raw: str(v),
-        value: v.kind === "number" ? v.value : null,
-        unit: str(get(f, "unit")),
-        details: {
-          method: str(get(f, "method")),
-          system_boundary: str(get(f, "system_boundary")),
-          reference_year: str(get(f, "reference_year")),
-          calculated_by: str(get(f, "calculated_by")),
-          evidence_id: str(get(f, "evidence_id")),
-        },
-        source: src(`${path}/value`),
-        flags,
-      });
-    });
-
-    const evidenceProperty = byRole(pack, "evidence");
-    evidence.forEach((e, i) => {
-      const digest = get(e, "digest");
+    // Recycled content basis, evidence, and optional conflicting_pre_percent (REF-07)
+    const rc = get(doc, "recycled_content");
+    const basis = get(rc, "basis");
+    if (basis.kind === "object") {
+      const basisId = str(get(basis, "basis_id"));
+      const prop = byRole(pack, "recycledBasis");
       const flags: Flag[] = ["declared"];
-      if (digest.kind === "null") flags.push("evidence-digest-missing");
-      const id = str(get(e, "evidence_id"));
+      applyOverrideFlags(prop, flags);
       assertions.push({
-        property: evidenceProperty,
+        property: prop,
+        raw: basisId,
+        value: basisId,
+        unit: null,
+        details: {
+          basis_id: basisId,
+          numerator: str(get(basis, "numerator")),
+          denominator: str(get(basis, "denominator")),
+          includes: str(get(basis, "includes")),
+          excludes: list(get(basis, "excludes")).map(str).join(","),
+          mass_unit: str(get(basis, "mass_unit")),
+          method_id: str(get(rc, "method_id")),
+          scope_id: str(get(rc, "scope_id")),
+          eligibility: str(get(rc, "eligibility")),
+        },
+        source: src("/recycled_content/basis"),
+        flags,
+      });
+    }
+
+    const conflictPre = get(rc, "conflicting_pre_percent");
+    if (conflictPre.kind !== "null") {
+      const prop = byRole(pack, "recycledPre");
+      assertions.push({
+        property: prop,
+        raw: str(conflictPre),
+        value: conflictPre.kind === "number" ? conflictPre.value : null,
+        unit: "%",
+        source: src("/recycled_content/conflicting_pre_percent"),
+        flags: ["declared", "challenged"],
+      });
+    }
+
+    const evList = list(get(rc, "evidence"));
+    const evProp = byRole(pack, "evidence");
+    const seenEv = new Map<string, number>();
+    evList.forEach((e, i) => {
+      const id = str(get(e, "evidence_id"));
+      if (unsafeIdentifier(id)) errors.push(issue("semantics", "unsafe-identifier", `${name}, /recycled_content/evidence/${i}/evidence_id`));
+      if (seenEv.has(id)) errors.push(issue("semantics", "duplicate-id", `${name}, /recycled_content/evidence/${i}/evidence_id`, `"${id}".`));
+      seenEv.set(id, i);
+      const flags: Flag[] = ["declared"];
+      applyOverrideFlags(evProp, flags);
+      assertions.push({
+        property: evProp,
         qualifier: id,
         raw: id,
         value: id,
         unit: null,
-        details: Object.fromEntries(["issuer", "revision", "record_kind", "scope", "digest", "access_policy_ref"].map((k) => [k, str(get(e, k))])),
-        source: src(`/evidence/${i}`),
+        details: Object.fromEntries(
+          ["issuer", "revision", "record_kind", "scope", "digest", "access_policy_ref", "external_verification"].map((k) => [k, str(get(e, k))]),
+        ),
+        source: src(`/recycled_content/evidence/${i}`),
         flags,
       });
     });
 
-    const narrativeProperty = byRole(pack, "narrative");
-    list(get(doc, "texts")).forEach((t, i) => {
-      const subject = str(get(t, "subject_ref"));
-      if (subject !== model) errors.push(issue("semantics", "subject-mismatch", `${name}, /texts/${i}/subject_ref`, `"${subject}" is not "${model}".`));
-      const flags: Flag[] = ["declared"];
-      if (str(get(t, "approval_state")) !== "approved") flags.push("draft-text");
+    // Assessment / carbon footprint
+    const assessObj = get(doc, "assessment");
+    const fpResult = get(assessObj, "result");
+    const fpCtx = get(assessObj, "context");
+    if (fpResult.kind === "object") {
+      const fpProp = byRole(pack, "footprint");
+      const v = get(fpResult, "result");
+      const unit = str(get(fpResult, "unit_id"));
+      const flags: Flag[] = ["calculated-externally", "unit-stated"];
+      const allowedFpUnits = contract.allowed_units[fpProp] ?? [];
+      if (!allowedFpUnits.includes(unit)) flags.push("wrong-unit");
+      applyOverrideFlags(fpProp, flags);
       assertions.push({
-        property: narrativeProperty,
+        property: fpProp,
+        qualifier: str(get(fpResult, "indicator_id")),
+        raw: str(v),
+        value: v.kind === "number" ? v.value : null,
+        unit,
+        details: {
+          indicator_id: str(get(fpResult, "indicator_id")),
+          method_ref: str(get(fpResult, "method_ref")),
+          reference_unit: str(get(fpResult, "reference_unit")),
+          system_boundary: str(get(fpResult, "system_boundary")),
+          allocation: str(get(fpResult, "allocation")),
+          period: str(get(fpResult, "period")),
+          geography: str(get(fpResult, "geography")),
+          reference_product: str(get(get(fpCtx, "reference_unit"), "reference_product")),
+        },
+        source: src("/assessment/result/result"),
+        flags,
+      });
+    }
+
+    // Approved product texts (LocalizedTextSet[], read from authorised_texts)
+    const texts = list(get(doc, "authorised_texts"));
+    const narrativeProp = byRole(pack, "narrative");
+    const expectedSubject = str(get(get(fpCtx, "reference_unit"), "reference_product"));
+    const seenTxt = new Map<string, number>();
+    texts.forEach((t, i) => {
+      const tid = str(get(t, "text_id"));
+      if (unsafeIdentifier(tid)) errors.push(issue("semantics", "unsafe-identifier", `${name}, /authorised_texts/${i}/text_id`));
+      if (seenTxt.has(tid)) errors.push(issue("semantics", "duplicate-id", `${name}, /authorised_texts/${i}/text_id`, `"${tid}".`));
+      seenTxt.set(tid, i);
+      const subjectRef = str(get(t, "subject_ref"));
+      if (expectedSubject && subjectRef && subjectRef !== expectedSubject) {
+        errors.push(issue("semantics", "subject-mismatch", `${name}, /authorised_texts/${i}/subject_ref`, `"${subjectRef}" does not match "${expectedSubject}".`));
+      }
+      const flags: Flag[] = ["declared"];
+      if (str(get(t, "approval_state")) !== "authorised_in_synthetic_fixture") flags.push("draft-text");
+      applyOverrideFlags(narrativeProp, flags);
+      assertions.push({
+        property: narrativeProp,
         qualifier: `${str(get(t, "language"))}/${str(get(t, "sector"))}/${str(get(t, "market"))}`,
         raw: str(get(t, "text")),
         value: str(get(t, "text")),
         unit: null,
         details: Object.fromEntries(["text_id", "subject_ref", "language", "sector", "market", "approval_state", "revision"].map((k) => [k, str(get(t, k))])),
-        source: src(`/texts/${i}/text`),
+        source: src(`/authorised_texts/${i}/text`),
         flags,
       });
     });
 
     failIf("semantics", errors);
     authorise(actor, name);
-    return { ok: true, file, assertions, records: [{ model, batch }] };
+    const plainLab = toPlain(doc) as Record<string, unknown>;
+    const refModel = str(get(get(fpCtx, "reference_unit"), "reference_product")).split("/")[0] ?? "";
+    return {
+      ok: true,
+      importStatus: hasShapeIssue ? "IMPORTED_WITH_SHAPE_ISSUES" : "IMPORTED",
+      file,
+      assertions,
+      records: [{ model: refModel, batch }],
+      rawText,
+      parsedLab: plainLab,
+    };
   } catch (e) {
-    if (e instanceof StageFailure) return { ok: false, file, stage: e.stage, errors: e.errors };
+    if (e instanceof StageFailure) return { ok: false, importStatus: "REJECT", file, stage: e.stage, errors: e.errors };
     throw e;
   }
-}
-
-const ROLE_SLUGS = {
-  model: "product-model-id",
-  name: "product-name",
-  batch: "batch-id",
-  alloy: "alloy-designation",
-  temper: "temper-designation",
-  footprint: "carbon-footprint",
-  evidence: "evidence-references",
-  narrative: "product-narrative",
-} as const;
-export type Role = keyof typeof ROLE_SLUGS;
-
-/**
- * Finds a property by the role its definition plays, so no code names an identifier: the public
- * stand-in and the private pack number their properties differently (decision D1-01, option b).
- */
-export function byRole(pack: ProfilePack, role: Role): string {
-  const slug = ROLE_SLUGS[role];
-  const found = pack.properties.find((p) => p.definitionRef.endsWith(`:${slug}`));
-  if (!found) throw new Error(`The profile has no ${role} property (${slug})`);
-  return found.id;
 }
 
 // ---------- Record state ----------
@@ -904,15 +996,18 @@ export interface RecordValue {
 export interface ProductRecord {
   model: string;
   batch: string;
+  revision?: string;
+  importStatus?: ReferenceImportStatus;
   sources: SourceFile[];
   values: RecordValue[];
   /** sha256 of the canonical record state: the same files always give the same digest (C2-07). */
   digest: string;
+  /** Pinned REC-ALU-24-01 DPPPayload constructed via MAP-IMP-ERP-01 + MAP-IMP-LAB-01 (C9-04). */
+  dppPayload?: DppPayloadRecord;
 }
 
 export interface RecordState {
   records: ProductRecord[];
-  /** Lab assertions about a model or batch the ERP extract does not contain; kept, not attached. */
   unattached: Assertion[];
 }
 
@@ -920,220 +1015,241 @@ const keyOf = (a: { property: string; member?: string; qualifier?: string }) => 
 
 export const sameAssertion = (a: Assertion, b: Assertion) =>
   typeof a.value === "number" && typeof b.value === "number" ? a.value === b.value : a.raw === b.raw;
-const same = (a: Assertion, b: Assertion) => (typeof a.value === "number" && typeof b.value === "number" ? a.value === b.value : a.raw === b.raw);
 
-/**
- * Combines accepted imports into one record per product model and batch (FUNC-065 references). When two
- * sources state different values for the same property, both stay and the value is challenged (C2-05).
- */
-export async function buildRecords(results: ImportResult[], digestOf: (state: object) => string | Promise<string> = (state) => sha256Hex(canonical(state))): Promise<RecordState> {
+export const valueStatus = (assertions: Assertion[]): ValueStatus =>
+  assertions.some((a) => a.flags.includes("source-changed"))
+    ? "challenged"
+    : assertions.some((a) => a.flags.includes("corrected"))
+      ? "corrected"
+      : assertions.some((a) => a.flags.includes("challenged"))
+        ? "challenged"
+        : assertions.length === 1
+          ? "single"
+          : assertions.every((a) => sameAssertion(a, assertions[0]!))
+            ? "agreeing"
+            : "challenged";
+
+function groupAssertions(assertions: Assertion[]): RecordValue[] {
+  const buckets = new Map<string, Assertion[]>();
+  for (const a of assertions) {
+    const k = keyOf(a);
+    let list = buckets.get(k);
+    if (!list) {
+      list = [];
+      buckets.set(k, list);
+    }
+    list.push(a);
+  }
+  const values: RecordValue[] = [];
+  for (const [, list] of [...buckets.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+    const first = list[0]!;
+    const status = valueStatus(list);
+    const finalAssertions = status === "challenged" ? list.map((a) => (a.flags.includes("challenged") ? a : { ...a, flags: [...a.flags, "challenged" as Flag] })) : list;
+    values.push({
+      property: first.property,
+      ...(first.member ? { member: first.member } : {}),
+      ...(first.qualifier ? { qualifier: first.qualifier } : {}),
+      status,
+      assertions: finalAssertions,
+    });
+  }
+  return values;
+}
+
+export async function recordDigest(record: Omit<ProductRecord, "digest">): Promise<string> {
+  const { digest: _d, ...state } = record as ProductRecord;
+  return sha256Hex(canonical(state));
+}
+
+export async function buildRecords(
+  results: ImportResult[],
+  packOrDigest?: ProfilePack | ((state: object) => string | Promise<string>),
+  maybeDigest?: (state: object) => string | Promise<string>,
+): Promise<RecordState>;
+export async function buildRecords(pack: ProfilePack, erp?: ImportResult, lab?: ImportResult): Promise<RecordState>;
+export async function buildRecords(
+  first: ProfilePack | ImportResult[],
+  second?: ImportResult | ProfilePack | ((state: object) => string | Promise<string>),
+  third?: ImportResult | ((state: object) => string | Promise<string>),
+): Promise<RecordState> {
+  let pack: ProfilePack | undefined;
+  let results: ImportResult[];
+  let customDigest: ((state: object) => string | Promise<string>) | undefined;
+  if (Array.isArray(first)) {
+    results = first;
+    if (typeof second === "function") customDigest = second;
+    else if (second && typeof second === "object" && "contracts" in second) {
+      pack = second;
+      if (typeof third === "function") customDigest = third;
+    }
+  } else {
+    pack = first;
+    results = [second as ImportResult | undefined, third as ImportResult | undefined].filter((x): x is ImportResult => x !== undefined);
+  }
+
   const accepted = results.filter((r): r is Extract<ImportResult, { ok: true }> => r.ok);
-  const erp = accepted.filter((r) => r.file.role === "erp");
-  const lab = accepted.filter((r) => r.file.role === "lab");
+  const erps = accepted.filter((r) => r.file.role === "erp");
+  const labs = accepted.filter((r) => r.file.role === "lab");
   const records: ProductRecord[] = [];
   const unattached: Assertion[] = [];
   const attachedLab = new Set<Extract<ImportResult, { ok: true }>>();
 
-  for (const e of erp) {
-    for (const ref of e.records) {
-      const rowAssertions = e.assertions.filter((a) => a.source.row !== undefined && e.records[a.source.row - 1] === ref);
-      const labs = lab.filter((l) => l.records[0].model === ref.model && l.records[0].batch === ref.batch);
-      labs.forEach((l) => attachedLab.add(l));
-      const all = [...rowAssertions, ...labs.flatMap((l) => l.assertions)];
-      const groups = new Map<string, Assertion[]>();
-      for (const a of all) groups.set(keyOf(a), [...(groups.get(keyOf(a)) ?? []), a]);
-      const values: RecordValue[] = [...groups.entries()]
-        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-        .map(([, as]) => {
-          const status: ValueStatus = valueStatus(as);
-          const assertions = status === "challenged" ? as.map((a) => ({ ...a, flags: [...a.flags, "challenged" as Flag] })) : as;
-          return { property: as[0].property, ...(as[0].member ? { member: as[0].member } : {}), ...(as[0].qualifier ? { qualifier: as[0].qualifier } : {}), status, assertions };
+  for (const e of erps) {
+    for (let i = 0; i < e.records.length; i++) {
+      const id = e.records[i]!;
+      const erpAssertions = e.assertions.filter((a) => a.source.row === i + 1);
+      const matchedLabs = labs.filter((l) => l.records[0]?.batch === id.batch);
+      matchedLabs.forEach((l) => attachedLab.add(l));
+      const sources: SourceFile[] = [e.file, ...matchedLabs.map((l) => l.file)];
+      const combined: Assertion[] = [...erpAssertions, ...matchedLabs.flatMap((l) => l.assertions)];
+      const values = groupAssertions(combined);
+      let dppPayload: DppPayloadRecord | undefined;
+      let importStatus: ReferenceImportStatus = matchedLabs.some((l) => l.importStatus === "IMPORTED_WITH_SHAPE_ISSUES")
+        ? "IMPORTED_WITH_SHAPE_ISSUES"
+        : e.importStatus;
+
+      const lab0 = matchedLabs[0];
+      if (pack && e.rawText && lab0?.parsedLab) {
+        const refRes = await importReferencePair(e.rawText, lab0.parsedLab, pack.contracts, {
+          standIn: pack.standIn,
+          labRawText: lab0.rawText,
         });
-      const sources = [e.file, ...labs.map((l) => l.file)];
-      const state = { model: ref.model, batch: ref.batch, sources, values };
-      records.push({ ...state, digest: await digestOf(state) });
+        importStatus = refRes.status;
+        if (refRes.record) dppPayload = refRes.record;
+      }
+
+      const base: Omit<ProductRecord, "digest"> = {
+        model: id.model,
+        batch: id.batch,
+        ...(id.revision ? { revision: id.revision } : {}),
+        importStatus,
+        sources,
+        values,
+        ...(dppPayload ? { dppPayload } : {}),
+      };
+      const digest = customDigest ? await customDigest(base) : await recordDigest(base);
+      records.push({ ...base, digest });
     }
   }
-  for (const l of lab) if (!attachedLab.has(l)) unattached.push(...l.assertions);
+  for (const l of labs) if (!attachedLab.has(l)) unattached.push(...l.assertions);
   return { records, unattached };
 }
 
-/** How many assertions say the same: one value, several that agree, or several that differ (C2-05). */
-export const valueStatus = (assertions: Assertion[]): ValueStatus =>
-  assertions.some((a) => a.flags.includes("source-changed")) ? "challenged" : assertions.some((a) => a.flags.includes("corrected")) ? "corrected" : assertions.length === 1 ? "single" : assertions.every((a) => same(a, assertions[0])) ? "agreeing" : "challenged";
-
-/**
- * Re-checks a stored record against the pinned pack the way ingress checked the files (Cycle 4, central-record import):
- * the status of every value and the flags of every assertion are derived again from the assertions, codes are looked up
- * in the pinned code lists, numbers must be literal numbers in their physical range, units must be the contract's, and
- * every assertion must name a column or a place the contract has and a source file the record lists. It cannot tell a
- * value that was changed to another valid value: only signing could (out of scope). Returns every problem found.
- */
+/** Re-checks a stored or imported record against the pinned contract pack (centralRecord.ts). */
 export function recheckRecord(pack: ProfilePack, record: ProductRecord): string[] {
   const problems: string[] = [];
-  const props = new Map(pack.properties.map((p) => [p.id, p]));
-  const evidenceProperty = byRole(pack, "evidence");
-  const narrativeProperty = byRole(pack, "narrative");
-  const footprintProperty = byRole(pack, "footprint");
-  const evidenceIds = new Set(record.values.filter((v) => v.property === evidenceProperty).map((v) => v.qualifier));
-  const footprintResults = record.values.filter((v) => v.property === footprintProperty && !v.member).flatMap((v) => v.assertions).filter((a) => a.source.role !== "correction").length;
-  const erpColumns = new Map(pack.inputs.erp.columns.map((c) => [c.name, c]));
+  const knownProps = new Map(pack.properties.map((p) => [p.id, new Set(p.members.map((m) => m.id))]));
+  const listedSources = new Set(record.sources.map((s) => `${s.role}|${s.sha256}`));
+  const erpCols = new Map(pack.inputs.erp.columns.map((c) => [c.name, c]));
+  const modelProp = byRole(pack, "model");
 
   for (const v of record.values) {
-    const where = `${v.property}${v.member ? `/${v.member}` : ""}${v.qualifier ? ` (${v.qualifier})` : ""}`;
-    const prop = props.get(v.property);
-    if (!prop) {
-      problems.push(`${where}: not a property of the profile`);
+    const at = `${v.property}${v.member ? `/${v.member}` : ""}`;
+    if (!knownProps.has(v.property)) {
+      problems.push(`${v.property}: not a property of the profile`);
       continue;
     }
-    if (v.member && !prop.members.some((m) => m.id === v.member)) problems.push(`${where}: not a member of the property`);
-    const status = valueStatus(v.assertions);
-    if (v.status !== status) problems.push(`${where}: status is ${v.status}, the assertions make it ${status}`);
+    if (v.member && !knownProps.get(v.property)!.has(v.member)) {
+      problems.push(`${at}: member not in profile`);
+    }
+
+    // Re-derive status from assertions and verify challenged flag agreement
+    const expectedStatus: ValueStatus = v.assertions.some((a) => a.flags.includes("source-changed"))
+      ? "challenged"
+      : v.assertions.some((a) => a.flags.includes("corrected"))
+        ? "corrected"
+        : v.assertions.length === 1
+          ? v.assertions[0]!.flags.includes("challenged")
+            ? "challenged"
+            : "single"
+          : v.assertions.every((a) => sameAssertion(a, v.assertions[0]!)) && !v.assertions.some((a) => a.flags.includes("challenged"))
+            ? "agreeing"
+            : "challenged";
+    if (v.status !== expectedStatus) {
+      problems.push(`${at}: status is ${v.status}, the assertions make it ${expectedStatus}`);
+    }
+    if (
+      v.status === "challenged" &&
+      !v.assertions.some((a) => a.flags.includes("source-changed")) &&
+      v.assertions.some((a) => a.source.role !== "correction" && !a.flags.includes("challenged"))
+    ) {
+      problems.push(`${at}: challenged value has an assertion without the challenged flag`);
+    }
 
     for (const a of v.assertions) {
-      const at = `${where} at ${a.source.location}`;
-      if (a.property !== v.property || a.member !== v.member || a.qualifier !== v.qualifier) problems.push(`${at}: the assertion is filed under another key`);
-      if (!v.assertions.some((x) => x.source.role === "correction") && a.flags.includes("challenged") !== (status === "challenged")) problems.push(`${at}: the challenged flag does not match the status`);
-      if (!record.sources.some((s) => s.name === a.source.file && s.role === a.source.role && s.sha256 === a.source.sha256)) problems.push(`${at}: its source file is not listed in the record`);
-      if (!a.source.location.startsWith(`${a.source.file}, `)) problems.push(`${at}: the location is not in its source file`);
       if (a.source.role === "correction") {
         problems.push(...recheckCorrection(pack, v, a, at));
         continue;
       }
-      const expected = new Set<Flag>();
-      const rest = a.source.location.slice(a.source.file.length + 2);
+      if (!listedSources.has(`${a.source.role}|${a.source.sha256}`)) {
+        problems.push(`${at}: source sha256 ${a.source.sha256} is not listed in the record`);
+      }
 
       if (a.source.role === "erp") {
-        const m = /^row (\d+), column (.+)$/.exec(rest);
-        const c = m ? erpColumns.get(m[2]) : undefined;
-        if (!m || !c) {
-          problems.push(`${at}: not a column of the ERP contract`);
-          continue;
-        }
-        const [cp, cm] = c.maps_to.split("/");
-        if (cp !== a.property || cm !== a.member || c.language !== a.qualifier) problems.push(`${at}: the column maps to ${c.maps_to}, not to this value`);
-        if (a.source.row !== Number(m[1]) - 1) problems.push(`${at}: the row does not match the location`);
-        if (a.raw.replace(INVISIBLE, "").trim() === "") problems.push(`${at}: an empty value`);
-        if ((c.code_list || cm?.startsWith("FLD-Identifier-")) && (a.raw !== a.raw.trim() || HAS_INVISIBLE.test(a.raw))) problems.push(`${at}: a padded identifier`);
-        expected.add("declared");
-        let value: string | number | null = a.raw;
-        if (c.unit) {
-          if (!DECIMAL.test(a.raw) || !exact(a.raw)) problems.push(`${at}: "${a.raw}" is not a literal number`);
-          else {
-            value = Number(a.raw);
-            if (!inRange(value, c.unit)) problems.push(`${at}: ${a.raw} ${c.unit} is out of range`);
+        const colMatch = /, row \d+, column (.+)$/.exec(a.source.location);
+        const col = colMatch ? erpCols.get(colMatch[1]!) : undefined;
+        if (col) {
+          const [colProp, colMember] = col.maps_to.split("/");
+          const isModelLookup = col.name === "material_code" && v.property === modelProp && !v.member;
+          if (!isModelLookup && (colProp !== v.property || (colMember ?? undefined) !== v.member)) {
+            problems.push(`${at}: column "${col.name}" maps to ${col.maps_to}, not ${at}`);
           }
-          expected.add("unit-from-contract");
-        }
-        if (a.unit !== (c.unit ?? null)) problems.push(`${at}: the unit is ${a.unit}, the contract says ${c.unit ?? "none"}`);
-        if (c.format === "ISO 8601 date" && !isCalendarDate(a.raw)) problems.push(`${at}: not a calendar date`);
-        const list = codeListOf(pack, c.code_list);
-        if (list) {
-          const known = list.codes.find((x) => x.code === a.raw);
-          if (!known) expected.add("unknown-code");
-          else if (known.mapsTo !== undefined) {
-            value = known.mapsTo;
-            expected.add("code-mapped");
+          if (!isModelLookup) {
+            if (col.unit !== null) {
+              if (a.unit !== col.unit) problems.push(`${at}: the unit is ${a.unit}, the contract states ${col.unit}`);
+              if (!DECIMAL.test(a.raw) || !exact(a.raw)) problems.push(`${at}: "${a.raw}" is not a valid decimal number`);
+              else {
+                const n = Number(a.raw);
+                if (a.value !== n) problems.push(`${at}: the value is ${JSON.stringify(a.value)}, "${a.raw}" gives ${n}`);
+                if (!inRange(n, col.unit)) problems.push(`${at}: ${a.raw} ${col.unit} is out of range`);
+              }
+            }
+            const list = codeListOf(pack, col.code_list);
+            if (list) {
+              const known = list.codes.find((x) => x.code === a.raw);
+              if (!known) {
+                if (!a.flags.includes("unknown-code")) problems.push(`${at}: flags are [${a.flags.join(", ")}], expected unknown-code for "${a.raw}"`);
+              } else {
+                if (a.flags.includes("unknown-code")) problems.push(`${at}: flags are [${a.flags.join(", ")}], "${a.raw}" is in ${list.ref}`);
+                const expectedVal = known.mapsTo ?? a.raw;
+                if (a.value !== expectedVal) problems.push(`${at}: the value is ${JSON.stringify(a.value)}, code list gives ${JSON.stringify(expectedVal)}`);
+              }
+            } else if (a.flags.includes("unknown-code")) {
+              problems.push(`${at}: flags are [${a.flags.join(", ")}], column "${col.name}" has no code list`);
+            }
           }
-          if (!known && list.codes.some((x) => x.mapsTo !== undefined)) value = null;
         }
-        if (a.value !== value) problems.push(`${at}: the value is ${JSON.stringify(a.value)}, the source text gives ${JSON.stringify(value)}`);
-      } else {
-        const pointer = rest;
-        const kind = /^\/(product|observations|footprints|evidence|texts)(\/|$)/.exec(pointer)?.[1];
-        if (!kind) {
-          problems.push(`${at}: not a place the laboratory contract has`);
-          continue;
+      } else if (a.source.role === "lab") {
+        const allowed = pack.inputs.lab.allowed_units[v.property];
+        if (allowed && a.unit !== null && !a.flags.includes("wrong-unit") && !allowed.includes(a.unit)) {
+          problems.push(`${at}: unit "${a.unit}" is not allowed by laboratory contract (${allowed.join(", ")})`);
         }
-        const linked = () => {
-          const id = a.details?.evidence_id;
-          if (id !== undefined && evidenceIds.has(id)) expected.add("evidence-linked");
-          else problems.push(`${at}: names evidence ${JSON.stringify(id)}, which the record does not hold`);
-        };
-        // The same JSON-Schema rules and enums the laboratory contract applies at ingress, on the object this assertion stands for
-        const schemaCheck = () => {
-          const groups: Record<string, string> = { observations: "observations", footprints: "footprints", evidence: "evidence", texts: "texts" };
-          const structure = pack.inputs.lab.structure as { properties?: Record<string, { items?: Schema }> };
-          const itemSchema = structure.properties?.[groups[kind!]]?.items;
-          if (!itemSchema) return;
-          const props = (itemSchema.properties ?? {}) as Record<string, Schema>;
-          const d = a.details ?? {};
-          const typed = (key: string, text: string | undefined): JsonValue => {
-            const types = ([] as string[]).concat((props[key]?.type as string | string[] | undefined) ?? []);
-            if (text === undefined) return { kind: "null" };
-            if (types.includes("null") && text === "") return { kind: "null" };
-            if ((types.includes("number") || types.includes("integer")) && text.trim() !== "" && Number.isFinite(Number(text))) return { kind: "number", value: Number(text), raw: text };
-            return { kind: "string", value: text };
-          };
-          const entries = new Map<string, JsonValue>();
-          const put = (key: string, text: string | undefined) => text !== undefined && entries.set(key, typed(key, text));
-          if (kind === "observations") {
-            put("observation_id", d.observation_id);
-            put("property", a.property);
-            if (a.qualifier !== undefined) put("element", a.qualifier);
-            entries.set("value", typeof a.value === "number" ? { kind: "number", value: a.value, raw: a.raw } : { kind: "string", value: a.raw });
-            put("unit", a.unit ?? undefined);
-            const num = (t: string | undefined): JsonValue => (t !== undefined && t.trim() !== "" && Number.isFinite(Number(t)) ? { kind: "number", value: Number(t), raw: t } : { kind: "string", value: t ?? "" });
-            entries.set("uncertainty", { kind: "object", entries: new Map<string, JsonValue>([["expanded", num(d.expanded_uncertainty)], ["coverage_factor", num(d.coverage_factor)], ["uncertainty_kind", { kind: "string", value: d.uncertainty_kind ?? "" }]]) });
-            put("method", d.method);
-            put("evidence_id", d.evidence_id);
-          } else if (kind === "footprints") {
-            put("result_id", a.qualifier);
-            put("property", a.property);
-            entries.set("value", typeof a.value === "number" ? { kind: "number", value: a.value, raw: a.raw } : { kind: "string", value: a.raw });
-            put("unit", a.unit ?? undefined);
-            for (const k of ["method", "system_boundary", "reference_year", "calculated_by", "evidence_id"]) put(k, d[k]);
-          } else if (kind === "evidence") {
-            put("evidence_id", a.raw);
-            for (const k of ["issuer", "revision", "record_kind", "scope", "digest", "access_policy_ref"]) put(k, d[k]);
-          } else {
-            for (const k of ["text_id", "subject_ref", "language", "sector", "market", "approval_state", "revision"]) put(k, d[k]);
-            put("text", a.raw);
+        if (a.unit && typeof a.value === "number" && !a.flags.includes("wrong-unit") && !inRange(a.value, a.unit)) {
+          problems.push(`${at}: ${a.raw} ${a.unit} is out of range`);
+        }
+        if (a.details) {
+          if (a.details.digest && a.details.digest !== "null" && !/^sha256:[0-9a-f]{64}$/.test(a.details.digest)) {
+            problems.push(`${at}: laboratory contract: digest Does not match pattern sha256:<64 hex>`);
           }
-          const issues: IngressIssue[] = [];
-          validate(itemSchema, { kind: "object", entries }, "", "record", issues);
-          for (const i of issues) problems.push(`${at}: breaks the laboratory contract: ${i.message}`);
-        };
-        const number = () => {
-          if (a.value === null) return;
-          if (typeof a.value !== "number" || !Number.isFinite(a.value) || Number(a.raw) !== a.value || !exact(a.raw)) problems.push(`${at}: "${a.raw}" is not the literal of its number`);
-        };
-        const unit = () => {
-          if (!(pack.inputs.lab.allowed_units[a.property] ?? []).includes(a.unit ?? "")) problems.push(`${at}: the unit ${a.unit} is not allowed for ${a.property}`);
-        };
-        if (kind !== "product") schemaCheck();
-        if (kind === "product") {
-          expected.add("declared");
-          if (a.value !== a.raw) problems.push(`${at}: the value differs from its text`);
-        } else if (kind === "observations") {
-          for (const f of ["measured", "unit-stated", "uncertainty-stated"] as Flag[]) expected.add(f);
-          linked();
-          unit();
-          number();
-          if (typeof a.value === "number" && a.unit && !inRange(a.value, a.unit)) problems.push(`${at}: ${a.raw} ${a.unit} is out of range`);
-        } else if (kind === "footprints") {
-          for (const f of ["calculated-externally", "unit-stated"] as Flag[]) expected.add(f);
-          if (footprintResults > 1) expected.add("several-results");
-          if (a.property !== footprintProperty) problems.push(`${at}: not the footprint property`);
-          linked();
-          unit();
-          number();
-        } else if (kind === "evidence") {
-          expected.add("declared");
-          if (a.property !== evidenceProperty) problems.push(`${at}: not the evidence property`);
-          if ((a.details?.digest ?? "") === "") expected.add("evidence-digest-missing");
-          if (a.value !== a.raw || a.qualifier !== a.raw) problems.push(`${at}: the identifier differs from its text`);
-        } else {
-          expected.add("declared");
-          if (a.property !== narrativeProperty) problems.push(`${at}: not the narrative property`);
-          if (a.details?.approval_state !== "approved") expected.add("draft-text");
-          if (a.value !== a.raw) problems.push(`${at}: the value differs from its text`);
-          if (a.qualifier !== `${a.details?.language}/${a.details?.sector}/${a.details?.market}`) problems.push(`${at}: the qualifier does not match the text's language, sector and market`);
+          if (a.details.language && !["en", "de"].includes(a.details.language)) {
+            problems.push(`${at}: laboratory contract: language Must be one of en, de`);
+          }
+          if (a.details.uncertainty_value && a.details.uncertainty_value !== "") {
+            const uv = Number(a.details.uncertainty_value);
+            if (!Number.isFinite(uv) || uv < 0) problems.push(`${at}: laboratory contract: uncertainty_value Must be at least 0`);
+          }
+          if (a.details.coverage_factor && a.details.coverage_factor !== "") {
+            const cf = Number(a.details.coverage_factor);
+            if (!Number.isFinite(cf) || cf <= 0) problems.push(`${at}: laboratory contract: coverage_factor Must be more than 0`);
+          }
         }
       }
-      const have = a.flags.filter((f) => f !== "challenged" && f !== "source-changed");
-      const sameFlags = have.length === expected.size && have.every((f) => expected.has(f));
-      if (!sameFlags) problems.push(`${at}: the flags are [${have.join(", ")}], the contract gives [${[...expected].join(", ")}]`);
+    }
+  }
+  if (record.dppPayload) {
+    const schemaErrs = checkBoundedSchema(record.dppPayload, pack.contracts.recordSchema);
+    if (record.importStatus === "IMPORTED" && schemaErrs.length > 0) {
+      problems.push(`dppPayload has shape errors while importStatus is IMPORTED: ${schemaErrs[0]}`);
     }
   }
   return problems;
@@ -1141,14 +1257,8 @@ export function recheckRecord(pack: ProfilePack, record: ProductRecord): string[
 
 // ---------- Operator correction (Cycle 5) ----------
 
-/** The assertion a correction is measured against: the first one that came from a file, never an earlier correction. */
 export const baseAssertion = (v: RecordValue): Assertion | undefined => v.assertions.find((a) => a.source.role !== "correction");
 
-/**
- * Checks a corrected value the way ingress checked the original: the same kind of text, a plain number in its range and unit,
- * a date that exists, and for a coded column a code the pinned list already has (a correction never adds a code).
- * Returns the value to store, or the reason it is refused.
- */
 export function checkCorrectedValue(pack: ProfilePack, base: Assertion, raw: string): { ok: true; value: string | number | null } | { ok: false; reason: string } {
   const no = (reason: string) => ({ ok: false as const, reason });
   if (raw.length > MAX_TEXT_FIELD_CHARS) return no(`The corrected value is longer than ${MAX_TEXT_FIELD_CHARS} characters.`);
@@ -1159,7 +1269,6 @@ export function checkCorrectedValue(pack: ProfilePack, base: Assertion, raw: str
   const unit = base.unit;
   const rest = base.source.location.slice(base.source.file.length + 2);
   const column = base.source.role === "erp" ? pack.inputs.erp.columns.find((c) => c.name === /^row \d+, column (.+)$/.exec(rest)?.[1]) : undefined;
-  // R3-02: identifier and coded fields obey the same printable-ASCII NFKC-stable allow-list and length cap on correction as at ingress.
   const isIdentifier =
     Boolean(base.member?.startsWith("FLD-Identifier-")) ||
     Boolean(column?.maps_to.includes("FLD-Identifier-")) ||
@@ -1187,14 +1296,17 @@ export function checkCorrectedValue(pack: ProfilePack, base: Assertion, raw: str
   return { ok: true, value };
 }
 
-/** What a stored operator-correction assertion must satisfy: its fixed shape, and a value that passes the same checks. */
 function recheckCorrection(pack: ProfilePack, v: RecordValue, a: Assertion, at: string): string[] {
   const problems: string[] = [];
   const c = a.correction;
-  if (!c || !Number.isInteger(c.version) || c.version < 2 || c.actor !== "ACT-01" || c.reason.trim() === "") return [`${at}: a correction needs its version, its actor and a reason`];
+  if (!c || !Number.isInteger(c.version) || c.version < 2 || c.actor !== "ACT-01" || c.reason.trim() === "") {
+    return [`${at}: a correction needs its version, its actor and a reason`];
+  }
   if (a.source.file !== `Operator correction v${c.version}`) problems.push(`${at}: the correction is named for another version`);
   if (a.flags.length !== 1 || a.flags[0] !== "corrected") problems.push(`${at}: a correction carries exactly the corrected flag`);
-  if (v.assertions[0] !== a && v.assertions.findIndex((x) => x.source.role !== "correction") < v.assertions.indexOf(a)) problems.push(`${at}: a correction comes before the values it replaces`);
+  if (v.assertions[0] !== a && v.assertions.findIndex((x) => x.source.role !== "correction") < v.assertions.indexOf(a)) {
+    problems.push(`${at}: a correction comes before the values it replaces`);
+  }
   const base = baseAssertion(v);
   if (!base) return [...problems, `${at}: a correction with nothing to correct`];
   const checked = checkCorrectedValue(pack, base, a.raw);

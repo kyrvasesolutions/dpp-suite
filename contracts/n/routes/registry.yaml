@@ -1,0 +1,38 @@
+# Route registry. Synthetic public stand-in (renumbered IDs ALU-D101..ALU-D124, generic identifiers).
+# Generated automatically; do not edit by hand.
+id: registry
+version: 1.0.0
+recipient: EU_REGISTRY_PREPARATION_ONLY
+format: application/json
+target_contract: TARGET-EU-REGISTRY-PREPARATION-01
+mapping_contract: MAP-EXP-REGISTRY-01
+submission: never
+status: HOLD
+hold_reason: "TARGET_PROFILE_UNCONFIRMED: Aluminium registration profile is absent or unconfirmed for the pinned interface. No request is sent."
+fields:
+  - ALU-D101
+  - ALU-D102
+  - ALU-D105
+output:
+  items:
+    - step: MAP-REG-001
+      role: field
+      property: ALU-D101
+      reads:
+        kind: value
+      json:
+        path: /properties/product_model_identifier
+    - step: MAP-REG-002
+      role: field
+      property: ALU-D102
+      reads:
+        kind: value
+      json:
+        path: /properties/product_definition_revision
+    - step: MAP-REG-003
+      role: field
+      property: ALU-D105
+      reads:
+        kind: value
+      json:
+        path: /properties/manufacturer_party

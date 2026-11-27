@@ -84,8 +84,8 @@ describe.each(PACKS)("profile from %s", (pack) => {
   it.each([
     ["inputs/erp-extract.csv.contract.yaml", "version: 1.0.0", "version: latest"],
     ["inputs/lab-assessment.contract.yaml", "version: 1.0.0", "version: latest"],
-    ["routes/customer-pdf.yaml", "version: 1.0.0", "version: latest"],
-    ["inputs/erp-extract.csv.contract.yaml", "id: INPUT-ERP-CSV", "id: INPUT-ERP-CSV-2"],
+    ["routes/customer.yaml", "version: 1.0.0", "version: latest"],
+    ["inputs/erp-extract.csv.contract.yaml", "id: SRC-ERP-CSV-01", "id: SRC-ERP-CSV-02"],
   ])("C1-02 refuses a mapping contract that is not the pinned version (%s: %s -> %s)", async (file, from, to) => {
     const dir = copyOf(pack);
     edit(dir, file, (t) => t.replace(from, to));

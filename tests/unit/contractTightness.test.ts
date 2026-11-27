@@ -1,17 +1,17 @@
 // @vitest-environment node
 /**
- * Contract tightness & live-mapping verification (C5-T1 / ADR-0002):
+ * Contract tightness & live-mapping verification (C5-T1 / ADR-0002; aligned in Cycle 9):
  * 1. Drop-one-input across every required profile property, every required ERP CSV column and every required
  *    laboratory JSON structure key — proving that no contract is too loose and no test passes by construction.
- * 2. Single-value anti-canned-data mutations across scalar permitted properties and derived properties — proving
+ * 2. Single-value anti-canned-data mutations across scalar permitted properties and derived rules — proving
  *    every route output changes live from its inputs and never substitutes canned text.
  * 3. Complete (100%) lineage continuity across v1 (import) -> v2 (correction) -> v3 (re-import carrying) -> v4 (confirmed).
  */
 import { beforeAll, describe, expect, it } from "vitest";
 import { correctRecord, storeImport } from "../../src/model/correction";
 import { byRole, importErpCsv, importLabJson, type ProductRecord } from "../../src/model/ingress";
-import { generateRelease } from "../../src/model/outputs/release";
 import { verifyRelease } from "../../src/model/outputs/manifest";
+import { generateRelease } from "../../src/model/outputs/release";
 import { decide } from "../../src/model/policy";
 import { ROUTES, type ProfilePack } from "../../src/model/profile";
 import { assess } from "../../src/model/readiness";
@@ -58,16 +58,15 @@ describe("drop-one-input: every required profile property breaks its dependent r
         const manifestOut = release.manifest.outputs.find((o) => o.route === route)!;
 
         if (prop.requiredBy[route]) {
-          expect(rr.status, `${prop.id} on ${route} must hold`).toBe("on-hold");
+          expect(rr.status, `${prop.id} on ${route} must hold`).toBe("HOLD");
           expect(
             rr.holds.some((h) => h.ruleId === "RR-MISSING" && h.property === prop.id),
             `${prop.id} on ${route} must report RR-MISSING`,
           ).toBe(true);
 
-          if (route === "registry-prep-json") {
-            // registry always produces a HOLD draft and carries RR-MISSING alongside RR-STANDING-HOLD
+          if (route === "registry") {
             expect("file" in outcome, `${prop.id} registry draft`).toBe(true);
-            const draft = JSON.parse(new TextDecoder().decode(("file" in outcome ? outcome.file.bytes : new Uint8Array()))) as {
+            const draft = JSON.parse(new TextDecoder().decode("file" in outcome ? outcome.file.bytes : new Uint8Array())) as {
               status: string;
               submission: string;
               holds: Array<{ rule: string; property?: string | null }>;
@@ -90,17 +89,17 @@ describe("drop-one-input: every required ingress column and schema key is enforc
   it("dropping any required ERP CSV column fails ingress at stage structure with missing-column", async () => {
     const rawCsv = text(CLEAN.erp).trimEnd();
     const [headerLine, dataLine] = rawCsv.split(/\r?\n/);
-    const headers = headerLine.split(";");
-    const cells = dataLine.split(";");
+    const headers = headerLine.split(",");
+    const cells = dataLine.split(",");
     const requiredCols = pack.inputs.erp.columns.filter((c) => c.required);
-    expect(requiredCols.length).toBeGreaterThanOrEqual(15);
+    expect(requiredCols.length).toBeGreaterThanOrEqual(12);
 
     for (const col of requiredCols) {
       const idx = headers.indexOf(col.name);
       expect(idx, `column ${col.name} in fixture`).toBeGreaterThanOrEqual(0);
       const nextHeaders = headers.filter((_, i) => i !== idx);
       const nextCells = cells.filter((_, i) => i !== idx);
-      const mutatedCsv = `${nextHeaders.join(";")}\n${nextCells.join(";")}\n`;
+      const mutatedCsv = `${nextHeaders.join(",")}\n${nextCells.join(",")}\n`;
       const result = await importErpCsv(pack, { bytes: enc(mutatedCsv), name: `drop-${col.name}.csv`, type: "text/csv" });
       expect(result.ok, `dropping ${col.name} must fail`).toBe(false);
       if (!result.ok) {
@@ -110,15 +109,15 @@ describe("drop-one-input: every required ingress column and schema key is enforc
     }
   });
 
-  it("dropping any required laboratory JSON top-level or product key fails ingress at stage structure with schema", async () => {
+  it("dropping any required laboratory JSON top-level or lab_tests key fails ingress at stage structure with schema", async () => {
     const structure = pack.inputs.lab.structure as {
       required?: string[];
-      properties?: { product?: { required?: string[] } };
+      properties?: { lab_tests?: { required?: string[] } };
     };
     const topRequired = structure.required ?? [];
-    const productRequired = structure.properties?.product?.required ?? [];
-    expect(topRequired.length).toBeGreaterThanOrEqual(4);
-    expect(productRequired.length).toBeGreaterThanOrEqual(3);
+    const testsRequired = structure.properties?.lab_tests?.required ?? [];
+    expect(topRequired.length).toBeGreaterThanOrEqual(8);
+    expect(testsRequired.length).toBe(3);
 
     for (const key of topRequired) {
       const doc = JSON.parse(text(CLEAN.lab)) as Record<string, unknown>;
@@ -131,11 +130,11 @@ describe("drop-one-input: every required ingress column and schema key is enforc
       }
     }
 
-    for (const key of productRequired) {
-      const doc = JSON.parse(text(CLEAN.lab)) as { product: Record<string, unknown> };
-      delete doc.product[key];
-      const result = await importLabJson(pack, { bytes: enc(JSON.stringify(doc)), name: `drop-product-${key}.json`, type: "application/json" });
-      expect(result.ok, `dropping product.${key} must fail`).toBe(false);
+    for (const key of testsRequired) {
+      const doc = JSON.parse(text(CLEAN.lab)) as { lab_tests: Record<string, unknown> };
+      delete doc.lab_tests[key];
+      const result = await importLabJson(pack, { bytes: enc(JSON.stringify(doc)), name: `drop-test-${key}.json`, type: "application/json" });
+      expect(result.ok, `dropping lab_tests.${key} must fail`).toBe(false);
       if (!result.ok) {
         expect(result.stage, key).toBe("structure");
         expect(result.errors.some((e) => e.code === "schema"), key).toBe(true);
@@ -145,23 +144,24 @@ describe("drop-one-input: every required ingress column and schema key is enforc
 });
 
 describe("anti-canned-data: single-value mutations change live outputs and lineage", () => {
-  it("mutating each representative scalar permitted property changes ERP CSV and Customer PDF live", async () => {
-    // Pick representative scalar properties by definition slug (never hard-coded property IDs)
-    const cases: Array<{ slug: string; nextRaw: string; expectInPdf: boolean }> = [
-      { slug: "nominal-thickness", nextRaw: "3.25", expectInPdf: true },
-      { slug: "measured-thickness", nextRaw: "3.27", expectInPdf: true },
-      { slug: "net-mass", nextRaw: "2875.5", expectInPdf: true },
-      { slug: "recycled-content", nextRaw: "71.4", expectInPdf: true },
-      { slug: "production-date", nextRaw: "2026-09-14", expectInPdf: true },
-      { slug: "carbon-footprint", nextRaw: "4.95", expectInPdf: true },
-      { slug: "product-narrative", nextRaw: "Mutated live narrative text for anti-canned check.", expectInPdf: true },
+  it("mutating representative scalar permitted properties changes internal CSV and Customer PDF live", async () => {
+    const cases: Array<{ slug: string; nextRaw: string; expectInPdf?: string }> = [
+      { slug: "nominal-thickness", nextRaw: "3.25", expectInPdf: "0.00325 m" },
+      { slug: "measured-thickness", nextRaw: "3.27" },
+      { slug: "nominal-width", nextRaw: "1600", expectInPdf: "1.6 m" },
+      { slug: "nominal-length", nextRaw: "3100", expectInPdf: "3.1 m" },
+      { slug: "carbon-footprint", nextRaw: "4.95", expectInPdf: "4.95" },
+      { slug: "product-narrative", nextRaw: "Mutated live narrative text for anti-canned check.", expectInPdf: "Mutated live narrative text for anti-canned check." },
     ];
 
     for (const c of cases) {
       const propId = propertyBySlug(pack, c.slug);
       const repo = new MemoryRepository();
       const baseSnap = (await storeRecord(repo, cleanRecord)).snapshot;
-      const target = baseSnap.record.values.find((v) => v.property === propId);
+      const target =
+        c.slug === "product-narrative"
+          ? baseSnap.record.values.find((v) => v.property === propId && v.assertions[0]?.details?.language === "en")
+          : baseSnap.record.values.find((v) => v.property === propId);
       expect(target, `value for ${c.slug}`).toBeDefined();
 
       const v2 = await correctRecord(pack, repo, {
@@ -175,67 +175,41 @@ describe("anti-canned-data: single-value mutations change live outputs and linea
       });
       const rel = await generateRelease(pack, v2, { software: TEST_SOFTWARE });
 
-      // ERP CSV carries the mutated value when permitted
-      if (decide(pack, "erp-staging-csv", propId) === "permit") {
-        const csvFile = rel.files.find((f) => f.route === "erp-staging-csv")!;
+      if (decide(pack, "internal", propId) === "permit") {
+        const csvFile = rel.files.find((f) => f.route === "internal")!;
         const csv = new TextDecoder().decode(csvFile.bytes);
-        expect(csv, `${c.slug} in ERP CSV`).toContain(c.nextRaw);
+        expect(csv, `${c.slug} in internal CSV`).toContain(c.nextRaw);
       }
 
-      // Customer PDF carries the mutated value when permitted (normalize PDF line wraps)
-      if (c.expectInPdf && decide(pack, "customer-pdf", propId) === "permit") {
-        const pdfFile = rel.files.find((f) => f.route === "customer-pdf")!;
+      if (c.expectInPdf && decide(pack, "customer", propId) === "permit") {
+        const pdfFile = rel.files.find((f) => f.route === "customer")!;
         const extracted = (await pdfText(pdfFile.bytes)).replace(/\s+/g, " ");
-        expect(extracted, `${c.slug} in Customer PDF`).toContain(c.nextRaw);
+        expect(extracted, `${c.slug} in Customer PDF`).toContain(c.expectInPdf);
       }
 
-      // Manifest lineage for that property reflects the v2 correction
       const lineage = rel.manifest.lineage.filter((l) => l.property === propId && l.member === target!.member && (!target!.qualifier || l.assertion.role === "correction"));
       expect(lineage.some((l) => l.assertion.role === "correction" && l.correction?.version === 2), `${c.slug} lineage`).toBe(true);
     }
   }, 15_000);
 
-  it("mutating each derived property outside EN limits flips the Customer PDF from within to outside the limits", async () => {
-    const baselineSnap = await snapshotOf(cleanRecord);
-    const baselineRel = await generateRelease(pack, baselineSnap, { software: TEST_SOFTWARE });
-    const baselinePdf = await pdfText(baselineRel.files.find((f) => f.route === "customer-pdf")!.bytes);
-    expect(baselinePdf).toContain("within the limits");
-    expect(baselinePdf).not.toContain("outside the limits");
-
-    // Tensile strength mutated far above the EN 485-2 upper limit for EN AW-5754 H111
-    const tensileId = propertyBySlug(pack, "tensile-strength");
-    const highTensile = await recordFor(pack, {
+  it("mutating lead above screening threshold holds customer route while internal CSV reflects the mutated raw lead value", async () => {
+    const highLead = await recordFor(pack, {
       ...CLEAN,
       editLab: (doc) => {
-        const obs = doc.observations.find((o: { property: string }) => o.property === tensileId);
-        obs.value = 999;
+        doc.lab_tests.lead.value = 98.0;
       },
     });
-    const tensileRel = await generateRelease(pack, await snapshotOf(highTensile), { software: TEST_SOFTWARE });
-    const tensilePdf = await pdfText(tensileRel.files.find((f) => f.route === "customer-pdf")!.bytes);
-    expect(tensilePdf).toContain("outside the limits");
-    expect(tensilePdf).not.toContain("999"); // raw derived number stays withheld
-
-    // Chemical composition element mutated far above the EN 573-3 limit
-    const compId = propertyBySlug(pack, "chemical-composition");
-    const highComp = await recordFor(pack, {
-      ...CLEAN,
-      editLab: (doc) => {
-        const obs = doc.observations.find((o: { property: string }) => o.property === compId);
-        obs.value = 99.5;
-      },
-    });
-    const compRel = await generateRelease(pack, await snapshotOf(highComp), { software: TEST_SOFTWARE });
-    const compPdf = await pdfText(compRel.files.find((f) => f.route === "customer-pdf")!.bytes);
-    expect(compPdf).toContain("outside the limits");
-    expect(compPdf).not.toContain("99.5"); // raw derived number stays withheld
+    const rel = await generateRelease(pack, await snapshotOf(highLead), { software: TEST_SOFTWARE });
+    expect(rel.files.some((f) => f.route === "customer")).toBe(false);
+    const csv = new TextDecoder().decode(rel.files.find((f) => f.route === "internal")!.bytes);
+    expect(csv).toContain(",98,");
   });
 });
 
 describe("100% lineage continuity across import -> correction -> re-import carrying -> confirmed re-import", () => {
   async function assertCompleteLineage(snap: Snapshot) {
     const release = await generateRelease(pack, snap, { software: TEST_SOFTWARE });
-    expect(release.manifest.lineage.length).toBeGreaterThan(20);
+    expect(release.manifest.lineage.length).toBeGreaterThan(15);
     expect(release.manifest.record).toEqual({
       model: snap.model,
       batch: snap.batch,
@@ -248,12 +222,10 @@ describe("100% lineage continuity across import -> correction -> re-import carry
     const manifestInputs = new Set(release.manifest.inputs.map((i) => `${i.role}|${i.name}|${i.sha256}`));
 
     for (const entry of release.manifest.lineage) {
-      // Every lineage entry's source file must exist in both snapshot sources and manifest inputs
       const srcKey = `${entry.assertion.role}|${entry.assertion.file}|${entry.assertion.sha256}`;
       expect(sourceKeys.has(srcKey), `${entry.outputRef} source in snapshot`).toBe(true);
       expect(manifestInputs.has(srcKey), `${entry.outputRef} source in manifest inputs`).toBe(true);
 
-      // Every lineage entry must trace back to an actual assertion in the snapshot
       const matchingValue = snap.record.values.find(
         (v) =>
           v.property === entry.property &&
@@ -263,13 +235,11 @@ describe("100% lineage continuity across import -> correction -> re-import carry
               a.source.role === entry.assertion.role &&
               a.source.file === entry.assertion.file &&
               a.source.sha256 === entry.assertion.sha256 &&
-              // detail-key lineage (e.g. /footprints/0/method) shares the file + prefix of the assertion location
               (a.source.location === entry.assertion.location || entry.assertion.location.startsWith(`${a.source.file}, `)),
           ),
       );
       expect(matchingValue, `${entry.outputRef} (${entry.property}) must resolve to an assertion`).toBeDefined();
 
-      // A correction lineage entry must carry version, actor and non-empty reason
       if (entry.assertion.role === "correction") {
         expect(entry.correction, entry.outputRef).toMatchObject({ actor: "ACT-01" });
         expect(entry.correction!.version).toBeGreaterThanOrEqual(2);
@@ -277,7 +247,6 @@ describe("100% lineage continuity across import -> correction -> re-import carry
       }
     }
 
-    // Verify manifest digests over all emitted files
     const check = await verifyRelease(
       release.manifestFile.bytes,
       release.files.map((f) => ({ name: f.fileName, bytes: f.bytes })),
@@ -288,37 +257,32 @@ describe("100% lineage continuity across import -> correction -> re-import carry
 
   it("maintains unbroken model/batch identity and 100% source/correction lineage across v1 -> v2 -> v3 -> v4", async () => {
     const repo = new MemoryRepository();
-    const recycledId = propertyBySlug(pack, "recycled-content");
+    const thicknessId = propertyBySlug(pack, "nominal-thickness");
 
-    // v1: clean import
     const v1 = (await storeImport(repo, cleanRecord)).snapshot;
     await assertCompleteLineage(v1);
 
-    // v2: operator correction on recycled content (62.0 -> 63.5)
     const v2 = await correctRecord(pack, repo, {
       model: v1.model,
       batch: v1.batch,
-      property: recycledId,
-      raw: "63.5",
-      reason: "Certificate confirms 63.5%",
+      property: thicknessId,
+      raw: "2.25",
+      reason: "Certificate confirms 2.25 mm",
     });
     await assertCompleteLineage(v2);
 
-    // v3: re-import where another column changed (length 3000 -> 3100), carrying correction forward
-    const v3 = (await storeImport(repo, await recordFor(pack, { ...CLEAN, editErp: (csv) => csv.replace(";3000;", ";3100;") }))).snapshot;
+    const v3 = (await storeImport(repo, await recordFor(pack, { ...CLEAN, editErp: (csv) => csv.replace(",2500,", ",3100,") }))).snapshot;
     expect(v3.version).toBe(3);
     await assertCompleteLineage(v3);
 
-    // v4: re-import where ERP now confirms 63.5
-    const v4 = (await storeImport(repo, await recordFor(pack, { ...CLEAN, editErp: (csv) => csv.replace(";3000;", ";3100;").replace(";62.0;", ";63.5;") }))).snapshot;
+    const v4 = (await storeImport(repo, await recordFor(pack, { ...CLEAN, editErp: (csv) => csv.replace(",2500,", ",3100,").replace(",1.50,", ",2.25,") }))).snapshot;
     expect(v4.version).toBe(4);
     await assertCompleteLineage(v4);
 
-    // Verify model and batch identity stayed immutable across all 4 versions
     const modelId = byRole(pack, "model");
     const batchId = byRole(pack, "batch");
     for (const s of await repo.history(v1.model, v1.batch)) {
-      expect(s.record.values.find((v) => v.property === modelId && v.member === "FLD-Identifier-value")?.assertions[0].raw).toBe(v1.model);
+      expect(s.record.values.find((v) => v.property === modelId && !v.member)?.assertions[0].value).toBe(v1.model);
       expect(s.record.values.find((v) => v.property === batchId && v.member === "FLD-Identifier-value")?.assertions[0].raw).toBe(v1.batch);
     }
   });

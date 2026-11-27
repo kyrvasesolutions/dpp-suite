@@ -70,7 +70,7 @@ export async function download(page: Page, name: RouteId): Promise<{ name: strin
 }
 
 /** The text of a downloaded output: the extracted text of the PDF, the file's text otherwise. */
-export const textOf = async (route: RouteId, bytes: Buffer) => (route === "customer-pdf" ? pdfText(new Uint8Array(bytes)) : bytes.toString("utf8"));
+export const textOf = async (route: RouteId, bytes: Buffer) => (route === "customer" ? pdfText(new Uint8Array(bytes)) : bytes.toString("utf8"));
 
 /** Throws if text made for `route` holds a value of a property that route's recipient may not see. */
 export async function expectNoDenied(text: string, route: RouteId, pair: Pair) {

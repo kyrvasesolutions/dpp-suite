@@ -1,21 +1,37 @@
 {
+  "code": "TARGET_PROFILE_UNCONFIRMED",
   "document": "registry-preparation-draft",
-  "hold_reason": "No applicable external registry contract for aluminium has been established. This hold stays after the pack is frozen.",
+  "exchange_type": "RegistryRequest",
+  "hold_reason": "TARGET_PROFILE_UNCONFIRMED: Aluminium registration profile is absent or unconfirmed for the pinned interface. No request is sent.",
   "holds": [
     {
       "rule": "RR-STANDING-HOLD",
-      "text": "The route itself is on hold: no applicable external contract has been established."
+      "text": "Aluminium registration profile is absent or unconfirmed (TARGET_PROFILE_UNCONFIRMED); no submission is permitted."
     }
   ],
+  "limitations": [
+    "Illustrative semantic-core metadata only; not asserted to conform to the complete official semantic core.",
+    "No confirmed aluminium registration contract; a semantic-core validation cannot establish registration-request support.",
+    "Status remains unset; no official verification, registration or publication is asserted."
+  ],
+  "message": "Aluminium registration profile is absent or unconfirmed for the pinned interface. No request was sent.",
+  "not_a_registration_request": true,
   "properties": {
-    "commodity_code": "76061293",
-    "manufacturer_id": "STANDIN-MFR-01",
-    "product_model_id": {
-      "scheme": "DEMO-PM",
-      "scheme_version": "1.0",
-      "value": "PM-5754-H111-2000"
-    }
+    "manufacturer_party": "Stand-in Aluminium Sheet Producer",
+    "product_definition_revision": "P01",
+    "product_model_identifier": "ST-5754-M01"
+  },
+  "semantic_core_metadata_preview": {
+    "contentSpecificationIds": [
+      "https://standin.example/profile/aluminium-demo/1.0.0"
+    ],
+    "digitalProductPassportId": "https://standin.example/demo/dpp/ST-5754-M01",
+    "dppStatus": null,
+    "granularity": "https://repository.product-passport.ec.europa.eu/core/vocabs/granularity-level#model",
+    "lastUpdate": "2026-10-31T00:00:00Z",
+    "uniqueProductIdentifier": "https://standin.example/demo/ST-5754-M01"
   },
   "status": "HOLD",
-  "submission": "never"
+  "submission": "never",
+  "synthetic": true
 }

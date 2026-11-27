@@ -32,8 +32,8 @@ if (!ROOT || ROOT.startsWith("--")) {
   process.exit(1);
 }
 const MANIFEST = join(ROOT, "MANIFEST.json");
-const ROUTES = ["customer-pdf", "erp-staging-csv", "registry-prep-json"];
-const STANDING_HOLDS = new Set(["routes/registry-prep-json.yaml"]);
+const ROUTES = ["customer", "internal", "registry"];
+const STANDING_HOLDS = new Set(["routes/registry.yaml"]);
 const ACCESS = new Set(["permit", "deny", "derived"]);
 
 const args = new Set(argv);
@@ -155,9 +155,12 @@ for (const path of routeFiles) {
     }
   }
 }
-const registry = readYaml("routes/registry-prep-json.yaml");
-if (registry.submission !== "never") fail("routes/registry-prep-json.yaml: submission must be never (FUNC-042)");
-if (registry.status !== "HOLD") fail("routes/registry-prep-json.yaml: must stay on HOLD until an external contract exists");
+const registry = readYaml("routes/registry.yaml");
+if (registry.submission !== "never") fail("routes/registry.yaml: submission must be never (FUNC-042)");
+if (registry.status !== "HOLD") fail("routes/registry.yaml: must stay on HOLD until an external contract exists");
+if (!String(registry.hold_reason ?? "").includes("TARGET_PROFILE_UNCONFIRMED")) {
+  fail("routes/registry.yaml: hold_reason must state TARGET_PROFILE_UNCONFIRMED");
+}
 
 // ---------- Actor/field matrix ----------
 
@@ -321,7 +324,7 @@ if (profileFrozen) {
   };
   if (readiness) {
     const ids = unique("readiness rules", readiness.rules ?? [], /^RR-[A-Z]+(-[A-Z]+)*$/);
-    for (const id of ["RR-MISSING", "RR-INACCESSIBLE", "RR-CHALLENGED", "RR-UNKNOWN-CODE", "RR-SEVERAL-RESULTS", "RR-DRAFT-TEXT", "RR-EVIDENCE-DIGEST", "RR-DERIVED-UNDETERMINABLE", "RR-PDF-CHARACTER", "RR-STANDING-HOLD"]) {
+    for (const id of ["RR-MISSING", "RR-INACCESSIBLE", "RR-CHALLENGED", "RR-UNKNOWN-CODE", "RR-SEVERAL-RESULTS", "RR-DRAFT-TEXT", "RR-EVIDENCE-DIGEST", "RR-DERIVED-UNDETERMINABLE", "RR-PDF-CHARACTER", "RR-SHAPE-ERROR", "RR-CONTEXT-UNRESOLVED", "RR-STANDING-HOLD"]) {
       if (!ids.has(id)) fail(`readiness rules: ${id} is missing (C3-03)`);
     }
     unique("readiness checks", readiness.checks ?? [], /^CK-[A-Z]+(-[A-Z]+)*$/);
@@ -335,19 +338,31 @@ if (profileFrozen) {
     }
     for (const r of derived.rules ?? []) {
       if (!derivedCells.has(r.property)) fail(`derived rule ${r.id}: ${r.property} has no derived cell in the matrix`);
-      if (!["limits-by-alloy-and-temper", "limits-by-alloy-and-element"].includes(r.method)) fail(`derived rule ${r.id}: unknown method "${r.method}"`);
-      if (!r.standard || !derived.limits?.[r.limits]?.entries?.length) fail(`derived rule ${r.id}: needs a standard and a limits table`);
-      if (r.illustrative !== true) fail(`derived rule ${r.id}: limits must be marked illustrative: true`);
+      if (!["recycled-total-with-basis", "uncertainty-guard-band-screen"].includes(r.method)) fail(`derived rule ${r.id}: unknown method "${r.method}"`);
+      if (!r.representation) fail(`derived rule ${r.id}: representation is required`);
+      if (r.method === "uncertainty-guard-band-screen") {
+        const sr = r.screening_rule;
+        if (!sr?.id || !sr?.version || typeof sr.threshold_mg_per_kg !== "number" || !sr.statement || !sr.qualification) {
+          fail(`derived rule ${r.id}: screening_rule with id, version, threshold_mg_per_kg, statement, qualification is required`);
+        }
+      }
     }
-    if (derived.limits?.illustrative !== true) fail("derived rules: the limits table must be marked illustrative: true");
-    const alloys = new Set(codeLists.get("ALLOY@1.0.0") ?? []);
-    const tempers = new Set(codeLists.get("TEMPER@1.0.0") ?? []);
-    for (const e of derived.limits?.tensile?.entries ?? []) {
-      if (!alloys.has(e.alloy) || !tempers.has(e.temper)) fail(`derived limits: ${e.alloy} ${e.temper} is not in the alloy and temper code lists`);
-    }
-    for (const e of derived.limits?.composition?.entries ?? []) {
-      if (!alloys.has(e.alloy)) fail(`derived limits: ${e.alloy} is not in the alloy code list`);
-    }
+  }
+
+  // Pinned reference contracts inside contracts/ (C9-01, C9-02, C9-04)
+  for (const refFile of [
+    "contracts/catalogue.json",
+    "contracts/code_list.json",
+    "contracts/context.jsonld",
+    "contracts/export_customer.json",
+    "contracts/export_internal.json",
+    "contracts/export_registry.json",
+    "contracts/import_erp.json",
+    "contracts/import_lab.json",
+    "contracts/profile_policy.json",
+    "contracts/record.schema.json",
+  ]) {
+    if (!present.includes(refFile)) fail(`${refFile} is missing from the pinned pack`);
   }
 
   // Output mappings (Cycle 4): every field has exactly one item, every item reads a field the matrix permits or derives
@@ -364,9 +379,9 @@ if (profileFrozen) {
     }
     const fields = doc.fields ?? [];
     const sectionIds = (doc.output.sections ?? []).map((x) => x.id);
-    if (route === "customer-pdf" && (!sectionIds.length || (doc.output.sections ?? []).some((x) => !x.en || !x.de))) fail(`${where}: output.sections needs EN and DE titles`);
-    if (route !== "customer-pdf" && doc.output.sections) fail(`${where}: only the customer PDF has sections`);
-    const prefix = { "customer-pdf": "PDF", "erp-staging-csv": "ERP", "registry-prep-json": "REG" }[route];
+    if (route === "customer" && (!sectionIds.length || (doc.output.sections ?? []).some((x) => !x.en || !x.de))) fail(`${where}: output.sections needs EN and DE titles`);
+    if (route !== "customer" && doc.output.sections) fail(`${where}: only the customer PDF has sections`);
+    const prefix = { customer: "PDF", internal: "ERP", registry: "REG" }[route];
     const permitted = propertyIds.filter((id) => accessOf(id, route) !== "deny");
     if (JSON.stringify([...fields].sort()) !== JSON.stringify([...permitted].sort())) fail(`${where}: fields must be exactly the properties the matrix permits or derives for the route`);
     const names = new Set();
@@ -396,21 +411,21 @@ if (profileFrozen) {
         if (fieldItems.has(item.property)) fail(`${id}: ${item.property} already has an item`);
         fieldItems.set(item.property, item);
       } else if (kind !== "member") fail(`${id}: a context item reads one member`);
-      const place = route === "customer-pdf" ? item.pdf : route === "erp-staging-csv" ? item.csv : item.json;
-      if (!place) fail(`${id}: no ${route === "customer-pdf" ? "pdf" : route === "erp-staging-csv" ? "csv" : "json"} placement`);
-      else if (route === "erp-staging-csv") {
+      const place = route === "customer" ? item.pdf : route === "internal" ? item.csv : item.json;
+      if (!place) fail(`${id}: no ${route === "customer" ? "pdf" : route === "internal" ? "csv" : "json"} placement`);
+      else if (route === "internal") {
         if (!["number", "text"].includes(place.format)) fail(`${id}: csv format must be number or text`);
         for (const [kind, k] of [["name", place.name], ["header", place.header]]) {
           if (!k || names.has(`${kind}:${k}`)) fail(`${id}: csv ${kind} "${k}" is missing or not unique`);
           names.add(`${kind}:${k}`);
         }
-      } else if (route === "registry-prep-json") {
+      } else if (route === "registry") {
         if (!String(place.path ?? "").startsWith("/") || names.has(place.path)) fail(`${id}: json path "${place.path}" must start with / and be unique`);
         names.add(place.path);
       } else if (!place.label?.en || !place.label?.de || !sectionIds.includes(place.section) || place.order !== n + 1) fail(`${id}: pdf section, EN and DE labels and a running order are required`);
     });
     for (const f of fields) if (!fieldItems.has(f)) fail(`${where}: field ${f} has no output item`);
-    if (route === "registry-prep-json" && items.some((i) => accessOf(i.property, route) !== "permit")) fail(`${where}: the registry output names only permitted fields`);
+    if (route === "registry" && items.some((i) => accessOf(i.property, route) !== "permit")) fail(`${where}: the registry output names only permitted fields`);
   }
 
   // Declared mappings point at a profile property and, for a member path, one of its members (FUNC-091)
@@ -505,19 +520,19 @@ if (errors.length) {
   process.exit(1);
 }
 if (args.has("--require-signed")) {
-  // The owner signs the manifest digest; a changed pack with a rewritten manifest is refused until signed again.
+  // Owner digest approval (pinned SHA-256 of MANIFEST.json; not cryptographic signing — A-22).
   const signaturesPath = join(dirname(ROOT), "SIGNATURES.json");
   const digest = createHash("sha256").update(readFileSync(MANIFEST)).digest("hex");
   const signed = existsSync(signaturesPath) ? JSON.parse(readFileSync(signaturesPath, "utf8"))[basename(ROOT)] : undefined;
   if (!signed) {
-    console.error(`check-contracts: no signature for pack "${basename(ROOT)}" in ${signaturesPath}`);
+    console.error(`check-contracts: no owner digest approval for pack "${basename(ROOT)}" in ${signaturesPath}`);
     process.exit(1);
   }
   if (signed.manifest_sha256 !== digest) {
-    console.error(`check-contracts: MANIFEST.json digest ${digest} is not the signed digest ${signed.manifest_sha256}; the owner must sign the change`);
+    console.error(`check-contracts: MANIFEST.json digest ${digest} is not the approved digest ${signed.manifest_sha256}; owner digest approval is required`);
     process.exit(1);
   }
-  console.log(`Signed by ${signed.signed_by} on ${signed.date}.`);
+  console.log(`Owner digest approval by ${signed.signed_by} on ${signed.date}.`);
 }
 if (args.has("--require-frozen") && blocking.length) {
   console.error(`check-contracts: ${blocking.length} part(s) still on HOLD`);

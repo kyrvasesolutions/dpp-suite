@@ -23,7 +23,7 @@ afterEach(async () => {
 });
 
 const USERS = [
-  { sub: "admin-1", roles: ["ADMIN" as const] },
+  { sub: "admin-1", roles: ["ACT-19" as const] },
   { sub: "op-1", roles: ["ACT-01" as const] },
   { sub: "op-2", roles: ["ACT-01" as const] },
   { sub: "op-3", roles: ["ACT-01" as const] },
@@ -281,6 +281,7 @@ describe("V2-11: an early refusal is read by the client", () => {
       });
     });
     expect(result.data).toMatch(/^HTTP\/1\.1 413 /);
+    expect(result.data).toMatch(/\r\nConnection: close\r\n/i); // RT-21: preserve Connection: close on early 413
     expect(JSON.parse(result.data.slice(result.data.indexOf("\r\n\r\n") + 4))).toMatchObject({ code: "too-large", outcome: "OVER_LIMIT", limit: "server_record_max_bytes" });
     expect(result.sent).toBeGreaterThan(1 << 20); // it was still sending when the answer came, and was not reset before it read it
   }, 30_000);
@@ -294,8 +295,8 @@ describe("R2-01 and R2-02 on the main thread", () => {
     for (const [i, name] of ["ab cd ef gh ".repeat(167).slice(0, 2000).trim().padEnd(2000, "x"), "W".repeat(2000)].entries()) {
       const body = JSON.stringify({
         idempotencyKey: `long-${i}`,
-        erp: { name: CLEAN.erp, type: "text/csv", base64: b64(new TextEncoder().encode(erp.replace("Aluminium sheet EN AW-5754 H111, 2.0 mm", name).replaceAll("B-2026-0417", `B-2026-90${i}`))) },
-        lab: { name: CLEAN.lab, type: "application/json", base64: b64(new TextEncoder().encode(new TextDecoder().decode(fixtureBytes("n", CLEAN.lab)).replaceAll("B-2026-0417", `B-2026-90${i}`))) },
+        erp: { name: CLEAN.erp, type: "text/csv", base64: b64(new TextEncoder().encode(erp.replace("Stand-in 5754 aluminium sheet", name).replaceAll("ST-LOT-2026-001", `ST-LOT-2026-90${i}`))) },
+        lab: { name: CLEAN.lab, type: "application/json", base64: b64(new TextEncoder().encode(new TextDecoder().decode(fixtureBytes("n", CLEAN.lab)).replaceAll("ST-LOT-2026-001", `ST-LOT-2026-90${i}`))) },
       });
       const imp = await json(await post(s, "/api/jobs/import", body));
       expect(imp.ok, JSON.stringify(imp.errors)).toBe(true);

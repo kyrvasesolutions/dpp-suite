@@ -47,7 +47,7 @@ describe("the public-log field set", () => {
       event: "import-rejected",
       stage: "structure",
       code: "multiple-records",
-      route: "customer-pdf",
+      route: "customer",
       ruleId: "RR-MISSING",
       stepId: "MAP-PDF-001",
       record: { model: HEX, batch: HEX },

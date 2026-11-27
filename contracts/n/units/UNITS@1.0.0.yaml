@@ -1,18 +1,32 @@
-# Units. PUBLIC STAND-IN for the private N pack (decision D1-01, option b): synthetic, renumbered
-# identifiers, stand-in definitions and codes. Generated from the private specification; do not edit by hand.
+# Units and conversions. Synthetic public stand-in (renumbered IDs ALU-D101..ALU-D124, generic identifiers).
+# Generated automatically; do not edit by hand.
 id: UNITS
 version: 1.0.0
 status: FROZEN
 units:
   - code: mm
     name: millimetre
+  - code: m
+    name: metre
+  - code: "%"
+    name: percent mass fraction
+  - code: percentage_point
+    name: percentage point
+  - code: mg/kg
+    name: milligrams per kilogram
+  - code: kg CO2e
+    name: kilograms CO2 equivalent per declared reference unit
+  - code: kg_CO2e
+    name: kilograms CO2 equivalent (machine unit code)
+  - code: EUR/kg
+    name: euros per kilogram
   - code: kg
     name: kilogram
-  - code: "%"
-    name: per cent (mass share)
-  - code: MPa
-    name: megapascal
-  - code: kg{CO2e}/kg
-    name: kilogram CO2 equivalent per kilogram of product
-conversions: []
-note: Every mapped input unit equals the profile unit, so the frozen mappings need no conversion.
+conversions:
+  - from: mm
+    to: m
+    factor: 0.001
+  - from: kg_CO2e
+    to: kg CO2e
+    factor: 1
+note: Stored values remain in source units; customer route converts nominal mm dimensions explicitly to metres (factor 0.001).

@@ -1,33 +1,37 @@
-# Fixed readiness rules. PUBLIC STAND-IN for the private N pack (decision D1-01, option b): synthetic, renumbered
-# identifiers, stand-in definitions and codes. Generated from the private specification; do not edit by hand.
+# Fixed readiness rules. Synthetic public stand-in (renumbered IDs ALU-D101..ALU-D124, generic identifiers).
+# Generated automatically; do not edit by hand.
 id: READINESS-RULES
 version: 1.0.0
 status: FROZEN
 rules:
   - id: RR-MISSING
-    text: A property the route requires has no value in the record.
+    text: A property the route requires has no value.
   - id: RR-INACCESSIBLE
-    text: The route requires a property that its recipient may not see. The value is withheld and the route holds.
+    text: The route requires a property whose processing or direct disclosure is not permitted for its recipient.
   - id: RR-CHALLENGED
-    text: "A required value is challenged: the sources disagree and both values are kept."
+    text: A required value has an unresolved source challenge or conflicting assertions.
   - id: RR-UNKNOWN-CODE
-    text: A required value carries a code that is not in its code list.
+    text: A required value carries a code not present in the pinned code list.
   - id: RR-SEVERAL-RESULTS
-    text: There are several footprint results and no rule to select one.
+    text: Multiple assessment or observation results exist with no selection rule.
   - id: RR-DRAFT-TEXT
-    text: A required text is not approved.
+    text: A required product description is missing, ambiguous, or not in an authorised state.
   - id: RR-EVIDENCE-DIGEST
-    text: Required evidence lacks its digest, so the value it supports is insufficiently assured.
+    text: Required supporting evidence lacks an integrity digest or fails source assurance.
   - id: RR-DERIVED-UNDETERMINABLE
-    text: The route may only receive a derived statement for this property, and the limits table cannot decide it for this alloy and temper.
+    text: A required derived representation cannot be determined or is not permitted by policy.
   - id: RR-PDF-CHARACTER
-    text: A value holds a character that the standard PDF font cannot draw, so no customer PDF is made until the source text is corrected.
+    text: A text value contains a character that cannot be rendered safely in the customer PDF.
+  - id: RR-SHAPE-ERROR
+    text: The central product assertion record has selected-record structural shape issues.
+  - id: RR-CONTEXT-UNRESOLVED
+    text: Operation typed context is missing, mismatched, or unresolved (CONTEXT_TYPING_UNRESOLVED / CONTEXT_MISMATCH).
   - id: RR-STANDING-HOLD
-    text: "The route itself is on hold: no applicable external contract has been established."
+    text: Aluminium registration profile is absent or unconfirmed (TARGET_PROFILE_UNCONFIRMED); no submission is permitted.
 checks:
-  - id: CK-MODEL-IDENTIFIER
-    text: The record has a product model identifier with every member the ERP contract maps.
-  - id: CK-BATCH-IDENTIFIER
-    text: The record has a batch identifier with every member the ERP contract maps.
-  - id: CK-KNOWN-PROPERTIES
-    text: Every value in the record belongs to a property of the profile.
+  - id: CK-IDENTIFIERS
+    text: Product model, definition revision, batch, and record revision identities are distinct and complete.
+  - id: CK-PROFILE
+    text: Every recorded property belongs to the pinned 24-property profile.
+  - id: CK-RECORD-SCHEMA
+    text: Central product assertion record checked against pinned record.schema.json (bounded checks, not full JSON Schema conformance).

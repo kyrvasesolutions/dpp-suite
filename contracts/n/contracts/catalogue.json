@@ -1,0 +1,218 @@
+[
+  {
+    "id": "ALU-D101",
+    "label_en": "Product model code",
+    "label_de": "Produktmodellcode",
+    "definition": "Code a producer gives to one product model. It is kept apart from the lot, the specification revision, the passport identifier and the schema version.",
+    "datatype": "Identifier",
+    "unit": null,
+    "semantic_uri": "https://standin.example/def/product/productModelIdentifier"
+  },
+  {
+    "id": "ALU-D102",
+    "label_en": "Product specification revision",
+    "label_de": "Revision der Produktspezifikation",
+    "definition": "Revision label of the product specification that a delivered sheet was made to.",
+    "datatype": "string",
+    "unit": null,
+    "semantic_uri": "https://standin.example/def/product/productDefinitionRevision"
+  },
+  {
+    "id": "ALU-D103",
+    "label_en": "Trade designation",
+    "label_de": "Handelsname",
+    "definition": "Name under which the producer offers the product to buyers.",
+    "datatype": "ProductDesignation",
+    "unit": null,
+    "semantic_uri": "https://standin.example/def/product/commercialProductDesignation"
+  },
+  {
+    "id": "ALU-D104",
+    "label_en": "Production lot code",
+    "label_de": "Fertigungslosnummer",
+    "definition": "Code of the production lot that a delivered sheet comes from.",
+    "datatype": "Identifier",
+    "unit": null,
+    "semantic_uri": "https://standin.example/def/product/batchIdentifier"
+  },
+  {
+    "id": "ALU-D105",
+    "label_en": "Producing company",
+    "label_de": "Herstellendes Unternehmen",
+    "definition": "Legal entity that makes the product, given as a party reference with its role and jurisdiction.",
+    "datatype": "PartyRef",
+    "unit": null,
+    "semantic_uri": "https://standin.example/def/product/manufacturerParty"
+  },
+  {
+    "id": "ALU-D106",
+    "label_en": "Production plant",
+    "label_de": "Produktionswerk",
+    "definition": "Plant where the lot was made, with its country and the party that operates it.",
+    "datatype": "SiteRef",
+    "unit": null,
+    "semantic_uri": "https://standin.example/def/product/manufacturingSite"
+  },
+  {
+    "id": "ALU-D107",
+    "label_en": "Lot manufacturing date",
+    "label_de": "Herstelldatum des Loses",
+    "definition": "Calendar date on which the production lot was made.",
+    "datatype": "date",
+    "unit": null,
+    "semantic_uri": "https://standin.example/def/product/batchProductionDate"
+  },
+  {
+    "id": "ALU-D108",
+    "label_en": "Alloy designation",
+    "label_de": "Legierungsbezeichnung",
+    "definition": "Designation of the wrought aluminium alloy within a named designation system.",
+    "datatype": "DesignationRef",
+    "unit": null,
+    "semantic_uri": "https://standin.example/def/aluminium/alloyDesignation"
+  },
+  {
+    "id": "ALU-D109",
+    "label_en": "Temper designation",
+    "label_de": "Zustandsbezeichnung",
+    "definition": "Designation of the metallurgical temper of the sheet within a named system.",
+    "datatype": "DesignationRef",
+    "unit": null,
+    "semantic_uri": "https://standin.example/def/aluminium/temperDesignation"
+  },
+  {
+    "id": "ALU-D110",
+    "label_en": "Specified thickness",
+    "label_de": "Spezifizierte Dicke",
+    "definition": "Thickness the sheet is specified to have, stated as a quantity with its unit.",
+    "datatype": "Quantity",
+    "unit": "mm",
+    "semantic_uri": "https://standin.example/def/aluminium/nominalSheetThickness"
+  },
+  {
+    "id": "ALU-D111",
+    "label_en": "Thickness as measured",
+    "label_de": "Gemessene Dicke",
+    "definition": "Thickness observed on a specimen, kept with its method, qualifier and stated uncertainty.",
+    "datatype": "Measurement[]",
+    "unit": "mm",
+    "semantic_uri": "https://standin.example/def/aluminium/measuredSheetThickness"
+  },
+  {
+    "id": "ALU-D112",
+    "label_en": "Specified width",
+    "label_de": "Spezifizierte Breite",
+    "definition": "Width the sheet is specified to have, stated as a quantity with its unit.",
+    "datatype": "Quantity",
+    "unit": "mm",
+    "semantic_uri": "https://standin.example/def/aluminium/nominalSheetWidth"
+  },
+  {
+    "id": "ALU-D113",
+    "label_en": "Specified length",
+    "label_de": "Spezifizierte Länge",
+    "definition": "Length the sheet is specified to have, stated as a quantity with its unit.",
+    "datatype": "Quantity",
+    "unit": "mm",
+    "semantic_uri": "https://standin.example/def/aluminium/nominalSheetLength"
+  },
+  {
+    "id": "ALU-D114",
+    "label_en": "Magnesium content as measured",
+    "label_de": "Gemessener Magnesiumgehalt",
+    "definition": "Share of magnesium by mass observed on a specimen, kept with its method, qualifier and stated uncertainty.",
+    "datatype": "Measurement[]",
+    "unit": "%",
+    "semantic_uri": "https://standin.example/def/aluminium/measuredMagnesiumMassFraction"
+  },
+  {
+    "id": "ALU-D115",
+    "label_en": "Total recycled share (declared)",
+    "label_de": "Gesamter Recyclinganteil (deklariert)",
+    "definition": "Share of recycled material by mass that the producer declares for the sheet, on a stated mass basis.",
+    "datatype": "Quantity",
+    "unit": "%",
+    "semantic_uri": "https://standin.example/def/product/declaredTotalRecycledContent"
+  },
+  {
+    "id": "ALU-D116",
+    "label_en": "Pre-consumer recycled share (declared)",
+    "label_de": "Recyclinganteil vor Gebrauch (deklariert)",
+    "definition": "Declared share of recycled material from production scrap. Disagreeing declarations are kept side by side.",
+    "datatype": "ContestedQuantity",
+    "unit": "%",
+    "semantic_uri": "https://standin.example/def/product/preConsumerRecycledContent"
+  },
+  {
+    "id": "ALU-D117",
+    "label_en": "Post-consumer recycled share (declared)",
+    "label_de": "Recyclinganteil nach Gebrauch (deklariert)",
+    "definition": "Declared share of recycled material from end-of-use scrap.",
+    "datatype": "Quantity",
+    "unit": "%",
+    "semantic_uri": "https://standin.example/def/product/postConsumerRecycledContent"
+  },
+  {
+    "id": "ALU-D118",
+    "label_en": "Mass basis of recycled share",
+    "label_de": "Massenbasis des Recyclinganteils",
+    "definition": "What the recycled share is a fraction of: its numerator, its denominator and the mass unit.",
+    "datatype": "MassFractionBasis",
+    "unit": null,
+    "semantic_uri": "https://standin.example/def/product/recycledContentMassBasis"
+  },
+  {
+    "id": "ALU-D119",
+    "label_en": "Evidence for recycled share",
+    "label_de": "Nachweise zum Recyclinganteil",
+    "definition": "References to the records that support the declared recycled shares.",
+    "datatype": "EvidenceRef[]",
+    "unit": null,
+    "semantic_uri": "https://standin.example/def/product/recycledContentEvidenceReferences"
+  },
+  {
+    "id": "ALU-D120",
+    "label_en": "Carbon footprint value",
+    "label_de": "CO2-Fußabdruckwert",
+    "definition": "Imported carbon footprint result, with its indicator, method, reference unit and system boundary.",
+    "datatype": "FootprintResult[]",
+    "unit": "kg CO2e",
+    "semantic_uri": "https://standin.example/def/product/productCarbonFootprintResult"
+  },
+  {
+    "id": "ALU-D121",
+    "label_en": "Approved product texts",
+    "label_de": "Freigegebene Produkttexte",
+    "definition": "Product texts approved for use, each tagged with language, sector and market.",
+    "datatype": "LocalizedTextSet[]",
+    "unit": null,
+    "semantic_uri": "https://standin.example/def/product/authorisedProductDescriptions"
+  },
+  {
+    "id": "ALU-D122",
+    "label_en": "Buyer material number",
+    "label_de": "Materialnummer des Käufers",
+    "definition": "Number under which a buyer knows the material. Leading zeros are significant.",
+    "datatype": "Identifier[]",
+    "unit": null,
+    "semantic_uri": "https://standin-customer.example/def/product/customerMaterialCode"
+  },
+  {
+    "id": "ALU-D123",
+    "label_en": "Lead content as measured",
+    "label_de": "Gemessener Bleigehalt",
+    "definition": "Lead content by mass observed on a specimen, kept with its method, qualifier and stated uncertainty.",
+    "datatype": "Measurement[]",
+    "unit": "mg/kg",
+    "semantic_uri": "https://standin.example/def/product/measuredLeadMassFraction"
+  },
+  {
+    "id": "ALU-D124",
+    "label_en": "Internal processing cost per kilogram",
+    "label_de": "Interne Verarbeitungskosten je Kilogramm",
+    "definition": "Internal cost of turning metal into sheet, per unit mass. For internal use only.",
+    "datatype": "CostQuantity",
+    "unit": "EUR/kg",
+    "semantic_uri": "https://standin.example/def/product/internalUnitConversionCost"
+  }
+]

@@ -1,44 +1,39 @@
-# Fixed N profile. PUBLIC STAND-IN for the private N pack (decision D1-01, option b): synthetic, renumbered
-# identifiers, stand-in definitions and codes. Generated from the private specification; do not edit by hand.
+# Fixed profile. Synthetic public stand-in (renumbered IDs ALU-D101..ALU-D124, generic identifiers).
+# Generated automatically; do not edit by hand.
 id: PROFILE-ALU-24-01
 version: 1.0.0
 status: FROZEN
 stand_in: true
-source: stand-in for the private pack (D1-01 b)
+source: Synthetic public stand-in mirroring the aligned 24-property structure
 release:
-  released: 2026-11-21
-  released_by: stand-in, generated with the private pack
-  basis: stand-in
-product_family: Stand-in aluminium sheet product family
+  released: 2026-11-26
+  released_by: stand-in generated from aligned structure
+  basis: synthetic-stand-in
+product_family: Aluminium sheet (synthetic demonstrator)
 languages:
   - en
   - de
 sectors: SECTOR@1.0.0
 routes:
-  - customer-pdf
-  - erp-staging-csv
-  - registry-prep-json
+  - customer
+  - internal
+  - registry
 pins:
   terms: ALU-TERMS@1.0.0
   legal: ALU-LEGAL@1.0.0
   units: UNITS@1.0.0
   code_lists:
     - COMPANY@1.0.0
-    - CN@1.0.0
     - ALLOY@1.0.0
     - TEMPER@1.0.0
-    - SURFACE@1.0.0
     - COUNTRY@1.0.0
-    - CUSTOMER@1.0.0
-    - SUPPLIER@1.0.0
-    - SECTOR@1.0.0
   inputs:
-    - INPUT-ERP-CSV@1.0.0
-    - INPUT-LAB-JSON@1.0.0
+    - SRC-ERP-CSV-01@1.0.0
+    - SRC-LAB-JSON-01@1.0.0
   route_contracts:
-    - customer-pdf@1.0.0
-    - erp-staging-csv@1.0.0
-    - registry-prep-json@1.0.0
+    - customer@1.0.0
+    - internal@1.0.0
+    - registry@1.0.0
   policy:
     - READINESS-RULES@1.0.0
     - DERIVED-RULES@1.0.0
@@ -48,327 +43,386 @@ pins:
     - OPERATIONAL-LIMITS@1.0.0
 properties:
   - id: ALU-D101
-    definition_ref: urn:dpp-demo:standin:term:product-model-id
+    definition_ref: https://standin.example/def/product/productModelIdentifier
+    datatype: Identifier
     unit: null
     labels:
-      en: Product model identifier
-      de: Produktmodellkennung
+      en: Product model code
+      de: Produktmodellcode
     required_by:
-      customer-pdf: true
-      erp-staging-csv: true
-      registry-prep-json: true
+      customer: true
+      internal: true
+      registry: true
     members:
-      - FLD-Identifier-scheme
       - FLD-Identifier-value
+      - FLD-Identifier-scheme_id
       - FLD-Identifier-scheme_version
+      - FLD-Identifier-issuer_ref
   - id: ALU-D102
-    definition_ref: urn:dpp-demo:standin:term:manufacturer-id
+    definition_ref: https://standin.example/def/product/productDefinitionRevision
+    datatype: string
     unit: null
     labels:
-      en: Manufacturer identifier
-      de: Herstellerkennung
+      en: Product specification revision
+      de: Revision der Produktspezifikation
     required_by:
-      customer-pdf: true
-      erp-staging-csv: true
-      registry-prep-json: true
-    members:
-      - FLD-Identifier-scheme
-      - FLD-Identifier-value
-      - FLD-Identifier-scheme_version
+      customer: true
+      internal: false
+      registry: true
+    members: []
   - id: ALU-D103
-    definition_ref: urn:dpp-demo:standin:term:product-name
+    definition_ref: https://standin.example/def/product/commercialProductDesignation
+    datatype: ProductDesignation
     unit: null
     labels:
-      en: Product name
-      de: Produktbezeichnung
+      en: Trade designation
+      de: Handelsname
     required_by:
-      customer-pdf: true
-      erp-staging-csv: true
-      registry-prep-json: false
-    members: []
-  - id: ALU-D104
-    definition_ref: urn:dpp-demo:standin:term:batch-id
-    unit: null
-    labels:
-      en: Batch identifier
-      de: Chargenkennung
-    required_by:
-      customer-pdf: true
-      erp-staging-csv: true
-      registry-prep-json: false
+      customer: true
+      internal: false
+      registry: false
     members:
-      - FLD-Identifier-scheme
-      - FLD-Identifier-value
-      - FLD-Identifier-scheme_version
-  - id: ALU-D105
-    definition_ref: urn:dpp-demo:standin:term:commodity-code
+      - FLD-ProductDesignation-designation
+      - FLD-ProductDesignation-reference_family
+      - FLD-ProductDesignation-reference_relationship
+  - id: ALU-D104
+    definition_ref: https://standin.example/def/product/batchIdentifier
+    datatype: Identifier
     unit: null
     labels:
-      en: Commodity code (CN)
-      de: Warennummer (KN)
+      en: Production lot code
+      de: Fertigungslosnummer
     required_by:
-      customer-pdf: false
-      erp-staging-csv: true
-      registry-prep-json: true
-    members: []
+      customer: false
+      internal: true
+      registry: false
+    members:
+      - FLD-Identifier-value
+      - FLD-Identifier-scheme_id
+      - FLD-Identifier-scheme_version
+      - FLD-Identifier-issuer_ref
+  - id: ALU-D105
+    definition_ref: https://standin.example/def/product/manufacturerParty
+    datatype: PartyRef
+    unit: null
+    labels:
+      en: Producing company
+      de: Herstellendes Unternehmen
+    required_by:
+      customer: false
+      internal: false
+      registry: true
+    members:
+      - FLD-PartyRef-party_id
+      - FLD-PartyRef-legal_name
+      - FLD-PartyRef-role
+      - FLD-PartyRef-jurisdiction
   - id: ALU-D106
-    definition_ref: urn:dpp-demo:standin:term:alloy-designation
+    definition_ref: https://standin.example/def/product/manufacturingSite
+    datatype: SiteRef
+    unit: null
+    labels:
+      en: Production plant
+      de: Produktionswerk
+    required_by:
+      customer: false
+      internal: false
+      registry: false
+    members:
+      - FLD-SiteRef-site_id
+      - FLD-SiteRef-country
+      - FLD-SiteRef-operator_party_id
+  - id: ALU-D107
+    definition_ref: https://standin.example/def/product/batchProductionDate
+    datatype: date
+    unit: null
+    labels:
+      en: Lot manufacturing date
+      de: Herstelldatum des Loses
+    required_by:
+      customer: false
+      internal: false
+      registry: false
+    members: []
+  - id: ALU-D108
+    definition_ref: https://standin.example/def/aluminium/alloyDesignation
+    datatype: DesignationRef
     unit: null
     labels:
       en: Alloy designation
       de: Legierungsbezeichnung
     required_by:
-      customer-pdf: true
-      erp-staging-csv: true
-      registry-prep-json: false
-    members: []
-    context_labels:
-      - lang: de
-        context: automotive
-        text: Werkstoff
-  - id: ALU-D107
-    definition_ref: urn:dpp-demo:standin:term:temper-designation
+      customer: true
+      internal: false
+      registry: false
+    members:
+      - FLD-DesignationRef-system
+      - FLD-DesignationRef-designation
+  - id: ALU-D109
+    definition_ref: https://standin.example/def/aluminium/temperDesignation
+    datatype: DesignationRef
     unit: null
     labels:
       en: Temper designation
-      de: Werkstoffzustand
+      de: Zustandsbezeichnung
     required_by:
-      customer-pdf: true
-      erp-staging-csv: true
-      registry-prep-json: false
-    members: []
-  - id: ALU-D108
-    definition_ref: urn:dpp-demo:standin:term:nominal-thickness
+      customer: true
+      internal: false
+      registry: false
+    members:
+      - FLD-DesignationRef-system
+      - FLD-DesignationRef-designation
+  - id: ALU-D110
+    definition_ref: https://standin.example/def/aluminium/nominalSheetThickness
+    datatype: Quantity
     unit: mm
     labels:
-      en: Nominal thickness
-      de: Nenndicke
+      en: Specified thickness
+      de: Spezifizierte Dicke
     required_by:
-      customer-pdf: true
-      erp-staging-csv: true
-      registry-prep-json: false
-    members: []
-    context_labels:
-      - lang: de
-        context: construction
-        text: Blechstärke
-      - lang: en
-        context: construction
-        text: Sheet gauge
-  - id: ALU-D109
-    definition_ref: urn:dpp-demo:standin:term:measured-thickness
+      customer: true
+      internal: true
+      registry: false
+    members:
+      - FLD-Quantity-value
+      - FLD-Quantity-unit_id
+      - FLD-Quantity-quantity_kind
+  - id: ALU-D111
+    definition_ref: https://standin.example/def/aluminium/measuredSheetThickness
+    datatype: Measurement[]
     unit: mm
     labels:
-      en: Measured thickness
+      en: Thickness as measured
       de: Gemessene Dicke
     required_by:
-      customer-pdf: false
-      erp-staging-csv: true
-      registry-prep-json: false
+      customer: false
+      internal: true
+      registry: false
     members:
-      - FLD-Uncertainty-expanded
+      - FLD-Measurement-observation_id
+      - FLD-Measurement-method_ref
+      - FLD-Measurement-qualifier
+      - FLD-Uncertainty-value
       - FLD-Uncertainty-coverage_factor
       - FLD-Uncertainty-uncertainty_kind
-  - id: ALU-D110
-    definition_ref: urn:dpp-demo:standin:term:nominal-width
-    unit: mm
-    labels:
-      en: Nominal width
-      de: Nennbreite
-    required_by:
-      customer-pdf: true
-      erp-staging-csv: true
-      registry-prep-json: false
-    members: []
-  - id: ALU-D111
-    definition_ref: urn:dpp-demo:standin:term:nominal-length
-    unit: mm
-    labels:
-      en: Nominal length
-      de: Nennlänge
-    required_by:
-      customer-pdf: true
-      erp-staging-csv: true
-      registry-prep-json: false
-    members: []
   - id: ALU-D112
-    definition_ref: urn:dpp-demo:standin:term:net-mass
-    unit: kg
+    definition_ref: https://standin.example/def/aluminium/nominalSheetWidth
+    datatype: Quantity
+    unit: mm
     labels:
-      en: Net mass of the batch
-      de: Nettomasse der Charge
+      en: Specified width
+      de: Spezifizierte Breite
     required_by:
-      customer-pdf: false
-      erp-staging-csv: true
-      registry-prep-json: false
-    members: []
+      customer: true
+      internal: true
+      registry: false
+    members:
+      - FLD-Quantity-value
+      - FLD-Quantity-unit_id
+      - FLD-Quantity-quantity_kind
   - id: ALU-D113
-    definition_ref: urn:dpp-demo:standin:term:surface-finish
-    unit: null
+    definition_ref: https://standin.example/def/aluminium/nominalSheetLength
+    datatype: Quantity
+    unit: mm
     labels:
-      en: Surface finish
-      de: Oberflächenausführung
+      en: Specified length
+      de: Spezifizierte Länge
     required_by:
-      customer-pdf: true
-      erp-staging-csv: true
-      registry-prep-json: false
-    members: []
-    context_labels:
-      - lang: de
-        context: construction
-        text: Oberfläche
+      customer: true
+      internal: true
+      registry: false
+    members:
+      - FLD-Quantity-value
+      - FLD-Quantity-unit_id
+      - FLD-Quantity-quantity_kind
   - id: ALU-D114
-    definition_ref: urn:dpp-demo:standin:term:recycled-content
+    definition_ref: https://standin.example/def/aluminium/measuredMagnesiumMassFraction
+    datatype: Measurement[]
     unit: "%"
     labels:
-      en: Recycled content
-      de: Rezyklatanteil
+      en: Magnesium content as measured
+      de: Gemessener Magnesiumgehalt
     required_by:
-      customer-pdf: true
-      erp-staging-csv: true
-      registry-prep-json: false
-    members: []
-  - id: ALU-D115
-    definition_ref: urn:dpp-demo:standin:term:tensile-strength
-    unit: MPa
-    labels:
-      en: Tensile strength Rm (measured)
-      de: Zugfestigkeit Rm (gemessen)
-    required_by:
-      customer-pdf: true
-      erp-staging-csv: true
-      registry-prep-json: false
+      customer: false
+      internal: true
+      registry: false
     members:
-      - FLD-Uncertainty-expanded
+      - FLD-Measurement-observation_id
+      - FLD-Measurement-method_ref
+      - FLD-Measurement-qualifier
+      - FLD-Uncertainty-value
       - FLD-Uncertainty-coverage_factor
       - FLD-Uncertainty-uncertainty_kind
+  - id: ALU-D115
+    definition_ref: https://standin.example/def/product/declaredTotalRecycledContent
+    datatype: Quantity
+    unit: "%"
+    labels:
+      en: Total recycled share (declared)
+      de: Gesamter Recyclinganteil (deklariert)
+    required_by:
+      customer: true
+      internal: false
+      registry: false
+    members:
+      - FLD-Quantity-value
+      - FLD-Quantity-unit_id
+      - FLD-Quantity-quantity_kind
+    basis: total uncoated final alloy sheet mass
   - id: ALU-D116
-    definition_ref: urn:dpp-demo:standin:term:country-of-casting
+    definition_ref: https://standin.example/def/product/preConsumerRecycledContent
+    datatype: ContestedQuantity
+    unit: "%"
+    labels:
+      en: Pre-consumer recycled share (declared)
+      de: Recyclinganteil vor Gebrauch (deklariert)
+    required_by:
+      customer: true
+      internal: false
+      registry: false
+    members:
+      - FLD-ContestedQuantity-preferred_assertion
+      - FLD-ContestedQuantity-conflicting_assertion
+      - FLD-ContestedQuantity-resolution_status
+  - id: ALU-D117
+    definition_ref: https://standin.example/def/product/postConsumerRecycledContent
+    datatype: Quantity
+    unit: "%"
+    labels:
+      en: Post-consumer recycled share (declared)
+      de: Recyclinganteil nach Gebrauch (deklariert)
+    required_by:
+      customer: true
+      internal: false
+      registry: false
+    members:
+      - FLD-Quantity-value
+      - FLD-Quantity-unit_id
+      - FLD-Quantity-quantity_kind
+  - id: ALU-D118
+    definition_ref: https://standin.example/def/product/recycledContentMassBasis
+    datatype: MassFractionBasis
     unit: null
     labels:
-      en: Country of casting
-      de: Gießland
+      en: Mass basis of recycled share
+      de: Massenbasis des Recyclinganteils
     required_by:
-      customer-pdf: true
-      erp-staging-csv: true
-      registry-prep-json: false
-    members: []
+      customer: true
+      internal: false
+      registry: false
+    members:
+      - FLD-MassFractionBasis-basis_id
+      - FLD-MassFractionBasis-numerator
+      - FLD-MassFractionBasis-denominator
+      - FLD-MassFractionBasis-mass_unit
+  - id: ALU-D119
+    definition_ref: https://standin.example/def/product/recycledContentEvidenceReferences
+    datatype: EvidenceRef[]
+    unit: null
+    labels:
+      en: Evidence for recycled share
+      de: Nachweise zum Recyclinganteil
+    required_by:
+      customer: true
+      internal: false
+      registry: false
+    members:
+      - FLD-EvidenceRef-evidence_id
+      - FLD-EvidenceRef-issuer
+      - FLD-EvidenceRef-revision
+      - FLD-EvidenceRef-record_kind
+      - FLD-EvidenceRef-scope
+      - FLD-EvidenceRef-digest
+      - FLD-EvidenceRef-access_policy_ref
+  - id: ALU-D120
+    definition_ref: https://standin.example/def/product/productCarbonFootprintResult
+    datatype: FootprintResult[]
+    unit: kg CO2e
+    labels:
+      en: Carbon footprint value
+      de: CO2-Fußabdruckwert
+    required_by:
+      customer: true
+      internal: false
+      registry: false
+    members:
+      - FLD-FootprintResult-indicator_id
+      - FLD-FootprintResult-method_ref
+      - FLD-FootprintResult-reference_unit
+      - FLD-FootprintResult-system_boundary
+  - id: ALU-D121
+    definition_ref: https://standin.example/def/product/authorisedProductDescriptions
+    datatype: LocalizedTextSet[]
+    unit: null
+    labels:
+      en: Approved product texts
+      de: Freigegebene Produkttexte
+    required_by:
+      customer: true
+      internal: false
+      registry: false
+    members:
+      - FLD-LocalizedText-text_id
+      - FLD-LocalizedText-subject_ref
+      - FLD-LocalizedText-language
+      - FLD-LocalizedText-sector
+      - FLD-LocalizedText-market
+      - FLD-LocalizedText-approval_state
+      - FLD-LocalizedText-revision
     context_labels:
       - lang: en
-        context: automotive
-        text: Country of melt
-  - id: ALU-D117
-    definition_ref: urn:dpp-demo:standin:term:production-date
-    unit: null
-    labels:
-      en: Production date
-      de: Herstelldatum
-    required_by:
-      customer-pdf: false
-      erp-staging-csv: true
-      registry-prep-json: false
-    members: []
-  - id: ALU-D118
-    definition_ref: urn:dpp-demo:standin:term:evidence-references
-    unit: null
-    labels:
-      en: Evidence references
-      de: Nachweisverweise
-    required_by:
-      customer-pdf: false
-      erp-staging-csv: true
-      registry-prep-json: false
-    members:
-      - FLD-Evidence-evidence_id
-      - FLD-Evidence-issuer
-      - FLD-Evidence-revision
-      - FLD-Evidence-record_kind
-      - FLD-Evidence-scope
-      - FLD-Evidence-digest
-      - FLD-Evidence-access_policy_ref
-  - id: ALU-D119
-    definition_ref: urn:dpp-demo:standin:term:carbon-footprint
-    unit: kg{CO2e}/kg
-    labels:
-      en: Product carbon footprint
-      de: CO2-Fußabdruck des Produkts
-    required_by:
-      customer-pdf: true
-      erp-staging-csv: true
-      registry-prep-json: false
-    members:
-      - FLD-Footprint-method
-      - FLD-Footprint-system_boundary
-      - FLD-Footprint-reference_year
-      - FLD-Footprint-calculated_by
-  - id: ALU-D120
-    definition_ref: urn:dpp-demo:standin:term:post-consumer-share
-    unit: "%"
-    labels:
-      en: Post-consumer recycled share
-      de: Post-Consumer-Rezyklatanteil
-    required_by:
-      customer-pdf: false
-      erp-staging-csv: true
-      registry-prep-json: false
-    members: []
-    basis: mass share of the product
-  - id: ALU-D121
-    definition_ref: urn:dpp-demo:standin:term:product-narrative
-    unit: null
-    labels:
-      en: Product narrative
-      de: Produktbeschreibung
-    required_by:
-      customer-pdf: true
-      erp-staging-csv: false
-      registry-prep-json: false
-    members:
-      - FLD-Text-text_id
-      - FLD-Text-subject_ref
-      - FLD-Text-language
-      - FLD-Text-sector
-      - FLD-Text-market
-      - FLD-Text-approval_state
-      - FLD-Text-revision
+        context: cross_sector_material_description
+        text: Approved product text
+      - lang: de
+        context: cross_sector_material_description
+        text: Freigegebener Produkttext
   - id: ALU-D122
-    definition_ref: urn:dpp-demo:standin:term:customer-article-number
+    definition_ref: https://standin-customer.example/def/product/customerMaterialCode
+    datatype: Identifier[]
     unit: null
     labels:
-      en: Customer article number
-      de: Kundenartikelnummer
+      en: Buyer material number
+      de: Materialnummer des Käufers
     required_by:
-      customer-pdf: true
-      erp-staging-csv: true
-      registry-prep-json: false
+      customer: true
+      internal: true
+      registry: false
     members:
-      - FLD-Identifier-scheme
       - FLD-Identifier-value
+      - FLD-Identifier-scheme_id
       - FLD-Identifier-scheme_version
-      - FLD-Identifier-scope
+      - FLD-Identifier-issuer_ref
   - id: ALU-D123
-    definition_ref: urn:dpp-demo:standin:term:chemical-composition
-    unit: "%"
+    definition_ref: https://standin.example/def/product/measuredLeadMassFraction
+    datatype: Measurement[]
+    unit: mg/kg
     labels:
-      en: Chemical composition (measured)
-      de: Chemische Zusammensetzung (gemessen)
+      en: Lead content as measured
+      de: Gemessener Bleigehalt
     required_by:
-      customer-pdf: true
-      erp-staging-csv: true
-      registry-prep-json: false
+      customer: true
+      internal: true
+      registry: false
     members:
-      - FLD-Composition-element
-      - FLD-Uncertainty-expanded
+      - FLD-Measurement-observation_id
+      - FLD-Measurement-method_ref
+      - FLD-Measurement-qualifier
+      - FLD-Uncertainty-value
       - FLD-Uncertainty-coverage_factor
       - FLD-Uncertainty-uncertainty_kind
   - id: ALU-D124
-    definition_ref: urn:dpp-demo:standin:term:primary-supplier
-    unit: null
+    definition_ref: https://standin.example/def/product/internalUnitConversionCost
+    datatype: CostQuantity
+    unit: EUR/kg
     labels:
-      en: Primary aluminium supplier
-      de: Lieferant des Primäraluminiums
+      en: Internal processing cost per kilogram
+      de: Interne Verarbeitungskosten je Kilogramm
     required_by:
-      customer-pdf: false
-      erp-staging-csv: true
-      registry-prep-json: false
-    members: []
+      customer: false
+      internal: true
+      registry: false
+    members:
+      - FLD-CostQuantity-value
+      - FLD-CostQuantity-currency
+      - FLD-CostQuantity-denominator_unit
+      - FLD-CostQuantity-context_ref

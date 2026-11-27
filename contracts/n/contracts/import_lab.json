@@ -1,0 +1,79 @@
+{
+  "id": "MAP-IMP-LAB-01",
+  "version": "1.0.0",
+  "direction": "import",
+  "source_contract": "SRC-LAB-JSON-01",
+  "target_contract": "REC-ALU-24-01",
+  "rules": [
+    {
+      "id": "MI-L01",
+      "target": "ALU-D111",
+      "selector": [
+        "lab_tests.thickness"
+      ],
+      "operator": "measurement_array",
+      "loss": "none"
+    },
+    {
+      "id": "MI-L02",
+      "target": "ALU-D114",
+      "selector": [
+        "lab_tests.magnesium"
+      ],
+      "operator": "measurement_array",
+      "loss": "none"
+    },
+    {
+      "id": "MI-L03",
+      "target": "ALU-D118",
+      "selector": [
+        "recycled_content.basis"
+      ],
+      "operator": "copy",
+      "loss": "none"
+    },
+    {
+      "id": "MI-L04",
+      "target": "ALU-D119",
+      "selector": [
+        "recycled_content.evidence"
+      ],
+      "operator": "copy",
+      "loss": "none"
+    },
+    {
+      "id": "MI-L05",
+      "target": "ALU-D120",
+      "selector": [
+        "assessment.result"
+      ],
+      "operator": "array",
+      "loss": "none; stand-in method links kept"
+    },
+    {
+      "id": "MI-L06",
+      "target": "ALU-D121",
+      "selector": [
+        "authorised_texts"
+      ],
+      "operator": "copy",
+      "loss": "none; stand-in language variants kept"
+    },
+    {
+      "id": "MI-L07",
+      "target": "ALU-D123",
+      "selector": [
+        "lab_tests.lead"
+      ],
+      "operator": "measurement_array",
+      "loss": "none; stand-in qualifier and uncertainty kept"
+    }
+  ],
+  "preconditions": [
+    "stand-in: synthetic flag set",
+    "stand-in: lot matches the ERP row",
+    "stand-in: only listed state overrides",
+    "stand-in: measurement context kept"
+  ],
+  "failure": "Stand-in: broken input is kept; missing or disputed values are reported as issues instead of dropped."
+}

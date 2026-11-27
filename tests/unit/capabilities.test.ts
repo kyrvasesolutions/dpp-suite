@@ -60,7 +60,7 @@ describe("capability registry", () => {
   });
 
   // The scored register is kept locally (D0-06): every function shown as supported must be at F2 there.
-  const SCORED = ["docs/assessment/cycle-5/register.csv", "docs/assessment/cycle-4/register.csv", "docs/assessment/cycle-3/register.csv", "docs/assessment/cycle-2/register.csv", "docs/assessment/cycle-1/register.csv"].find((p) => existsSync(p));
+  const SCORED = ["docs/assessment/cycle-9/register.csv", "docs/assessment/cycle-5/register.csv", "docs/assessment/cycle-4/register.csv", "docs/assessment/cycle-3/register.csv", "docs/assessment/cycle-2/register.csv", "docs/assessment/cycle-1/register.csv"].find((p) => existsSync(p));
   it.runIf(SCORED)("labels supported only the functions the latest scored register puts at F2", () => {
     const levels = new Map(
       readFileSync(SCORED!, "utf8")
@@ -73,8 +73,9 @@ describe("capability registry", () => {
     }
   });
 
-  // The P levels are kept locally like the N register: every P function labelled supported must be at F2 there.
-  const P_LEVELS = ["docs/assessment/cycle-8/p-levels.csv", "docs/assessment/cycle-7/p-levels.csv", "docs/assessment/cycle-6/p-levels.csv"].find((p) => existsSync(p));
+  // The P levels are kept locally like the N register: every P function labelled supported must be at F2 there,
+  // and extensions (extends) without P completeness credit are recorded at F3.
+  const P_LEVELS = ["docs/assessment/cycle-9/p-levels.csv", "docs/assessment/cycle-8/p-levels.csv", "docs/assessment/cycle-7/p-levels.csv", "docs/assessment/cycle-6/p-levels.csv"].find((p) => existsSync(p));
   it.runIf(P_LEVELS)("labels supported only the P functions the local P levels put at F2", () => {
     const levels = new Map(
       readFileSync(P_LEVELS!, "utf8")
@@ -84,6 +85,9 @@ describe("capability registry", () => {
     );
     for (const c of CAPABILITIES.filter((x) => x.increment === "P")) {
       for (const f of c.functions) if (labelOfFunction(f, "P") === "supported") expect(levels.get(f), f).toBe("F2");
+      if (P_LEVELS === "docs/assessment/cycle-9/p-levels.csv") {
+        for (const f of c.extends ?? []) expect(levels.get(f), `${f} recorded as F3 extension`).toBe("F3");
+      }
     }
   });
 
@@ -94,8 +98,12 @@ describe("capability registry", () => {
     expect(server.label).toBe("supported");
     expect(server.increment).toBe("P");
     expect(server.screen).toBe(false);
-    for (const f of ["FUNC-022", "FUNC-023", "FUNC-039", "FUNC-063", "FUNC-064", "FUNC-087", "FUNC-125"]) {
+    for (const f of ["FUNC-022", "FUNC-023", "FUNC-039", "FUNC-063", "FUNC-125"]) {
       expect(labelOfFunction(f, "P"), f).toBe("supported");
+    }
+    for (const f of ["FUNC-064", "FUNC-087"]) {
+      expect(server.extends, f).toContain(f);
+      expect(labelOfFunction(f, "P"), `${f} is F3 extension, not P credited (A-17)`).toBeUndefined();
     }
     for (const f of ["FUNC-022", "FUNC-023", "FUNC-039", "FUNC-063", "FUNC-064", "FUNC-125"]) {
       expect(labelOfFunction(f), f).toBe("supported");
@@ -108,9 +116,11 @@ describe("capability registry", () => {
     expect(c7.label).toBe("supported");
     expect(c7.increment).toBe("P");
     expect(c7.screen).toBe(false);
-    for (const f of ["FUNC-001", "FUNC-018", "FUNC-019", "FUNC-027", "FUNC-046", "FUNC-085", "FUNC-134"]) {
+    for (const f of ["FUNC-018", "FUNC-019", "FUNC-027", "FUNC-046", "FUNC-085", "FUNC-134"]) {
       expect(labelOfFunction(f, "P"), f).toBe("supported");
     }
+    expect(c7.extends).toContain("FUNC-001");
+    expect(labelOfFunction("FUNC-001", "P")).toBeUndefined(); // F3 extension (A-17)
     expect(labelOfFunction("FUNC-001")).toBe("supported");
     expect(labelOfFunction("FUNC-019")).toBe("supported");
     expect(labelOfFunction("FUNC-046")).toBe("supported");

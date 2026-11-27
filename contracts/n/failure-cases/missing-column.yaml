@@ -1,6 +1,6 @@
 id: FC-MISSING-COLUMN
-class: missing column
+class: missing required CSV column
 criterion: C2-02
-input: The ERP extract lacks a required column.
-expected: Rejected at stage "structure" with a typed error naming the column.
+input: The ERP extract omits alloy_code.
+expected: Rejected at stage "structure" with missing-column (import outcome REJECT).
 fixture: fixtures/n/erp-missing-alloy-column.csv

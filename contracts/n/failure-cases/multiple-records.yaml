@@ -2,5 +2,5 @@ id: FC-MULTIPLE-RECORDS
 class: multiple records in one file pair
 criterion: C5-04
 input: The ERP extract has two data rows. One file pair is one product record.
-expected: Rejected at stage "structure" with the error multiple-records and nothing imported; no partial success.
+expected: Rejected at stage "structure" with multiple-records (import outcome REJECT); no partial output.
 fixture: fixtures/n/erp-two-rows.csv

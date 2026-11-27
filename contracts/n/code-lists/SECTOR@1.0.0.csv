@@ -1,5 +1,5 @@
-# Sectors that a label or text can be approved for, kept apart from language tags
+# Sector applicability tags kept separate from language tags
 code
+cross_sector_material_description
 construction
 automotive
-packaging

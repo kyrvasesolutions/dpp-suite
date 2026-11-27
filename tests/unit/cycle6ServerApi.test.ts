@@ -19,7 +19,7 @@ import { ExecutionLog } from "../../src/model/log";
 import type { ProfilePack } from "../../src/model/profile";
 import { RemoteLogStore, RemoteRecordRepository } from "../../src/model/remoteStore";
 import { fixtureBytes } from "../support/fixtures";
-import { CLEAN, loadPack } from "../support/records";
+import { CLEAN, loadPack, propertyBySlug } from "../support/records";
 import { TEST_SOFTWARE } from "../support/release";
 
 const tmpDir = mkdtempSync(join(tmpdir(), "dpp-c6-api-"));
@@ -172,16 +172,16 @@ describe("Cycle 6 Node 24 HTTP API and client adapter", () => {
     expect(conflictRes.status).toBe(409);
 
     // 4. Transactional operator correction -> v2
-    const prop = pack.properties.find((p) => p.definitionRef.endsWith(":recycled-content"))!;
+    const propId = propertyBySlug(pack, "nominal-thickness");
     const corrRes = await fetch(
       `${baseUrl}/api/records/${encodeURIComponent(model)}/${encodeURIComponent(batch)}/correct`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          property: prop.id,
-          raw: "44",
-          reason: "Confirmed recycled share from smelter certificate",
+          property: propId,
+          raw: "2.25",
+          reason: "Confirmed nominal thickness from mill certificate",
           expectedVersion: 1,
         }),
       },
@@ -190,7 +190,7 @@ describe("Cycle 6 Node 24 HTTP API and client adapter", () => {
     const corr = (await corrRes.json()) as { snapshot: { version: number } };
     expect(corr.snapshot.version).toBe(2);
 
-    // 5. Generate release from v2 (PDF ready, ERP CSV ready, Registry HOLD draft)
+    // 5. Generate release from v2 (customer RELEASED, internal RELEASED, registry HOLD)
     const relRes = await fetch(
       `${baseUrl}/api/records/${encodeURIComponent(model)}/${encodeURIComponent(batch)}/release`,
       { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) },
@@ -203,9 +203,9 @@ describe("Cycle 6 Node 24 HTTP API and client adapter", () => {
     };
     expect(rel.substantiveDigest).toMatch(/^[0-9a-f]{64}$/);
     expect(rel.files.map((f) => `${f.route}:${f.status}`)).toEqual([
-      "customer-pdf:ready",
-      "erp-staging-csv:ready",
-      "registry-prep-json:hold",
+      "customer:RELEASED",
+      "internal:RELEASED",
+      "registry:HOLD",
     ]);
     expect(rel.refused).toHaveLength(0);
 

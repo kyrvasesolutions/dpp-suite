@@ -1,0 +1,14 @@
+{
+  "id": "CODELIST-ST-01",
+  "version": "1.0.0",
+  "synthetic": true,
+  "entries": [
+    {
+      "source_company": "ST-MFR-01",
+      "code_list_version": "1.0.0",
+      "material_code": "STM004215",
+      "model_id": "ST-5754-M01",
+      "alloy": "EN AW-5754"
+    }
+  ]
+}

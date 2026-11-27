@@ -71,24 +71,24 @@ async function effectCase(page: import("@playwright/test").Page, k: EffectClass,
   }
 
   // the route makes a file: only the registry draft is allowed to be on hold
-  if (name === "registry-prep-json") {
+  if (name === "registry") {
     expect(state).toBe("hold-draft");
     expect(await holdRules(card)).toEqual([...expected.rules].sort());
     await expect(card.getByTestId("draft-notice")).toContainText("never submitted");
   } else {
-    expect(state).toBe("ready");
+    expect(state).toBe("RELEASED");
   }
   const file = await download(page, name);
   const text = await textOf(name, file.bytes);
   await expectNoDenied(text, name, k.pair);
 
-  if (name === "registry-prep-json") {
+  if (name === "registry") {
     const draft = JSON.parse(text) as { status: string; submission: string; holds: Array<{ rule: string }> };
     expect(draft.status).toBe("HOLD");
     expect(draft.submission).toBe("never");
     expect(draft.holds.map((h) => h.rule).sort()).toEqual([...expected.rules].sort());
     // a class that cannot affect the route leaves its draft byte for byte as the golden one
-    if (expected.outcome === "NA" || expected.outcome === "field-withheld" || expected.outcome === "reproducible") expect(sha(file.bytes)).toBe(golden["registry-prep-json"]);
+    if (expected.outcome === "NA" || expected.outcome === "field-withheld" || expected.outcome === "reproducible") expect(sha(file.bytes)).toBe(golden["registry"]);
   }
   if (expected.outcome === "field-withheld" || expected.outcome === "reproducible") expect(sha(file.bytes)).toBe(golden[name]);
 

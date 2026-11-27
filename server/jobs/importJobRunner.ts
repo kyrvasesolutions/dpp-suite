@@ -851,7 +851,7 @@ export class ImportJobRunner {
       };
     }
 
-    const built = prebuilt ?? (await buildRecords(labRes ? [erpRes, labRes] : [erpRes]));
+    const built = prebuilt ?? (await buildRecords(labRes ? [erpRes, labRes] : [erpRes], this.pack));
     const incoming = built.records[0];
     if (!incoming) {
       this.failJob(jobId, inputKey, "no-rows", "structure");

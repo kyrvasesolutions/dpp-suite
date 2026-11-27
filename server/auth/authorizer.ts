@@ -97,6 +97,7 @@ export function authenticateRequest(
     sub: user.sub,
     issuer: claims.iss,
     roles: user.roles,
+    ...(user.explicitRawGrant ? { explicitRawGrant: true } : {}),
     grantEpoch: user.grantEpoch,
     securityDomain,
     authMode: "oidc",

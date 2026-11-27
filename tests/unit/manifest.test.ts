@@ -29,7 +29,7 @@ describe("release manifest", () => {
     const pinned = Object.values(m.pack.pins).flat().map((p) => p.path).sort();
     expect(pinned).toEqual(pack.pins.map((p) => p.path).sort());
     for (const p of Object.values(m.pack.pins).flat()) expect(pack.pins.find((x) => x.path === p.path)).toMatchObject({ ref: p.ref, digest: p.digest });
-    expect(Object.keys(m.pack.pins)).toEqual(["profile", "terms", "legal", "units", "codeLists", "inputs", "routes", "policy"]);
+    expect(Object.keys(m.pack.pins)).toEqual(["profile", "terms", "legal", "units", "codeLists", "inputs", "routes", "policy", "contracts"]);
     expect(m.inputs.map((i) => i.role).sort()).toEqual(["erp", "lab"]);
     expect(m.inputs.map((i) => i.sha256).sort()).toEqual(snapshot.sources.map((s) => s.sha256).sort());
     expect(m.record).toEqual({ model: snapshot.model, batch: snapshot.batch, version: 1, digest: snapshot.record.digest, snapshotDigest: snapshot.digest });
@@ -37,9 +37,9 @@ describe("release manifest", () => {
       const o = m.outputs.find((x) => x.route === f.route)!;
       expect(o).toMatchObject({ fileName: f.fileName, mediaType: f.mediaType, sha256: await sha256Bytes(f.bytes), status: f.status });
     }
-    expect(m.outputs.find((o) => o.route === "registry-prep-json")!.status).toBe("hold");
-    expect(m.outputs.find((o) => o.route === "erp-staging-csv")!.status).toBe("ready");
-    expect(m.lineage.length).toBeGreaterThan(20);
+    expect(m.outputs.find((o) => o.route === "registry")!.status).toBe("HOLD");
+    expect(m.outputs.find((o) => o.route === "internal")!.status).toBe("RELEASED");
+    expect(m.lineage.length).toBeGreaterThan(10);
     expect(m.formulaPrefixedCells).toBe(0);
     // the only date and time in the manifest is the declared generated metadata
     expect(m.generated).toEqual({ at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/), by: "ACT-01" });
@@ -48,11 +48,11 @@ describe("release manifest", () => {
   });
 
   it("lists a route that is refused as a hold with its reasons and no digest", async () => {
-    const { release: r } = await release({ erp: "erp-missing-recycled-content.csv", lab: CLEAN.lab });
-    const erp = r.manifest.outputs.find((o) => o.route === "erp-staging-csv")!;
-    expect(erp).toMatchObject({ fileName: null, sha256: null, status: "hold" });
-    expect(erp.holds.map((h) => h.rule)).toContain("RR-MISSING");
-    expect(r.files.map((f) => f.route)).toEqual(["registry-prep-json"]);
+    const { release: r } = await release({ erp: "erp-missing-thickness.csv", lab: CLEAN.lab });
+    const internal = r.manifest.outputs.find((o) => o.route === "internal")!;
+    expect(internal).toMatchObject({ fileName: null, sha256: null, status: "HOLD" });
+    expect(internal.holds.map((h) => h.rule)).toContain("RR-MISSING");
+    expect(r.files.map((f) => f.route)).toEqual(["registry"]);
   });
 
   it("is canonical, and its substantive content is the same on every run whatever the time", async () => {

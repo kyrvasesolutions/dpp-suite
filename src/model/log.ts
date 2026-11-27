@@ -2,7 +2,7 @@
  * The local execution and error log (Cycle 5: FUNC-132; criterion C5-03).
  *
  * The log is append-only, kept in this browser (IndexedDB, or memory where the browser has none), viewable and
- * downloadable on the screen. It is traceable bookkeeping, not an audit-proof certification.
+ * downloadable on the screen. It is traceable bookkeeping, not a tamper-evident certification.
  *
  * Public-log field set, fixed: `seq`, `event`, `stage`, `code`, `route`, `ruleId`, `stepId`, `record` (the model and
  * batch as digests only), `version`, `fileRole`, `fileSha256`, `outcome`.
@@ -37,7 +37,21 @@ export const LOG_EVENTS = [
 ] as const;
 export type LogEvent = (typeof LOG_EVENTS)[number];
 
-export const LOG_OUTCOMES = ["accepted", "rejected", "ready", "on-hold", "made", "refused", "released", "exported", "imported", "corrected"] as const;
+export const LOG_OUTCOMES = [
+  "accepted",
+  "rejected",
+  "IMPORTED",
+  "IMPORTED_WITH_SHAPE_ISSUES",
+  "REJECT",
+  "RELEASED",
+  "HOLD",
+  "made",
+  "refused",
+  "released",
+  "exported",
+  "imported",
+  "corrected",
+] as const;
 export type LogOutcome = (typeof LOG_OUTCOMES)[number];
 
 /** Codes that are not import errors: a central-record file that is refused, and an output that could not be made. */
@@ -177,7 +191,7 @@ export async function readinessEvents(model: string, batch: string, readiness: R
   const at = version === undefined ? {} : { version };
   return readiness.flatMap((r) => [
     { event: "readiness-assessed", route: r.route, outcome: r.status, record, ...at },
-    ...unique(r.holds, (h) => h.ruleId).map((h) => ({ event: "readiness-assessed", route: r.route, ruleId: h.ruleId, outcome: "on-hold", record, ...at })),
+    ...unique(r.holds, (h) => h.ruleId).map((h) => ({ event: "readiness-assessed", route: r.route, ruleId: h.ruleId, outcome: "HOLD", record, ...at })),
   ]);
 }
 
@@ -186,7 +200,7 @@ export async function releaseEvents(
   model: string,
   batch: string,
   version: number,
-  outcomes: Array<{ route: Route; file?: { status: "ready" | "hold" }; refused?: { holds: Array<{ ruleId: string }> } }>,
+  outcomes: Array<{ route: Route; file?: { status: "RELEASED" | "HOLD" }; refused?: { holds: Array<{ ruleId: string }> } }>,
 ): Promise<LogInput[]> {
   const record = await recordRef(model, batch);
   const per = outcomes.flatMap((o): LogInput[] =>
@@ -194,7 +208,7 @@ export async function releaseEvents(
       ? o.refused.holds.length
         ? unique(o.refused.holds, (h) => h.ruleId).map((h) => ({ event: "output-refused", route: o.route, ruleId: h.ruleId, outcome: "refused", record, version }))
         : [{ event: "output-refused", route: o.route, outcome: "refused", record, version }]
-      : [{ event: "output-made", route: o.route, outcome: o.file?.status === "hold" ? "on-hold" : "made", record, version }],
+      : [{ event: "output-made", route: o.route, outcome: o.file?.status === "HOLD" ? "HOLD" : "made", record, version }],
   );
   return [...per, { event: "release", outcome: "released", record, version }];
 }

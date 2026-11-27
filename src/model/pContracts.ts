@@ -86,6 +86,13 @@ export type JobStage = (typeof JOB_STAGES)[number];
 export const JOB_STATES = ["running", "committed", "rolled_back", "failed"] as const;
 export type JobState = (typeof JOB_STATES)[number];
 
+/** Maps internal P02 terminal job states to the authoritative import outcome vocabulary (A-16). */
+export function terminalJobToImportOutcome(state: JobState, hasShapeIssues = false): "IMPORTED" | "IMPORTED_WITH_SHAPE_ISSUES" | "REJECT" | null {
+  if (state === "running") return null;
+  if (state === "committed") return hasShapeIssues ? "IMPORTED_WITH_SHAPE_ISSUES" : "IMPORTED";
+  return "REJECT";
+}
+
 export const CRASH_POINTS = [
   "after-receive",
   "after-classify",

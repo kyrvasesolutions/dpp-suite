@@ -1,0 +1,1468 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://standin.example/schema/record/1.0.0",
+  "type": "object",
+  "required": [
+    "@context",
+    "record_id",
+    "revision",
+    "synthetic",
+    "properties",
+    "assertions",
+    "source_files",
+    "metadata",
+    "issues"
+  ],
+  "properties": {
+    "@context": {
+      "type": "object"
+    },
+    "record_id": {
+      "type": "string"
+    },
+    "revision": {
+      "type": "string"
+    },
+    "synthetic": {
+      "type": "boolean",
+      "const": true
+    },
+    "properties": {
+      "type": "object",
+      "properties": {
+        "ALU-D101": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "value": {
+              "type": "string",
+              "minLength": 1
+            },
+            "scheme_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "scheme_version": {
+              "type": "string",
+              "minLength": 1
+            },
+            "issuer_ref": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "value",
+            "scheme_id",
+            "scheme_version",
+            "issuer_ref"
+          ],
+          "additionalProperties": true
+        },
+        "ALU-D102": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "ALU-D103": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "designation": {
+              "type": "string",
+              "minLength": 1
+            },
+            "reference_family": {
+              "type": "string",
+              "minLength": 1
+            },
+            "reference_relationship": {
+              "type": "string",
+              "minLength": 1
+            },
+            "record_is_synthetic": {
+              "type": "boolean",
+              "const": true
+            }
+          },
+          "required": [
+            "designation",
+            "reference_family",
+            "reference_relationship",
+            "record_is_synthetic"
+          ],
+          "additionalProperties": true
+        },
+        "ALU-D104": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "value": {
+              "type": "string",
+              "minLength": 1
+            },
+            "scheme_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "scheme_version": {
+              "type": "string",
+              "minLength": 1
+            },
+            "issuer_ref": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "value",
+            "scheme_id",
+            "scheme_version",
+            "issuer_ref"
+          ],
+          "additionalProperties": true
+        },
+        "ALU-D105": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "party_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "legal_name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "role": {
+              "type": "string",
+              "minLength": 1
+            },
+            "identity_status": {
+              "type": "string",
+              "minLength": 1
+            },
+            "jurisdiction": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "party_id",
+            "legal_name",
+            "role",
+            "identity_status",
+            "jurisdiction"
+          ],
+          "additionalProperties": true
+        },
+        "ALU-D106": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "site_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "country": {
+              "type": "string",
+              "minLength": 1
+            },
+            "operator_party_id": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "site_id",
+            "country",
+            "operator_party_id"
+          ],
+          "additionalProperties": true
+        },
+        "ALU-D107": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "ALU-D108": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "system": {
+              "type": "string",
+              "minLength": 1
+            },
+            "designation": {
+              "type": "string",
+              "minLength": 1
+            },
+            "family": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "system",
+            "designation",
+            "family"
+          ],
+          "additionalProperties": true
+        },
+        "ALU-D109": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "system": {
+              "type": "string",
+              "minLength": 1
+            },
+            "designation": {
+              "type": "string",
+              "minLength": 1
+            },
+            "selection_status": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "system",
+            "designation",
+            "selection_status"
+          ],
+          "additionalProperties": true
+        },
+        "ALU-D110": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "value": {
+              "type": "number",
+              "minimum": 0
+            },
+            "unit_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "quantity_kind": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "value",
+            "unit_id",
+            "quantity_kind"
+          ],
+          "additionalProperties": true
+        },
+        "ALU-D111": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "observation_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "value": {
+                "type": "number",
+                "minimum": 0
+              },
+              "unit_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "property_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "specimen_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "method_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "date": {
+                "type": "string",
+                "minLength": 1
+              },
+              "batch_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "qualifier": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uncertainty": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "unit_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "coverage_factor": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "uncertainty_kind": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "value",
+                  "unit_id",
+                  "coverage_factor",
+                  "uncertainty_kind"
+                ],
+                "additionalProperties": true
+              },
+              "evidence_refs": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "minItems": 1
+              }
+            },
+            "required": [
+              "observation_id",
+              "value",
+              "unit_id",
+              "property_ref",
+              "specimen_ref",
+              "method_ref",
+              "date",
+              "batch_id",
+              "qualifier",
+              "uncertainty",
+              "evidence_refs"
+            ],
+            "additionalProperties": true
+          },
+          "minItems": 1
+        },
+        "ALU-D112": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "value": {
+              "type": "number",
+              "minimum": 0
+            },
+            "unit_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "quantity_kind": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "value",
+            "unit_id",
+            "quantity_kind"
+          ],
+          "additionalProperties": true
+        },
+        "ALU-D113": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "value": {
+              "type": "number",
+              "minimum": 0
+            },
+            "unit_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "quantity_kind": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "value",
+            "unit_id",
+            "quantity_kind"
+          ],
+          "additionalProperties": true
+        },
+        "ALU-D114": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "observation_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "value": {
+                "type": "number",
+                "minimum": 0
+              },
+              "unit_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "property_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "specimen_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "method_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "date": {
+                "type": "string",
+                "minLength": 1
+              },
+              "batch_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "qualifier": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uncertainty": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "unit_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "coverage_factor": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "uncertainty_kind": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "value",
+                  "unit_id",
+                  "coverage_factor",
+                  "uncertainty_kind"
+                ],
+                "additionalProperties": true
+              },
+              "evidence_refs": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "minItems": 1
+              }
+            },
+            "required": [
+              "observation_id",
+              "value",
+              "unit_id",
+              "property_ref",
+              "specimen_ref",
+              "method_ref",
+              "date",
+              "batch_id",
+              "qualifier",
+              "uncertainty",
+              "evidence_refs"
+            ],
+            "additionalProperties": true
+          },
+          "minItems": 1
+        },
+        "ALU-D115": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "value": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "unit_id": {
+              "type": "string",
+              "const": "%"
+            },
+            "quantity_kind": {
+              "type": "string",
+              "const": "mass_fraction"
+            },
+            "basis": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "value",
+            "unit_id",
+            "quantity_kind",
+            "basis"
+          ],
+          "additionalProperties": true
+        },
+        "ALU-D116": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "preferred_assertion": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "unit_id": {
+                  "type": "string",
+                  "const": "%"
+                },
+                "evidence_ref": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "value",
+                "unit_id",
+                "evidence_ref"
+              ],
+              "additionalProperties": true
+            },
+            "conflicting_assertion": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "properties": {
+                "value": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "unit_id": {
+                  "type": "string",
+                  "const": "%"
+                },
+                "evidence_ref": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "value",
+                "unit_id",
+                "evidence_ref"
+              ],
+              "additionalProperties": true
+            },
+            "resolution_status": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "preferred_assertion",
+            "conflicting_assertion",
+            "resolution_status"
+          ],
+          "additionalProperties": true
+        },
+        "ALU-D117": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "value": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "unit_id": {
+              "type": "string",
+              "const": "%"
+            },
+            "quantity_kind": {
+              "type": "string",
+              "const": "mass_fraction"
+            },
+            "basis": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "value",
+            "unit_id",
+            "quantity_kind",
+            "basis"
+          ],
+          "additionalProperties": true
+        },
+        "ALU-D118": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "basis_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "numerator": {
+              "type": "string",
+              "minLength": 1
+            },
+            "denominator": {
+              "type": "string",
+              "minLength": 1
+            },
+            "includes": {
+              "type": "string",
+              "minLength": 1
+            },
+            "excludes": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "minItems": 0
+            },
+            "mass_unit": {
+              "type": "string",
+              "const": "kg"
+            }
+          },
+          "required": [
+            "basis_id",
+            "numerator",
+            "denominator",
+            "includes",
+            "excludes",
+            "mass_unit"
+          ],
+          "additionalProperties": true
+        },
+        "ALU-D119": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "evidence_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "issuer": {
+                "type": "string",
+                "minLength": 1
+              },
+              "revision": {
+                "type": "string",
+                "minLength": 1
+              },
+              "record_kind": {
+                "type": "string",
+                "minLength": 1
+              },
+              "scope": {
+                "type": "string",
+                "minLength": 1
+              },
+              "digest": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "access_policy_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "external_verification": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "evidence_id",
+              "issuer",
+              "revision",
+              "record_kind",
+              "scope",
+              "digest",
+              "access_policy_ref",
+              "external_verification"
+            ],
+            "additionalProperties": true
+          },
+          "minItems": 1
+        },
+        "ALU-D120": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "indicator_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "result": {
+                "type": "number"
+              },
+              "unit_id": {
+                "type": "string",
+                "const": "kg_CO2e"
+              },
+              "reference_unit": {
+                "type": "string",
+                "minLength": 1
+              },
+              "system_boundary": {
+                "type": "string",
+                "minLength": 1
+              },
+              "method_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "allocation": {
+                "type": "string",
+                "minLength": 1
+              },
+              "period": {
+                "type": "string",
+                "minLength": 1
+              },
+              "geography": {
+                "type": "string",
+                "minLength": 1
+              },
+              "evidence_refs": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "minItems": 1
+              },
+              "data_quality": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "indicator_id",
+              "result",
+              "unit_id",
+              "reference_unit",
+              "system_boundary",
+              "method_ref",
+              "allocation",
+              "period",
+              "geography",
+              "evidence_refs",
+              "data_quality"
+            ],
+            "additionalProperties": true
+          },
+          "minItems": 1
+        },
+        "ALU-D121": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "text_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "subject_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "language": {
+                "type": "string",
+                "minLength": 1
+              },
+              "sector": {
+                "type": "string",
+                "minLength": 1
+              },
+              "market": {
+                "type": "string",
+                "minLength": 1
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1
+              },
+              "approval_state": {
+                "type": "string",
+                "minLength": 1
+              },
+              "revision": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "text_id",
+              "subject_ref",
+              "language",
+              "sector",
+              "market",
+              "text",
+              "approval_state",
+              "revision"
+            ],
+            "additionalProperties": true
+          },
+          "minItems": 1
+        },
+        "ALU-D122": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "string",
+                "minLength": 1
+              },
+              "scheme_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "scheme_version": {
+                "type": "string",
+                "minLength": 1
+              },
+              "issuer_ref": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "value",
+              "scheme_id",
+              "scheme_version",
+              "issuer_ref"
+            ],
+            "additionalProperties": true
+          },
+          "minItems": 1
+        },
+        "ALU-D123": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "observation_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "value": {
+                "type": "number",
+                "minimum": 0
+              },
+              "unit_id": {
+                "type": "string",
+                "const": "mg/kg"
+              },
+              "property_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "specimen_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "method_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "date": {
+                "type": "string",
+                "minLength": 1
+              },
+              "batch_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "qualifier": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uncertainty": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "unit_id": {
+                    "type": "string",
+                    "const": "mg/kg"
+                  },
+                  "coverage_factor": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "uncertainty_kind": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "value",
+                  "unit_id",
+                  "coverage_factor",
+                  "uncertainty_kind"
+                ],
+                "additionalProperties": true
+              },
+              "evidence_refs": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "minItems": 1
+              },
+              "analyte": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "const": "lead"
+                  },
+                  "symbol": {
+                    "type": "string",
+                    "const": "Pb"
+                  }
+                },
+                "required": [
+                  "name",
+                  "symbol"
+                ],
+                "additionalProperties": true
+              },
+              "mass_basis": {
+                "type": "string",
+                "const": "uncoated_alloy_specimen_mass"
+              }
+            },
+            "required": [
+              "observation_id",
+              "value",
+              "unit_id",
+              "property_ref",
+              "specimen_ref",
+              "method_ref",
+              "date",
+              "batch_id",
+              "qualifier",
+              "uncertainty",
+              "evidence_refs",
+              "analyte",
+              "mass_basis"
+            ],
+            "additionalProperties": true
+          },
+          "minItems": 1
+        },
+        "ALU-D124": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "value": {
+              "type": "number",
+              "minimum": 0
+            },
+            "currency": {
+              "type": "string",
+              "const": "EUR"
+            },
+            "denominator_unit": {
+              "type": "string",
+              "const": "kg"
+            },
+            "context_ref": {
+              "type": "string",
+              "minLength": 1
+            },
+            "value_kind": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "value",
+            "currency",
+            "denominator_unit",
+            "context_ref",
+            "value_kind"
+          ],
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "assertions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "assertion_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "property_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_paths": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1
+          },
+          "source_values": {
+            "type": "object"
+          },
+          "mapped_value": {},
+          "mapping_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "mapping_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "presence": {
+            "enum": [
+              "present",
+              "missing"
+            ]
+          },
+          "challenge_status": {
+            "enum": [
+              "none",
+              "open"
+            ]
+          },
+          "source_assurance": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "assertion_id",
+          "property_id",
+          "source_id",
+          "source_paths",
+          "source_values",
+          "mapped_value",
+          "mapping_id",
+          "mapping_version",
+          "presence",
+          "challenge_status",
+          "source_assurance"
+        ],
+        "additionalProperties": true
+      },
+      "minItems": 1
+    },
+    "source_files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "media_type": {
+            "type": "string",
+            "minLength": 1
+          },
+          "raw_content": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sha256": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "source_id",
+          "media_type",
+          "raw_content",
+          "sha256"
+        ],
+        "additionalProperties": true
+      },
+      "minItems": 2
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "assessment_context": {
+          "type": "object",
+          "properties": {
+            "context_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "method": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "version": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "conformity_status": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "id",
+                "version",
+                "conformity_status"
+              ],
+              "additionalProperties": true
+            },
+            "reference_unit": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "quantity": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "unit": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "basis_type": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "reference_product": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "id",
+                "quantity",
+                "unit",
+                "basis_type",
+                "reference_product"
+              ],
+              "additionalProperties": true
+            },
+            "boundary": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "included": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "minItems": 1
+                },
+                "excluded": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "minItems": 0
+                },
+                "module_assignment": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "label",
+                "included",
+                "excluded",
+                "module_assignment"
+              ],
+              "additionalProperties": true
+            },
+            "allocation": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "conformity_status": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "id",
+                "label",
+                "conformity_status"
+              ],
+              "additionalProperties": true
+            },
+            "representativeness": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "period": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "geography": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "coverage": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "batch_specific": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "period",
+                "geography",
+                "coverage",
+                "batch_specific"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "context_id",
+            "method",
+            "reference_unit",
+            "boundary",
+            "allocation",
+            "representativeness"
+          ],
+          "additionalProperties": true
+        },
+        "recycled_context": {
+          "type": "object"
+        },
+        "cost_context": {
+          "type": "object",
+          "properties": {
+            "currency": {
+              "type": "string",
+              "const": "EUR"
+            },
+            "denominator_unit": {
+              "type": "string",
+              "const": "kg"
+            },
+            "scope": {
+              "type": "string",
+              "minLength": 1
+            },
+            "excluded": {
+              "type": "string",
+              "minLength": 1
+            },
+            "period": {
+              "type": "string",
+              "minLength": 1
+            },
+            "estimate_status": {
+              "type": "string",
+              "minLength": 1
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "currency",
+            "denominator_unit",
+            "scope",
+            "excluded",
+            "period",
+            "estimate_status",
+            "id"
+          ],
+          "additionalProperties": true
+        },
+        "methods": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "version": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "id",
+              "version",
+              "description"
+            ],
+            "additionalProperties": true
+          },
+          "minItems": 1
+        }
+      },
+      "required": [
+        "assessment_context",
+        "recycled_context",
+        "cost_context",
+        "methods"
+      ],
+      "additionalProperties": true
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "additionalProperties": true
+      },
+      "minItems": 0
+    }
+  },
+  "additionalProperties": false
+}

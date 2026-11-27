@@ -25,7 +25,7 @@ export function LogPanel() {
       <h2>Execution log</h2>
       <p className="hint small">
         Kept in this browser and never sent anywhere. It records what happened (events, stages, error codes, routes, rule IDs, digests), not
-        what the files contain. It is traceable bookkeeping, not an audit-proof certification. Fields: {LOG_FIELDS.join(", ")}.
+        what the files contain. It is traceable bookkeeping, not a tamper-evident certification. Fields: {LOG_FIELDS.join(", ")}.
       </p>
       <button
         type="button"

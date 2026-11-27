@@ -54,8 +54,8 @@ beforeAll(async () => {
   initialReleaseId = init.releaseId;
 
   const grants = new GrantStore(db, undefined, { now: () => NOW });
-  grants.upsertUser({ sub: "cur-1", displayName: "Curator One", roles: ["CURATOR"], actorSub: "bootstrap", reason: "Seed curator 1" });
-  grants.upsertUser({ sub: "cur-2", displayName: "Curator Two", roles: ["CURATOR"], actorSub: "bootstrap", reason: "Seed curator 2" });
+  grants.upsertUser({ sub: "cur-1", displayName: "Curator One", roles: ["ACT-20"], actorSub: "bootstrap", reason: "Seed curator 1" });
+  grants.upsertUser({ sub: "cur-2", displayName: "Curator Two", roles: ["ACT-20"], actorSub: "bootstrap", reason: "Seed curator 2" });
   grants.upsertUser({ sub: "op-1", displayName: "Operator", roles: ["ACT-01"], actorSub: "bootstrap", reason: "Seed operator" });
 
   const server = createDppServer({
@@ -203,7 +203,7 @@ describe("Cycle 7 controlled configuration package releases & rollback (C7-04)",
       {
         method: "POST",
         headers: jsonAuth(op1),
-        body: JSON.stringify({ property: temperProp, raw: "H14", reason: "Attempt H14 before code-list release" }),
+        body: JSON.stringify({ property: temperProp, member: "FLD-DesignationRef-designation", raw: "H14", reason: "Attempt H14 before code-list release" }),
       },
     );
     expect(preCorr.status).toBe(400);
@@ -317,7 +317,7 @@ describe("Cycle 7 controlled configuration package releases & rollback (C7-04)",
       {
         method: "POST",
         headers: jsonAuth(op1),
-        body: JSON.stringify({ property: temperProp, raw: "H14", reason: "Confirmed H14 under active 1.1.0 code list" }),
+        body: JSON.stringify({ property: temperProp, member: "FLD-DesignationRef-designation", raw: "H14", reason: "Confirmed H14 under active 1.1.0 code list" }),
       },
     );
     expect(postCorr.status).toBe(200);
@@ -374,7 +374,7 @@ describe("Cycle 7 controlled configuration package releases & rollback (C7-04)",
       {
         method: "POST",
         headers: jsonAuth(op1),
-        body: JSON.stringify({ property: temperProp, raw: "H14", reason: "Attempt H14 after rollback" }),
+        body: JSON.stringify({ property: temperProp, member: "FLD-DesignationRef-designation", raw: "H14", reason: "Attempt H14 after rollback" }),
       },
     );
     expect(afterRbCorr.status).toBe(400);

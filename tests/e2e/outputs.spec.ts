@@ -12,7 +12,7 @@ import type { Page } from "@playwright/test";
 import { pdfText } from "../support/pdfText";
 import { expect, test } from "./egress";
 
-const clean = { erp: "fixtures/n/d03a-erp-extract.csv", lab: "fixtures/n/d03a-lab-assessment.json" };
+const clean = { erp: "fixtures/n/erp-extract.csv", lab: "fixtures/n/lab-assessment.json" };
 
 const loadSample = async (page: Page, sample: "clean" | "conflict" | "two-footprints" | "blocked" = "clean") => {
   await page.goto("/#outputs");
@@ -33,62 +33,60 @@ const deniedLabels = matrix.filter((r) => r[1] === "deny").map((r) => pack.prope
 
 test("the clean pair: customer PDF and ERP CSV are downloadable, the registry file is a HOLD draft", async ({ page }) => {
   await loadSample(page);
-  await expect(route(page, "customer-pdf")).toHaveAttribute("data-state", "ready");
-  await expect(route(page, "erp-staging-csv")).toHaveAttribute("data-state", "ready");
-  await expect(route(page, "registry-prep-json")).toHaveAttribute("data-state", "hold-draft");
+  await expect(route(page, "customer")).toHaveAttribute("data-state", "RELEASED");
+  await expect(route(page, "internal")).toHaveAttribute("data-state", "RELEASED");
+  await expect(route(page, "registry")).toHaveAttribute("data-state", "hold-draft");
   await expect(page.getByTestId("download")).toHaveCount(3);
-  await expect(route(page, "registry-prep-json").getByTestId("download")).toHaveText("Download draft (HOLD)");
-  await expect(route(page, "registry-prep-json").getByTestId("hold-reason")).toHaveAttribute("data-rule", "RR-STANDING-HOLD");
-  await expect(route(page, "registry-prep-json").getByTestId("draft-notice")).toContainText("never submitted");
+  await expect(route(page, "registry").getByTestId("download")).toHaveText("Download draft (HOLD)");
+  await expect(route(page, "registry").getByTestId("hold-reason")).toHaveAttribute("data-rule", "RR-STANDING-HOLD");
+  await expect(route(page, "registry").getByTestId("draft-notice")).toContainText("never submitted");
 
-  const pdf = await download(page, "customer-pdf");
-  const csv = await download(page, "erp-staging-csv");
-  const json = await download(page, "registry-prep-json");
+  const pdf = await download(page, "customer");
+  const csv = await download(page, "internal");
+  const json = await download(page, "registry");
   expect(pdf.name).toMatch(/\.pdf$/);
   expect(Buffer.from(pdf.bytes.subarray(0, 5)).toString()).toBe("%PDF-");
 
   const text = await pdfText(new Uint8Array(pdf.bytes));
   for (const label of deniedLabels) expect(text, `the PDF has no "${label}"`).not.toContain(label);
-  for (const secret of ["EV-TR-0417", "EV-CR-0099", "SS01", "Demo test laboratory"]) expect(text).not.toContain(secret);
-  expect(text).toContain("within the limits");
-  expect(text).toContain("Rule DR-");
-  expect(text).not.toMatch(/(?<![\w.-])228(?![\w.])/);
+  for (const secret of ["EV-RC-DECL-001", "1.95", "31.4", "2.9"]) expect(text).not.toContain(secret);
+  expect(text).toContain("<80 mg/kg");
+  expect(text).toContain("65 %");
+  expect(text).toContain("004215");
 
-  expect(csv.bytes.toString("utf8").split("\n")[0].split(";").length).toBeGreaterThan(20);
+  expect(csv.bytes.toString("utf8").split("\n")[0].split(",")).toHaveLength(12);
   const doc = JSON.parse(json.bytes.toString("utf8"));
-  expect(doc).toMatchObject({ status: "HOLD", submission: "never" });
+  expect(doc).toMatchObject({ status: "HOLD", submission: "never", not_a_registration_request: true });
   expect(json.name).toContain("HOLD");
 });
 
 test("a route on hold has no download and shows its reasons", async ({ page }) => {
   await loadSample(page, "blocked");
-  for (const r of ["customer-pdf", "erp-staging-csv"]) {
+  for (const r of ["customer", "internal"]) {
     await expect(route(page, r)).toHaveAttribute("data-state", "refused");
     await expect(route(page, r).getByTestId("refusal")).toContainText("No file is made");
     await expect(route(page, r).locator('[data-testid="hold-reason"][data-rule="RR-MISSING"]')).toHaveCount(1);
     await expect(route(page, r).getByTestId("download")).toHaveCount(0);
   }
-  await expect(route(page, "registry-prep-json").getByTestId("download")).toHaveCount(1);
+  await expect(route(page, "registry").getByTestId("download")).toHaveCount(1);
 });
 
 test("the lineage panel traces a PDF value to its source file and location", async ({ page }) => {
   await loadSample(page);
   await page.getByTestId("lineage-pick").selectOption({ label: "Alloy designation" });
   const lineage = page.getByTestId("lineage");
-  await expect(lineage).toHaveAttribute("data-route", "customer-pdf");
+  await expect(lineage).toHaveAttribute("data-route", "customer");
   await expect(lineage).toContainText("Mapping step");
-  await expect(lineage.getByTestId("lineage-source")).toHaveCount(2);
-  await expect(lineage.getByTestId("lineage-source").first()).toContainText("d03a-erp-extract.csv, row 2, column alloy");
-  await expect(lineage.getByTestId("lineage-source").last()).toContainText("/product/alloy");
-  // a derived statement names its rule and every input
-  await page.getByTestId("lineage-pick").selectOption({ label: "Tensile strength Rm (measured)" });
+  await expect(lineage.getByTestId("lineage-source").first()).toContainText("erp-extract.csv, row 2, column alloy_code");
+  // a derived statement names its rule and inputs
+  await page.getByTestId("lineage-pick").selectOption({ label: "Lead content as measured" });
   await expect(lineage).toContainText("derived by rule");
-  expect(await lineage.getByTestId("lineage-source").count()).toBeGreaterThanOrEqual(3);
+  expect(await lineage.getByTestId("lineage-source").count()).toBeGreaterThanOrEqual(1);
 });
 
 test("the manifest verifies the downloaded files and notices a changed byte", async ({ page }) => {
   await loadSample(page);
-  const files = [await download(page, "customer-pdf"), await download(page, "erp-staging-csv"), await download(page, "registry-prep-json")];
+  const files = [await download(page, "customer"), await download(page, "internal"), await download(page, "registry")];
   const [m] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Download manifest" }).click()]);
   const manifest = readFileSync((await m.path())!);
   expect(JSON.parse(manifest.toString("utf8")).software.commit).toBeTruthy();
@@ -112,7 +110,7 @@ test("the manifest verifies the downloaded files and notices a changed byte", as
   await expect(page.getByTestId("verify-result").locator('[data-status="mismatch"]')).toHaveCount(1);
 });
 
-const corrected = readFileSync(clean.erp, "utf8").replace(";H111;2.0;", ";H22;2.0;");
+const corrected = readFileSync(clean.erp, "utf8").replace(",1250,", ",1520,");
 const importClean = async (page: Page) => {
   await page.goto("/#import");
   await page.getByLabel("Sample files").selectOption({ label: "Clean pair" });
@@ -131,7 +129,7 @@ test("the Import screen reports the stored version, a correction, and nothing ne
   await expect(status).toHaveAttribute("data-stored", "false");
   await expect(status).toContainText("nothing new is stored");
 
-  await page.getByTestId("pick-erp").setInputFiles({ name: "d03a-erp-extract.csv", mimeType: "text/csv", buffer: Buffer.from(corrected) });
+  await page.getByTestId("pick-erp").setInputFiles({ name: "erp-extract.csv", mimeType: "text/csv", buffer: Buffer.from(corrected) });
   await expect(status).toHaveAttribute("data-version", "2");
   await expect(status).toHaveAttribute("data-stored", "true");
   await expect(status).toContainText("replacing version 1");
@@ -155,7 +153,7 @@ test("the central record survives a reload; a correction makes version 2 linked 
   await page.goto("/#import");
   // after a reload the picked files are gone: the pair is picked again, the laboratory file first, with a corrected ERP extract
   await page.getByTestId("pick-lab").setInputFiles(clean.lab);
-  await page.getByTestId("pick-erp").setInputFiles({ name: "d03a-erp-extract.csv", mimeType: "text/csv", buffer: Buffer.from(corrected) });
+  await page.getByTestId("pick-erp").setInputFiles({ name: "erp-extract.csv", mimeType: "text/csv", buffer: Buffer.from(corrected) });
   await expect(page.getByTestId("snapshot-status")).toHaveAttribute("data-version", "2");
 
   await page.reload();
@@ -170,16 +168,16 @@ test("the central record survives a reload; a correction makes version 2 linked 
   await page.locator('[data-testid="snapshot"][data-version="1"]').getByRole("button", { name: "View version 1" }).click();
   await expect(page.getByTestId("outputs-record")).toContainText("an earlier version, read only");
   await page.getByTestId("snapshot-values").locator("summary").click();
-  await expect(page.getByTestId("snapshot-values")).toContainText("H111");
-  await expect(page.getByTestId("snapshot-values")).not.toContainText("H22");
+  await expect(page.getByTestId("snapshot-values")).toContainText("1250");
+  await expect(page.getByTestId("snapshot-values")).not.toContainText("1520");
   await page.locator('[data-testid="snapshot"][data-version="2"]').getByRole("button", { name: "View version 2" }).click();
   await page.getByTestId("snapshot-values").locator("summary").click();
-  await expect(page.getByTestId("snapshot-values")).toContainText("H22");
+  await expect(page.getByTestId("snapshot-values")).toContainText("1520");
 });
 
 test("the central record exports and imports again with every version", async ({ page }) => {
   await importClean(page);
-  await page.getByTestId("pick-erp").setInputFiles({ name: "d03a-erp-extract.csv", mimeType: "text/csv", buffer: Buffer.from(corrected) });
+  await page.getByTestId("pick-erp").setInputFiles({ name: "erp-extract.csv", mimeType: "text/csv", buffer: Buffer.from(corrected) });
   await expect(page.getByTestId("snapshot-status")).toHaveAttribute("data-version", "2");
   await page.goto("/#outputs");
   const [d] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Export central record" }).click()]);
@@ -256,7 +254,7 @@ test("the three downloads of the clean pair are the golden files, byte for byte"
   const golden = JSON.parse(readFileSync("tests/golden/digests.json", "utf8")) as Record<string, string>;
   const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
   await loadSample(page);
-  for (const r of ["customer-pdf", "erp-staging-csv", "registry-prep-json"]) {
+  for (const r of ["customer", "internal", "registry"]) {
     const f = await download(page, r);
     expect(sha(f.bytes), `${r} equals the golden digest`).toBe(golden[r]);
   }
@@ -269,7 +267,7 @@ test("the three downloads of the clean pair are the golden files, byte for byte"
 
 test("after importing a two-version central record into a browser that holds version 1, Outputs shows the latest version", async ({ page, browser }) => {
   await importClean(page);
-  await page.getByTestId("pick-erp").setInputFiles({ name: "d03a-erp-extract.csv", mimeType: "text/csv", buffer: Buffer.from(corrected) });
+  await page.getByTestId("pick-erp").setInputFiles({ name: "erp-extract.csv", mimeType: "text/csv", buffer: Buffer.from(corrected) });
   await expect(page.getByTestId("snapshot-status")).toHaveAttribute("data-version", "2");
   await page.goto("/#outputs");
   const [d] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Export central record" }).click()]);
@@ -316,18 +314,18 @@ test("the Import screen shows an error when the record could not be saved to the
 });
 
 test("a PDF refused for a character the font lacks names the code point and the source on the card", async ({ page }) => {
-  const lab = readFileSync(clean.lab, "utf8").replace("Demo LCA consultancy (synthetic)", "Лаборатория");
+  const lab = readFileSync(clean.lab, "utf8").replace("Stand-in aluminium sheet, alloy family", "Лаборатория synthetic aluminium sheet");
   await page.goto("/#import");
   await page.getByTestId("pick-erp").setInputFiles(clean.erp);
-  await page.getByTestId("pick-lab").setInputFiles({ name: "d03a-lab-assessment.json", mimeType: "application/json", buffer: Buffer.from(lab) });
+  await page.getByTestId("pick-lab").setInputFiles({ name: "lab-assessment.json", mimeType: "application/json", buffer: Buffer.from(lab) });
   await expect(page.getByTestId("snapshot-status").first()).toBeVisible();
   await page.goto("/#outputs");
-  const card = route(page, "customer-pdf");
+  const card = route(page, "customer");
   await expect(card).toHaveAttribute("data-state", "refused");
   await expect(card.locator('[data-testid="hold-reason"][data-rule="RR-PDF-CHARACTER"]')).toHaveCount(1);
-  await expect(card.getByTestId("hold-detail")).toContainText("U+041B in calculated_by");
+  await expect(card.getByTestId("hold-detail")).toContainText("U+041B");
   await expect(card.getByTestId("hold-source")).toHaveCount(1);
-  await expect(card.getByTestId("hold-source").first()).toContainText("/footprints/0/calculated_by");
+  await expect(card.getByTestId("hold-source").first()).toContainText("/authorised_texts/0/text");
   await expect(card.getByTestId("download")).toHaveCount(0);
-  await expect(route(page, "erp-staging-csv")).toHaveAttribute("data-state", "ready");
+  await expect(route(page, "internal")).toHaveAttribute("data-state", "RELEASED");
 });

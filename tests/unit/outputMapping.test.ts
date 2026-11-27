@@ -1,6 +1,6 @@
 // @vitest-environment node
-/** Cycle 4: the pinned output mapping. Every route field has exactly one item and every item reads what the matrix allows. */
-import { existsSync, readFileSync } from "node:fs";
+/** Cycle 4 (aligned in Cycle 9): the pinned output mapping. Every route field has one item and reads what the matrix allows. */
+import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { readPack } from "../../config/contractPack";
 import { decide } from "../../src/model/policy";
@@ -40,22 +40,10 @@ describe.each(packs)("output mapping of the %s pack", (_, dir) => {
     }
   });
 
-  run("limits the registry output to its permitted fields and carries the footprint context to the PDF and the CSV only", async () => {
+  run("limits the registry output to its permitted fields and carries context items only on non-registry routes", async () => {
     const pack = await load();
-    for (const item of pack.routes["registry-prep-json"].output) expect(decide(pack, "registry-prep-json", item.property)).toBe("permit");
-    for (const route of ["customer-pdf", "erp-staging-csv"] as const) {
-      expect(pack.routes[route].output.filter((i) => i.role === "context").length, route).toBe(4);
-    }
-    expect(pack.routes["registry-prep-json"].output.some((i) => i.role === "context")).toBe(false);
-  });
-});
-
-// The operator notes are kept locally, outside version control, so CI has no copy.
-describe("the operator notes for the outputs", () => {
-  it.runIf(existsSync("docs/operator/outputs-notes.md"))("name every output, the route states of the screen, and the HOLD draft", () => {
-    const notes = readFileSync("docs/operator/outputs-notes.md", "utf8");
-    for (const word of ["Customer PDF", "ERP staging CSV", "Registry preparation JSON", "Download draft (HOLD)", "No file is made", "Verify files", "Export central record", "Import central record", "hold-draft", "refused", "RR-STANDING-HOLD", "RR-PDF-CHARACTER", "Imported from a central-record file", "cannot be told from a genuine one", "\"submission\": \"never\""]) {
-      expect(notes, word).toContain(word);
-    }
+    for (const item of pack.routes.registry.output) expect(decide(pack, "registry", item.property)).toBe("permit");
+    expect(pack.routes.registry.output.some((i) => i.role === "context")).toBe(false);
+    expect(pack.routes.internal.output.some((i) => i.role === "context")).toBe(true);
   });
 });

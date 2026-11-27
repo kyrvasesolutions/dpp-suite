@@ -62,15 +62,15 @@ describe("C0-01 frozen contract pack", () => {
   });
 });
 
-describe("R1-3 the pack must carry the owner's signature", () => {
+describe("R1-3 the pack must carry the owner's digest approval", () => {
   const scratch = mkdtempSync(join(tmpdir(), "signed-"));
   afterAll(() => rmSync(scratch, { recursive: true, force: true }));
 
   it("passes --require-signed as committed", () => {
-    expect(checker("--require-frozen", "--require-signed")).toContain("Signed by");
+    expect(checker("--require-frozen", "--require-signed")).toContain("Owner digest approval by");
   });
 
-  it("refuses an edited pack whose manifest was rewritten but not signed again", () => {
+  it("refuses an edited pack whose manifest was rewritten without updated owner digest approval", () => {
     cpSync(join(ROOT, "contracts"), scratch, { recursive: true });
     const pack = join(scratch, "n");
     const list = join(pack, "code-lists/TEMPER@1.0.0.csv");
@@ -81,7 +81,7 @@ describe("R1-3 the pack must carry the owner's signature", () => {
       // the manifest is written before the rules run
     }
     expect(checker("--pack", pack, "--require-frozen")).toContain("Pack frozen");
-    expect(() => checker("--pack", pack, "--require-signed")).toThrow(/is not the signed digest/);
+    expect(() => checker("--pack", pack, "--require-signed")).toThrow(/is not the approved digest/);
   });
 });
 
@@ -107,7 +107,7 @@ describe("R1-4 nested members carry no unit in a mapping", () => {
 
 describe("C0-05 N fixtures follow the frozen contracts", () => {
   it("valid ERP extract has every contract column, known codes and values for required columns", () => {
-    const { cols, rows: data } = rows(text("d03a-erp-extract.csv"));
+    const { cols, rows: data } = rows(text("erp-extract.csv"));
     expect(cols).toEqual(erp.columns.map((c) => c.name));
     for (const c of erp.columns) {
       expect(ids.has(baseId(c.maps_to)), c.name).toBe(true);
@@ -119,40 +119,41 @@ describe("C0-05 N fixtures follow the frozen contracts", () => {
   });
 
   it("valid laboratory file uses profile properties and allowed units, with one footprint", () => {
-    const doc = JSON.parse(text("d03a-lab-assessment.json"));
-    for (const o of [...doc.observations, ...doc.footprints]) {
-      expect(ids.has(o.property)).toBe(true);
-      expect(lab.allowed_units[o.property]).toContain(o.unit);
+    const doc = JSON.parse(text("lab-assessment.json"));
+    for (const o of [doc.lab_tests.thickness, doc.lab_tests.magnesium, doc.lab_tests.lead]) {
+      expect(ids.has(o.property_ref)).toBe(true);
+      expect(lab.allowed_units[o.property_ref]).toContain(o.unit_id);
       expect(Number.isFinite(o.value)).toBe(true);
     }
-    expect(doc.footprints).toHaveLength(1);
-    const erpRow = rows(text("d03a-erp-extract.csv")).rows[0];
-    expect(doc.product).toEqual({ model_id: erpRow.product_model_id, batch_id: erpRow.batch_id, alloy: erpRow.alloy });
+    expect(Number.isFinite(doc.assessment.result.result)).toBe(true);
+    const erpRow = rows(text("erp-extract.csv")).rows[0];
+    expect(doc.batch_id).toBe(erpRow.batch_id);
   });
 
   it("each failure fixture carries the defect of its class", () => {
-    const valid = rows(text("d03a-erp-extract.csv")).rows[0];
     expect(() => text("erp-latin1.csv")).toThrow();
-    expect(rows(text("erp-missing-alloy-column.csv")).cols).not.toContain("alloy");
-    expect(codeValues("COMPANY")).not.toContain(rows(text("erp-unknown-company-code.csv")).rows[0].company_code);
-    const blocked = rows(text("erp-missing-recycled-content.csv")).rows[0];
-    expect(blocked.recycled_content_pct).toBe("");
-    const recycled = erp.columns.find((c) => c.name === "recycled_content_pct")!;
-    expect(recycled.required).toBe(false);
-    expect(profile.properties.find((p) => p.id === recycled.maps_to)!.required_by["customer-pdf"]).toBe(true);
+    expect(rows(text("erp-missing-alloy-column.csv")).cols).not.toContain("alloy_code");
+    expect(rows(text("erp-unknown-company-code.csv")).rows[0].material_code).toBe("UNKNOWN");
+    const blocked = rows(text("erp-missing-thickness.csv")).rows[0];
+    expect(blocked.nominal_thickness_mm).toBe("");
+    const thick = erp.columns.find((c) => c.name === "nominal_thickness_mm")!;
+    expect(thick.required).toBe(false);
+    expect(profile.properties.find((p) => p.id === thick.maps_to)!.required_by["customer"]).toBe(true);
 
     const labFile = (name: string) => JSON.parse(text(name));
-    expect(labFile("lab-two-footprints.json").footprints).toHaveLength(2);
-    expect(labFile("lab-conflicting-alloy.json").product.alloy).not.toBe(valid.alloy);
-    expect(labFile("lab-missing-unit.json").observations[0].unit).toBeNull();
-    const wrong = labFile("lab-wrong-unit.json").observations[0];
-    expect(lab.allowed_units[wrong.property]).not.toContain(wrong.unit);
-    expect(text("lab-duplicate-key.json").match(/"value": 2\.\d+,/g)).toHaveLength(2);
-    expect(labFile("lab-non-finite.json").observations[1].value).toBe(Infinity);
+    expect(labFile("lab-incompatible-footprint.json").assessment.result.method_ref).not.toBe(
+      labFile("lab-incompatible-footprint.json").assessment.context.method.id,
+    );
+    expect(labFile("lab-conflicting-pre-consumer.json").recycled_content.conflicting_pre_percent).not.toBeNull();
+    expect(labFile("lab-missing-unit.json").lab_tests.thickness.unit_id).toBeNull();
+    const wrong = labFile("lab-wrong-unit.json").lab_tests.thickness;
+    expect(lab.allowed_units[wrong.property_ref]).not.toContain(wrong.unit_id);
+    expect(text("lab-duplicate-key.json")).toMatch(/"value":\s*1\.49,\s*\n\s*"value":\s*2\.05/);
+    expect(labFile("lab-non-finite.json").lab_tests.lead.value).toBe(Infinity);
   });
 
   it("the prohibited-disclosure route variant requires only properties the matrix denies", () => {
-    const route = parse(text("routes/customer-pdf-requires-denied.yaml")) as { requires: string[] };
+    const route = parse(text("routes/customer-requires-denied.yaml")) as { requires: string[] };
     const matrix = readFileSync(join(PACK, "policy/actor-field-matrix.csv"), "utf8")
       .split("\n")
       .filter((l) => l.startsWith("ALU-"))

@@ -1,6 +1,6 @@
 id: FC-MISSING-UNIT
-class: missing unit
+class: missing measurement unit
 criterion: C2-04
-input: A measured value that requires a unit has none.
-expected: Typed error at stage "semantics"; the value is not accepted as unitless.
+input: Thickness as measured has unit_id set to null.
+expected: Rejected or flagged with shape/unit issue; affected internal route is HOLD.
 fixture: fixtures/n/lab-missing-unit.json

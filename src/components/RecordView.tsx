@@ -367,7 +367,7 @@ export function RecordView() {
                     <h3>{ROUTE_NAMES[route]}</h3>
                     <p className="hint small">{profile.routes[route].recipient}</p>
                     <p>
-                      <strong>{verdict?.status === "ready" ? "Ready" : "On hold"}</strong>
+                      <strong>{verdict?.status === "RELEASED" ? "RELEASED" : "HOLD"}</strong>
                     </p>
                     <ul>
                       {verdict?.holds.map((h, i) => (
@@ -377,13 +377,13 @@ export function RecordView() {
                         </li>
                       ))}
                     </ul>
-                    <p data-testid="record-output" data-state={!outcome ? "pending" : "refused" in outcome ? "refused" : outcome.file.status === "hold" ? "hold-draft" : "made"}>
+                    <p data-testid="record-output" data-state={!outcome ? "pending" : "refused" in outcome ? "refused" : outcome.file.status === "HOLD" ? "hold-draft" : "made"}>
                       {!outcome
                         ? "Making the output…"
                         : "refused" in outcome
                           ? "Output refused: no file is made."
-                          : outcome.file.status === "hold"
-                            ? `Draft on hold, never submitted: ${outcome.file.fileName}`
+                          : outcome.file.status === "HOLD"
+                            ? `RegistryRequest HOLD (never submitted): ${outcome.file.fileName}`
                             : `Output made: ${outcome.file.fileName}`}
                     </p>
                     <details>

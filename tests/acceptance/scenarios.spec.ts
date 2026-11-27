@@ -18,21 +18,21 @@ for (const c of positive) {
     const name = c.route as RouteId;
     await importPair(page, CLEAN);
     await openOutputs(page);
-    await expect(route(page, name)).toHaveAttribute("data-state", name === "registry-prep-json" ? "hold-draft" : "ready");
+    await expect(route(page, name)).toHaveAttribute("data-state", name === "registry" ? "hold-draft" : "RELEASED");
     const file = await download(page, name);
     expect(sha(file.bytes), `${name} equals the golden digest`).toBe(golden[name]);
     const text = await textOf(name, file.bytes);
     await expectNoDenied(text, name, CLEAN);
-    if (name === "customer-pdf") {
-      expect(text).toContain("Product data sheet");
-      expect(text).toContain("within the limits");
+    if (name === "customer") {
+      expect(text).toContain("Customer product data sheet");
+      expect(text).toContain("004215");
       expect(text).toContain("Reading this sheet");
-    } else if (name === "erp-staging-csv") {
+    } else if (name === "internal") {
       expect(text.trim().split("\n")).toHaveLength(2); // one header, one data row
-      expect(text).toContain("PM-5754-H111-2000");
+      expect(text).toContain("ST-5754-M01");
     } else {
       const draft = JSON.parse(text);
-      expect(draft).toMatchObject({ status: "HOLD", submission: "never" });
+      expect(draft).toMatchObject({ status: "HOLD", submission: "never", code: "TARGET_PROFILE_UNCONFIRMED" });
       await expect(route(page, name).getByTestId("draft-notice")).toContainText("never submitted");
     }
   });
@@ -81,34 +81,34 @@ test(`[${byId("AC-G14-NO-PARTIAL").id}] ${byId("AC-G14-NO-PARTIAL").title}`, asy
 });
 
 test(`[${byId("AC-CONFLICT-BOTH-KEPT").id}] ${byId("AC-CONFLICT-BOTH-KEPT").title}`, async ({ page }) => {
-  await importPair(page, { erp: CLEAN.erp, lab: "lab-conflicting-alloy.json" });
+  await importPair(page, { erp: CLEAN.erp, lab: "lab-conflicting-pre-consumer.json" });
   await page.goto("/#record");
-  const alloy = page.locator('[data-testid="record-value"]').filter({ hasText: "Alloy designation" }).first();
-  await expect(alloy).toHaveAttribute("data-status", "challenged");
-  await expect(alloy.getByTestId("current-value")).toHaveCount(2); // both values are shown
-  await expect(alloy).toContainText("EN AW-5754");
-  await expect(alloy).toContainText("EN AW-5083");
-  await expect(page.locator('[data-testid="record-route"][data-route="customer-pdf"]')).toHaveAttribute("data-status", "on-hold");
-  await expect(page.locator('[data-testid="record-route"][data-route="customer-pdf"] [data-rule="RR-CHALLENGED"]')).toHaveCount(1);
+  const pre = page.locator('[data-testid="record-value"]').filter({ hasText: "Pre-consumer recycled share" }).first();
+  await expect(pre).toHaveAttribute("data-status", "challenged");
+  await expect(pre.getByTestId("current-value")).toHaveCount(2); // both values are shown
+  await expect(pre).toContainText("15");
+  await expect(pre).toContainText("13");
+  await expect(page.locator('[data-testid="record-route"][data-route="customer"]')).toHaveAttribute("data-status", "HOLD");
+  await expect(page.locator('[data-testid="record-route"][data-route="customer"] [data-rule="RR-CHALLENGED"]')).toHaveCount(1);
   // the operator decides, with a reason: the value counts as present, and both earlier values stay visible
-  await alloy.getByTestId("correct-button").click();
-  await page.getByTestId("correct-value").fill("EN AW-5754");
-  await page.getByTestId("correct-reason").fill("The mill certificate confirms 5754");
+  await pre.getByTestId("correct-button").click();
+  await page.getByTestId("correct-value").fill("15");
+  await page.getByTestId("correct-reason").fill("The mill certificate confirms 15 %");
   await page.getByTestId("correct-save").click();
   await expect(page.getByTestId("record-head")).toContainText("version 2 of 2");
-  const after = page.locator('[data-testid="record-value"]').filter({ hasText: "Alloy designation" }).first();
+  const after = page.locator('[data-testid="record-value"]').filter({ hasText: "Pre-consumer recycled share" }).first();
   await expect(after).toHaveAttribute("data-status", "corrected");
   await expect(after.getByTestId("earlier-value")).toHaveCount(2);
-  await expect(after.getByTestId("earlier-value").filter({ hasText: "EN AW-5083" })).toHaveCount(1);
-  await expect(after.getByTestId("correction-note")).toContainText("The mill certificate confirms 5754");
-  await expect(page.locator('[data-testid="record-route"][data-route="customer-pdf"] [data-rule="RR-CHALLENGED"]')).toHaveCount(0);
-  await expect(page.locator('[data-testid="record-route"][data-route="erp-staging-csv"]')).toHaveAttribute("data-status", "ready");
+  await expect(after.getByTestId("earlier-value").filter({ hasText: "13" })).toHaveCount(1);
+  await expect(after.getByTestId("correction-note")).toContainText("The mill certificate confirms 15 %");
+  await expect(page.locator('[data-testid="record-route"][data-route="customer"] [data-rule="RR-CHALLENGED"]')).toHaveCount(0);
+  await expect(page.locator('[data-testid="record-route"][data-route="internal"]')).toHaveAttribute("data-status", "RELEASED");
 });
 
 // ---------- the scans of what the system says ----------
 
 const FIXTURE_FILES = readdirSync("fixtures/n").filter((f) => /\.(csv|json)$/.test(f) && f !== "MANIFEST.json");
-const cells = (csv: string) => csv.split(/\r?\n/).flatMap((l) => l.split(";")).map((c) => c.replace(/^"|"$/g, "")).filter(Boolean);
+const cells = (csv: string) => csv.split(/\r?\n/).flatMap((l) => l.split(",")).map((c) => c.replace(/^"|"$/g, "")).filter(Boolean);
 const leaves = (v: unknown): string[] => (Array.isArray(v) ? v.flatMap(leaves) : v && typeof v === "object" ? Object.values(v).flatMap(leaves) : v === null || v === undefined || typeof v === "boolean" ? [] : [String(v)]);
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -199,7 +199,7 @@ test(`[${byId("AC-MESSAGE-SCAN").id}] ${byId("AC-MESSAGE-SCAN").title}`, async (
 
 // ---------- the chain, the re-import, the pair, the install smoke and the gate ----------
 
-const erpWith = (value: string) => ({ name: "d03a-erp-extract.csv", mimeType: "text/csv", buffer: Buffer.from(readFileSync("fixtures/n/d03a-erp-extract.csv", "utf8").replace(";62.0;", `;${value};`)) });
+const erpWith = (value: string) => ({ name: "erp-extract.csv", mimeType: "text/csv", buffer: Buffer.from(readFileSync("fixtures/n/erp-extract.csv", "utf8").replace(",1.50,", `,${value},`)) });
 
 test(`[${byId("AC-RECORD-CHAIN").id}] ${byId("AC-RECORD-CHAIN").title}`, async ({ page }) => {
   await importPair(page, CLEAN);
@@ -208,16 +208,15 @@ test(`[${byId("AC-RECORD-CHAIN").id}] ${byId("AC-RECORD-CHAIN").title}`, async (
   await expect(page.getByTestId("record-source").first()).toContainText(/[0-9a-f]{12}…/);
   const values = page.getByTestId("record-value");
   expect(await values.count()).toBeGreaterThan(20);
-  await expect(page.locator('[data-testid="record-value"][data-status="agreeing"]')).toHaveCount(3);
   for (const kind of ["declared", "measured", "calculated externally"]) await expect(page.locator(`[data-testid="value-kind"]`, { hasText: new RegExp(`^${kind}$`) }).first()).toBeVisible();
   for (const name of ROUTES) {
     const card = page.locator(`[data-testid="record-route"][data-route="${name}"]`);
-    await expect(card).toHaveAttribute("data-status", name === "registry-prep-json" ? "on-hold" : "ready");
+    await expect(card).toHaveAttribute("data-status", name === "registry" ? "HOLD" : "RELEASED");
     await card.locator("summary").click();
     expect(await card.locator('[data-testid="record-access"]').count()).toBeGreaterThan(0);
-    await expect(card.getByTestId("record-output")).toHaveAttribute("data-state", name === "registry-prep-json" ? "hold-draft" : "made");
+    await expect(card.getByTestId("record-output")).toHaveAttribute("data-state", name === "registry" ? "hold-draft" : "made");
   }
-  const customer = page.locator('[data-testid="record-route"][data-route="customer-pdf"]');
+  const customer = page.locator('[data-testid="record-route"][data-route="customer"]');
   await expect(customer.locator('[data-access="derived"]')).toHaveCount(2);
   await expect(customer.locator('[data-access="deny"]').first()).toBeVisible();
   await page.getByRole("button", { name: "Open Outputs" }).click();
@@ -230,10 +229,10 @@ test(`[${byId("AC-RECORD-CHAIN").id}] ${byId("AC-RECORD-CHAIN").title}`, async (
 test(`[${byId("AC-REIMPORT-CORRECTION").id}] ${byId("AC-REIMPORT-CORRECTION").title}`, async ({ page }) => {
   await importPair(page, CLEAN);
   await page.goto("/#record");
-  const recycled = () => page.locator('[data-testid="record-value"]').filter({ hasText: "Recycled content" }).first();
-  await recycled().getByTestId("correct-button").click();
-  await page.getByTestId("correct-value").fill("63.5");
-  await page.getByTestId("correct-reason").fill("Certificate says 63.5");
+  const thick = () => page.locator('[data-testid="record-value"]').filter({ hasText: "Specified thickness" }).first();
+  await thick().getByTestId("correct-button").click();
+  await page.getByTestId("correct-value").fill("2.25");
+  await page.getByTestId("correct-reason").fill("Certificate says 2.25");
   await page.getByTestId("correct-save").click();
   await expect(page.getByTestId("record-head")).toContainText("version 2 of 2");
 
@@ -241,24 +240,24 @@ test(`[${byId("AC-REIMPORT-CORRECTION").id}] ${byId("AC-REIMPORT-CORRECTION").ti
   await page.getByRole("button", { name: "Import the same files again" }).click();
   await expect(page.getByTestId("snapshot-status")).toHaveAttribute("data-stored", "false");
   await openOutputs(page);
-  const csv = (await download(page, "erp-staging-csv")).bytes.toString("utf8");
-  expect(csv).toContain(";63.5;");
-  expect(csv).not.toContain(";62.0;");
+  const csv = (await download(page, "internal")).bytes.toString("utf8");
+  expect(csv).toContain(",2.25,");
+  expect(csv).not.toContain(",1.50,");
 
   await page.goto("/#import");
-  await pick(page, "erp", erpWith("60.0"));
+  await pick(page, "erp", erpWith("2.50"));
   await expect(page.getByTestId("snapshot-status")).toHaveAttribute("data-version", "3");
   for (const screen of ["record", "readiness", "outputs"]) {
     await page.goto(`/#${screen}`);
-    if (screen === "record") await expect(recycled()).toHaveAttribute("data-status", "challenged");
-    if (screen === "readiness") await expect(page.locator('[data-testid="route-status"][data-route="erp-staging-csv"] [data-rule="RR-CHALLENGED"]')).toHaveCount(1);
-    if (screen === "outputs") await expect(route(page, "erp-staging-csv")).toHaveAttribute("data-state", "refused");
+    if (screen === "record") await expect(thick()).toHaveAttribute("data-status", "challenged");
+    if (screen === "readiness") await expect(page.locator('[data-testid="route-status"][data-route="internal"] [data-rule="RR-CHALLENGED"]')).toHaveCount(1);
+    if (screen === "outputs") await expect(route(page, "internal")).toHaveAttribute("data-state", "refused");
   }
 });
 
 test(`[${byId("AC-PAIR-ONE-VERSION").id}] ${byId("AC-PAIR-ONE-VERSION").title}`, async ({ page }) => {
   await openImport(page);
-  await pick(page, "erp", erpWith("62.0"));
+  await pick(page, "erp", erpWith("1.50"));
   await expect(page.getByTestId("pair-pending")).toBeVisible();
   await expect(page.getByTestId("snapshot-status")).toHaveCount(0);
   await openOutputs(page);

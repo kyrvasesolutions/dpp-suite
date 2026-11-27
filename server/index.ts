@@ -77,7 +77,7 @@ function maybeRunBootstrapCli(argv: string[], dbPath: string): boolean {
     grants.upsertUser({
       sub,
       displayName,
-      roles: ["ADMIN"],
+      roles: ["ACT-19"],
       actorSub: "bootstrap-cli",
       reason,
     });
@@ -141,7 +141,7 @@ async function main(): Promise<void> {
   const db = new SqliteAdapter({ path: dbPath });
   const migrations = migrateUp(db);
 
-  // Bootstrap the verified signed contract pack in the controlled release store (idempotent) and
+  // Bootstrap the verified owner-digest-approved contract pack in the controlled release store (idempotent) and
   // load whichever approved configuration release is currently active in SQLite.
   const configReleases = new ConfigReleaseStore(db);
   const activeRelease = await configReleases.bootstrapActivePack(packSource, startupPack.id, startupPack.version);

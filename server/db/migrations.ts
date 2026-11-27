@@ -653,6 +653,69 @@ export const MIGRATIONS: readonly Migration[] = [
       DROP TABLE IF EXISTS job_submitters;
     `,
   },
+  {
+    // Cycle 9 (A-18, D9-05, C9-11): align stored server role IDs to workbook 17_Actors
+    // (ADMIN -> ACT-19, CURATOR -> ACT-20, AUDITOR -> ACT-17) and add explicit_raw_grant for ACT-17.
+    // Append-only: never edits frozen migrations v1..v7; grant_events stays immutable.
+    version: 8,
+    name: "0008_cycle9_actor_role_ids",
+    up: `
+      CREATE TABLE role_grants_v8 (
+        security_domain TEXT NOT NULL,
+        sub TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('ACT-01', 'ACT-06', 'ACT-17', 'ACT-19', 'ACT-20')),
+        explicit_raw_grant INTEGER NOT NULL DEFAULT 0 CHECK (explicit_raw_grant IN (0, 1)),
+        granted_by TEXT NOT NULL,
+        granted_at TEXT NOT NULL,
+        PRIMARY KEY (security_domain, sub, role),
+        FOREIGN KEY (security_domain, sub) REFERENCES users(security_domain, sub) ON DELETE RESTRICT
+      );
+
+      INSERT INTO role_grants_v8 (security_domain, sub, role, explicit_raw_grant, granted_by, granted_at)
+      SELECT security_domain,
+             sub,
+             CASE role
+               WHEN 'ADMIN' THEN 'ACT-19'
+               WHEN 'CURATOR' THEN 'ACT-20'
+               WHEN 'AUDITOR' THEN 'ACT-17'
+               ELSE role
+             END,
+             0,
+             granted_by,
+             granted_at
+      FROM role_grants;
+
+      DROP TABLE role_grants;
+      ALTER TABLE role_grants_v8 RENAME TO role_grants;
+    `,
+    down: `
+      CREATE TABLE role_grants_v7 (
+        security_domain TEXT NOT NULL,
+        sub TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('ACT-01', 'ACT-06', 'ADMIN', 'CURATOR', 'AUDITOR')),
+        granted_by TEXT NOT NULL,
+        granted_at TEXT NOT NULL,
+        PRIMARY KEY (security_domain, sub, role),
+        FOREIGN KEY (security_domain, sub) REFERENCES users(security_domain, sub) ON DELETE RESTRICT
+      );
+
+      INSERT INTO role_grants_v7 (security_domain, sub, role, granted_by, granted_at)
+      SELECT security_domain,
+             sub,
+             CASE role
+               WHEN 'ACT-19' THEN 'ADMIN'
+               WHEN 'ACT-20' THEN 'CURATOR'
+               WHEN 'ACT-17' THEN 'AUDITOR'
+               ELSE role
+             END,
+             granted_by,
+             granted_at
+      FROM role_grants;
+
+      DROP TABLE role_grants;
+      ALTER TABLE role_grants_v7 RENAME TO role_grants;
+    `,
+  },
 ];
 
 export function migrationChecksum(m: Migration): string {

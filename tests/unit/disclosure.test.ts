@@ -1,8 +1,9 @@
 // @vitest-environment node
 /**
- * Cycle 3: disclosure (criterion C3-05). The leakage matrix (AT-U): every route x every property and member, on the
- * clean record and on every accepted fixture combination, asserted present, absent or derived-only against `decide`.
- * Derived rules produce only the permitted statement, including the outside-limits case.
+ * Cycle 3 (aligned in Cycle 9): disclosure (criterion C3-05, C9-06). The leakage matrix (AT-U): every route x every
+ * property and member, on the clean record and on every accepted fixture combination, asserted present, absent or
+ * derived-only against `decide`. Derived rules produce only the permitted representations (`recycled_total_with_basis`
+ * and `lead_screening`) with zero raw leakage.
  */
 import { beforeAll, describe, expect, it } from "vitest";
 import { derive } from "../../src/model/derived";
@@ -39,63 +40,72 @@ describe("AT-U: the leakage matrix", () => {
           expect(derived.has(property.id), where).toBe(false);
           expect(withheld.get(property.id), `${where} is listed as withheld`).toMatchObject({ decision: "deny" });
         } else if (access === "derived") {
-          // never as a value, any member included
           expect(p.values.some((v) => v.property === property.id), `${where} has no raw value`).toBe(false);
           if (own.length) expect(derived.has(property.id) !== withheld.has(property.id), `${where}: a statement or a reason`).toBe(true);
           else expect(derived.has(property.id) || withheld.has(property.id)).toBe(false);
         } else {
-          // every value and member of a permitted property is present, and nothing is withheld for it
-          for (const v of own) expect(projected.has(`${v.property}|${v.member ?? ""}|${v.qualifier ?? ""}`), `${where} ${v.member ?? ""} is present`).toBe(true);
+          for (const v of own) {
+            // On customer route, authorisedProductDescriptions selects only the requested language (REF-17)
+            if (route === "customer" && property.id === byRole(pack, "narrative") && v.assertions[0]?.details?.language && v.assertions[0].details.language !== p.language) {
+              continue;
+            }
+            expect(projected.has(`${v.property}|${v.member ?? ""}|${v.qualifier ?? ""}`), `${where} ${v.member ?? ""} is present`).toBe(true);
+          }
           expect(derived.has(property.id) || withheld.has(property.id), where).toBe(false);
         }
-        // members follow their property
         for (const m of property.members) expect(decide(pack, route, `${property.id}/${m.id}`)).toBe(access);
       }
-      // nothing in the projection is a value the record does not hold
-      expect(p.values.length).toBe(record.values.filter((v) => decide(pack, route, v.property) === "permit").length);
+      const expectedPermitted = record.values.filter((v) => {
+        if (decide(pack, route, v.property) !== "permit") return false;
+        if (route === "customer" && v.property === byRole(pack, "narrative") && v.assertions[0]?.details?.language && v.assertions[0].details.language !== p.language) {
+          return false;
+        }
+        return true;
+      });
+      expect(p.values.length).toBe(expectedPermitted.length);
       assertNoLeak(p, record, pack);
     }
   });
 
   it("checks the same facts for the registry route: only its three permitted properties can be present", async () => {
-    const p = project(pack, await recordFor(pack, CLEAN), "registry-prep-json");
-    const permitted = pack.properties.filter((x) => decide(pack, "registry-prep-json", x.id) === "permit").map((x) => x.id).sort();
+    const p = project(pack, await recordFor(pack, CLEAN), "registry");
+    const permitted = pack.properties.filter((x) => decide(pack, "registry", x.id) === "permit").map((x) => x.id).sort();
     expect(permitted).toHaveLength(3);
     expect([...new Set(p.values.map((v) => v.property))].sort()).toEqual(permitted);
     expect(p.withheld).toHaveLength(pack.properties.length - 3);
   });
 
-  it("withholds what the customer PDF may not see, with a reason and no value", async () => {
+  it("withholds what the customer route may not see, with a reason and no value", async () => {
     const record = await recordFor(pack, CLEAN);
-    const p = project(pack, record, "customer-pdf");
-    const denied = [propertyBySlug(pack, "evidence-references"), propertyBySlug(pack, "primary-supplier")];
+    const p = project(pack, record, "customer");
+    const denied = pack.properties.filter((prop) => decide(pack, "customer", prop.id) === "deny").map((prop) => prop.id);
     expect(p.withheld.filter((w) => w.decision === "deny").map((w) => w.property).sort()).toEqual([...denied].sort());
     for (const w of p.withheld) {
       expect(Object.keys(w).sort()).toEqual(w.rule ? ["decision", "property", "reason", "rule"] : ["decision", "property", "reason"]);
     }
-    const erp = project(pack, record, "erp-staging-csv");
-    expect(erp.withheld.map((w) => w.property)).toEqual([propertyBySlug(pack, "product-narrative")]);
+    // Mg, evidence, and conversion cost are all denied to customer
+    expect(denied).toContain(propertyBySlug(pack, "magnesium-content"));
+    expect(denied).toContain(propertyBySlug(pack, "evidence-references"));
+    expect(denied).toContain(propertyBySlug(pack, "conversion-cost"));
   });
 
   it("copies each permitted value with its source reference, and nothing of the other source fields", async () => {
     const record = await recordFor(pack, CLEAN);
-    const p = project(pack, record, "customer-pdf");
-    const name = p.values.find((v) => v.property === propertyBySlug(pack, "product-name") && v.qualifier === "en")!;
-    expect(name.assertions[0].source).toEqual({ role: "ERP extract", position: "row 2, column product_name_en" });
-    // permitted members keep the method and uncertainty of their own property
-    const thickness = p.values.find((v) => v.property === propertyBySlug(pack, "measured-thickness"))!;
-    expect(thickness.assertions[0].details?.method).toBeTruthy();
+    const p = project(pack, record, "customer");
+    const name = p.values.find((v) => v.property === propertyBySlug(pack, "product-name"))!;
+    expect(name.assertions[0].source).toEqual({ role: "ERP extract", position: "row 2, column product_designation" });
+    const internal = project(pack, record, "internal");
+    const thickness = internal.values.find((v) => v.property === propertyBySlug(pack, "measured-thickness"))!;
+    expect(thickness.assertions[0].details?.method_ref).toBeTruthy();
   });
 
-  it("does not let a permitted value carry the evidence record it rests on to a recipient who may not see evidence", async () => {
+  it("does not let a permitted value carry evidence identifiers to the customer recipient", async () => {
     const record = await recordFor(pack, CLEAN);
-    const ids = ["EV-TR-0417", "EV-CR-0099"];
-    expect(decide(pack, "customer-pdf", byRole(pack, "evidence"))).toBe("deny");
-    const customer = JSON.stringify(project(pack, record, "customer-pdf"));
+    const ids = ["EV-RC-DECL-001", "ST-EV-DIM-01", "ST-EV-CHEM-01", "ST-EV-PB-01", "ST-EV-PCF-01"];
+    expect(decide(pack, "customer", byRole(pack, "evidence"))).toBe("deny");
+    const customer = JSON.stringify(project(pack, record, "customer"));
     for (const id of ids) expect(customer).not.toContain(id);
-    expect(customer).toContain("ISO 14067:2018");
-    const erp = JSON.stringify(project(pack, record, "erp-staging-csv"));
-    for (const id of ids) expect(erp).toContain(id);
+    expect(customer).toContain("ST-METHOD-PCF-001");
   });
 
   it("fails closed for a value whose property the profile does not know", async () => {
@@ -110,13 +120,13 @@ describe("AT-U: the leakage matrix", () => {
 
   it("marks a route on hold as such and still builds its projection", async () => {
     const record = await recordFor(pack, CLEAN);
-    expect(project(pack, record, "customer-pdf").onHold).toBe(false);
-    expect(project(pack, record, "registry-prep-json").onHold).toBe(true);
-    const blocked = await recordFor(pack, { ...CLEAN, erp: "erp-missing-recycled-content.csv" });
-    const p = project(pack, blocked, "customer-pdf");
+    expect(project(pack, record, "customer").onHold).toBe(false);
+    expect(project(pack, record, "registry").onHold).toBe(true);
+    const blocked = await recordFor(pack, { ...CLEAN, erp: "erp-missing-thickness.csv" });
+    const p = project(pack, blocked, "customer");
     expect(p.onHold).toBe(true);
     expect(p.values.length).toBeGreaterThan(0);
-    for (const r of ROUTES) expect(project(pack, blocked, r).onHold).toBe(assess(pack, blocked).find((x) => x.route === r)!.status === "on-hold");
+    for (const r of ROUTES) expect(project(pack, blocked, r).onHold).toBe(assess(pack, blocked).find((x) => x.route === r)!.status === "HOLD");
   });
 
   it("is deterministic and does not change the record", async () => {
@@ -128,16 +138,15 @@ describe("AT-U: the leakage matrix", () => {
 });
 
 describe("sources in a projection never carry the uploaded file's name", () => {
-  // a name chosen by the uploader can carry a supplier code and a raw measured value
-  const erpName = "SS01-KA-778812.csv";
-  const labName = "SS01-227.777.json";
+  const erpName = "SECRET-SUPPLIER-99.csv";
+  const labName = "SECRET-PB-31.4.json";
 
   it("shows the kind of file and the position, for every route", async () => {
-    const record = await recordFor(pack, { ...CLEAN, erpName, labName, editLab: (doc) => (doc.observations[1].value = 227.777) });
+    const record = await recordFor(pack, { ...CLEAN, erpName, labName });
     for (const route of ROUTES) {
       const p = project(pack, record, route);
       const json = JSON.stringify(p);
-      for (const name of [erpName, labName, ...(route === "customer-pdf" ? ["SS01", "227.777"] : [])]) expect(json, `${route} ${name}`).not.toContain(name);
+      for (const name of [erpName, labName, ...(route === "customer" ? ["SECRET-SUPPLIER", "31.4"] : [])]) expect(json, `${route} ${name}`).not.toContain(name);
       assertNoLeak(p, record, pack);
       for (const s of [...p.values.flatMap((v) => v.assertions.map((a) => a.source)), ...p.derived.flatMap((d) => d.sources)]) {
         expect(["ERP extract", "Laboratory file"]).toContain(s.role);
@@ -146,105 +155,89 @@ describe("sources in a projection never carry the uploaded file's name", () => {
       }
     }
     // the operator-side readiness view keeps the full location, file name included
-    const holds = assess(pack, { ...record, values: record.values.filter((v) => v.property !== propertyBySlug(pack, "recycled-content")) });
-    expect(holds.length).toBe(3);
-    const sourced = (await recordFor(pack, { ...CLEAN, erpName, labName, lab: "lab-two-footprints.json" }));
-    const hold = assess(pack, sourced)[0].holds.find((h) => h.ruleId === "RR-SEVERAL-RESULTS")!;
-    expect(hold.sources[0].location).toContain(labName);
+    const sourced = await recordFor(pack, { ...CLEAN, erpName, labName, lab: "lab-conflicting-pre-consumer.json" });
+    const hold = assess(pack, sourced)[0].holds.find((h) => h.ruleId === "RR-CHALLENGED")!;
+    expect(hold.sources.some((s) => s.location.includes(labName))).toBe(true);
   });
 });
 
 describe("assertNoLeak", () => {
   it("detects a raw denied value planted in a projection, and a derived one", async () => {
     const record = await recordFor(pack, CLEAN);
-    const p = project(pack, record, "customer-pdf");
+    const p = project(pack, record, "customer");
     expect(() => assertNoLeak(p, record, pack)).not.toThrow();
-    const supplier = record.values.find((v) => v.property === propertyBySlug(pack, "primary-supplier"))!;
-    const planted = { ...p, values: [...p.values, { property: "X", status: "single" as const, assertions: [{ ...supplier.assertions[0], source: { role: "ERP extract" as const, position: "p" } }] }] };
+    const cost = record.values.find((v) => v.property === propertyBySlug(pack, "conversion-cost"))!;
+    const planted = { ...p, values: [...p.values, { property: "X", status: "single" as const, assertions: [{ ...cost.assertions[0], source: { role: "ERP extract" as const, position: "p" } }] }] };
     expect(() => assertNoLeak(planted, record, pack)).toThrow(/leak/);
-    const tensile = record.values.find((v) => v.property === propertyBySlug(pack, "tensile-strength"))!;
-    const raw = { ...p, derived: [...p.derived, { property: "X", rule: "R", sources: [], within: true, basis: `value ${tensile.assertions[0].raw} MPa` }] };
+    const lead = record.values.find((v) => v.property === propertyBySlug(pack, "lead-content"))!;
+    const raw = { ...p, derived: [...p.derived, { property: "X", rule: "R", sources: [], within: true, basis: `value ${lead.assertions[0].raw} mg/kg`, text: "x", qualification: "q", representation: "lead_screening" as const }] };
     expect(() => assertNoLeak(raw, record, pack)).toThrow(/leak/);
   });
 });
 
-describe("derived disclosure", () => {
-  const tensile = () => propertyBySlug(pack, "tensile-strength");
-  const composition = () => propertyBySlug(pack, "chemical-composition");
+describe("derived disclosure (C9-06: recycled_total_with_basis & lead_screening)", () => {
+  const recycled = () => propertyBySlug(pack, "recycled-content");
+  const lead = () => propertyBySlug(pack, "lead-content");
   const customer = async (c: Combination) => {
     const record = await recordFor(pack, c);
-    return { record, p: project(pack, record, "customer-pdf") };
+    return { record, p: project(pack, record, "customer") };
   };
 
-  it("gives the clean record's strength and composition as within the limits, with the basis, and nothing else", async () => {
+  it("derives recycled_total_with_basis and lead_screening cleanly with zero raw Pb/pre/post/evidence leakage", async () => {
     const { record, p } = await customer(CLEAN);
-    expect(p.derived.map(({ sources, ...d }) => d)).toEqual([
-      { property: tensile(), rule: "DR-TENSILE-LIMITS", within: true, basis: "illustrative limits after EN 485-2, EN AW-5754 H111" },
-      { property: composition(), rule: "DR-COMPOSITION-LIMITS", within: true, basis: "illustrative limits after EN 573-3, EN AW-5754" },
-    ]);
-    for (const d of p.derived) expect(Object.keys(d).sort()).toEqual(["basis", "property", "rule", "sources", "within"]);
-    // the inputs are cited by place: the value, the alloy and the temper for strength
-    expect(p.derived[0].sources.map((s) => s.position).join(" ")).toMatch(/observations\/1\/value.*column alloy|column alloy.*observations\/1\/value/);
-    expect(p.derived[0].sources.some((s) => s.position.includes("column temper"))).toBe(true);
-    expect(pack.policy.derived.limits.illustrative).toBe(true);
-    const json = JSON.stringify(p);
-    for (const v of record.values.filter((x) => [tensile(), composition()].includes(x.property))) {
-      for (const a of v.assertions) {
-        expect(json).not.toContain(a.raw);
-        expect(json).not.toContain(a.details?.method ?? "no method");
-      }
-    }
-    expect(p.values.some((v) => [tensile(), composition()].includes(v.property))).toBe(false);
-  });
+    expect(p.derived.map((d) => d.rule)).toEqual(["DR-RECYCLED-TOTAL", "DR-LEAD-SCREENING"]);
+    expect(p.derived[0]).toMatchObject({
+      property: recycled(),
+      rule: "DR-RECYCLED-TOTAL",
+      within: true,
+      representation: "recycled_total_with_basis",
+    });
+    expect(p.derived[0].text).toContain("65 %");
+    expect(p.derived[0].text).toContain("RC-BASIS-001");
+    expect(p.derived[1]).toMatchObject({
+      property: lead(),
+      rule: "DR-LEAD-SCREENING",
+      within: true,
+      representation: "lead_screening",
+    });
+    expect(p.derived[1].text).toContain("<80 mg/kg");
 
-  it("says outside for a strength above the limits, built with an edited laboratory value", async () => {
-    const { p, record } = await customer({ ...CLEAN, editLab: (doc) => (doc.observations[1].value = 260) });
-    expect(p.derived.find((d) => d.property === tensile())).toMatchObject({ property: tensile(), rule: "DR-TENSILE-LIMITS", within: false, basis: "illustrative limits after EN 485-2, EN AW-5754 H111" });
-    expect(JSON.stringify(p)).not.toContain("260");
+    const json = JSON.stringify(p);
+    // Raw lead value (31.4), raw Mg (2.9), raw cost (1.95), and evidence ID must NEVER appear
+    expect(json).not.toContain("31.4");
+    expect(json).not.toContain("2.9");
+    expect(json).not.toContain("1.95");
+    expect(json).not.toContain("EV-RC-DECL-001");
+    expect(p.values.some((v) => [recycled(), lead()].includes(v.property))).toBe(false);
     assertNoLeak(p, record, pack);
   });
 
-  it("says outside for a strength below the limits", async () => {
-    const { p } = await customer({ ...CLEAN, editLab: (doc) => (doc.observations[1].value = 150) });
-    expect(p.derived.find((d) => d.property === tensile())!.within).toBe(false);
+  it("blocks lead_screening when estimate + expanded_uncertainty >= threshold (unrounded, REF-11/REF-12)", async () => {
+    // 79.0 + 1.8 = 80.8 >= 80 -> HOLD
+    const over = await customer({ ...CLEAN, editLab: (doc) => (doc.lab_tests.lead.value = 79.0) });
+    expect(over.p.derived.find((d) => d.property === lead())).toBeUndefined();
+    expect(over.p.withheld.find((w) => w.property === lead())).toMatchObject({ decision: "derived", rule: "DR-LEAD-SCREENING" });
+    expect(JSON.stringify(over.p)).not.toContain("79");
+    assertNoLeak(over.p, over.record, pack);
+
+    // 78.2 + 1.8 = 80.0 (boundary equal, strictly < required) -> HOLD
+    const boundary = await customer({ ...CLEAN, editLab: (doc) => (doc.lab_tests.lead.value = 78.2) });
+    expect(boundary.p.derived.find((d) => d.property === lead())).toBeUndefined();
+    expect(assess(pack, boundary.record).find((r) => r.route === "customer")!.status).toBe("HOLD");
   });
 
-  it("treats the limit values themselves as within", async () => {
-    for (const edge of [190, 240]) {
-      const { p } = await customer({ ...CLEAN, editLab: (doc) => (doc.observations[1].value = edge) });
-      expect(p.derived.find((d) => d.property === tensile())!.within, String(edge)).toBe(true);
-    }
+  it("blocks lead_screening for below_LOQ without coercing to a numeric bound (REF-13)", async () => {
+    const loq = await customer({ ...CLEAN, lab: "lab-below-loq.json" });
+    expect(loq.p.derived.find((d) => d.property === lead())).toBeUndefined();
+    expect(loq.p.withheld.find((w) => w.property === lead())).toMatchObject({ decision: "derived", rule: "DR-LEAD-SCREENING" });
+    expect(assess(pack, loq.record).find((r) => r.route === "customer")!.holds.some((h) => h.ruleId === "RR-DERIVED-UNDETERMINABLE")).toBe(true);
   });
 
-  it("says outside for one element over its limit, and within again when all are in", async () => {
-    const out = await customer({ ...CLEAN, editLab: (doc) => (doc.observations[2].value = 4.37) });
-    expect(out.p.derived.find((d) => d.property === composition())).toMatchObject({ property: composition(), rule: "DR-COMPOSITION-LIMITS", within: false, basis: "illustrative limits after EN 573-3, EN AW-5754" });
-    expect(JSON.stringify(out.p)).not.toContain("4.37");
-    const upper = await customer({ ...CLEAN, editLab: (doc) => (doc.observations[3].value = 0.9) });
-    expect(upper.p.derived.find((d) => d.property === composition())!.within).toBe(false);
-  });
-
-  it("makes no statement when the limits cannot decide, and withholds with the rule and a reason", async () => {
-    // an alloy and temper the illustrative table does not cover
-    const { record, p } = await customer({
-      ...CLEAN,
-      editErp: (csv) => csv.replace("EN AW-5754;H111", "EN AW-6082;H111"),
-      editLab: (doc) => (doc.product.alloy = "EN AW-6082"),
-    });
-    expect(p.derived.find((d) => d.property === tensile())).toBeUndefined();
-    expect(p.withheld.find((w) => w.property === tensile())).toMatchObject({ decision: "derived", rule: "DR-TENSILE-LIMITS" });
-    expect(p.withheld.find((w) => w.property === tensile())!.reason).toMatch(/no limits for EN AW-6082 H111/);
-    expect(derive(pack, record, tensile())).toMatchObject({ ok: false });
-    // readiness agrees: the route holds on it
-    expect(assess(pack, record).find((r) => r.route === "customer-pdf")!.holds.some((h) => h.ruleId === "RR-DERIVED-UNDETERMINABLE" && h.property === tensile())).toBe(true);
-  });
-
-  it("makes no statement for a challenged alloy, or when the composition reports an element with no limits", async () => {
-    const challenged = await customer({ ...CLEAN, lab: "lab-conflicting-alloy.json" });
-    expect(challenged.p.derived).toEqual([]);
-    const unknownElement = await customer({ ...CLEAN, editLab: (doc) => (doc.observations[3].element = "Zn") });
-    expect(unknownElement.p.derived.map((d) => d.property)).toEqual([tensile()]);
-    expect(unknownElement.p.withheld.find((w) => w.property === composition())!.reason).toMatch(/no limits for Zn/);
+  it("blocks recycled_total_with_basis when total != pre + post (REF-06)", async () => {
+    const badSum = await customer({ ...CLEAN, editErp: (csv) => csv.replace(",65,15,50,", ",66,15,50,") });
+    expect(badSum.p.derived.find((d) => d.property === recycled())).toBeUndefined();
+    expect(badSum.p.withheld.find((w) => w.property === recycled())).toMatchObject({ decision: "derived", rule: "DR-RECYCLED-TOTAL" });
+    expect(derive(pack, badSum.record, recycled())).toMatchObject({ ok: false });
   });
 
   it("refuses a property that has no derived rule", async () => {
@@ -252,10 +245,10 @@ describe("derived disclosure", () => {
     expect(() => derive(pack, record, byRole(pack, "alloy"))).toThrow(/derived rules, expected exactly one/);
   });
 
-  it("derives only for the customer PDF: the ERP route gets the values, the registry nothing", async () => {
+  it("derives only for the customer route: internal gets raw lead, registry gets nothing derived", async () => {
     const record = await recordFor(pack, CLEAN);
-    expect(project(pack, record, "erp-staging-csv").derived).toEqual([]);
-    expect(project(pack, record, "registry-prep-json").derived).toEqual([]);
-    expect(project(pack, record, "erp-staging-csv").values.some((v) => v.property === tensile())).toBe(true);
+    expect(project(pack, record, "internal").derived).toEqual([]);
+    expect(project(pack, record, "registry").derived).toEqual([]);
+    expect(project(pack, record, "internal").values.some((v) => v.property === lead())).toBe(true);
   });
 });

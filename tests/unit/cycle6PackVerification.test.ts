@@ -45,8 +45,8 @@ describe("the server verifies the pack it runs (C6-02)", () => {
     manifest.files["policy/RETENTION@1.0.0.yaml"] = sha(weak);
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
     // every file now matches the rewritten manifest, but the manifest is not the signed one
-    expect(() => verifyPackForServer(pack)).toThrow(/Refusing to start.*not the signed digest/);
-    // and the owner's signature of the changed manifest is the only way through
+    expect(() => verifyPackForServer(pack)).toThrow(/Refusing to start.*not the approved digest/);
+    // and the owner's digest approval of the changed manifest is the only way through
     const signaturesPath = join(root, "SIGNATURES.json");
     const signatures = JSON.parse(readFileSync(signaturesPath, "utf8"));
     signatures.n.manifest_sha256 = sha(readFileSync(manifestPath, "utf8"));
@@ -54,16 +54,16 @@ describe("the server verifies the pack it runs (C6-02)", () => {
     expect(() => verifyPackForServer(pack)).not.toThrow();
   });
 
-  it("refuses a pack with no signature, a wrong signed digest, or a file that no longer matches its manifest", () => {
+  it("refuses a pack with no owner digest approval, a wrong approved digest, or a file that no longer matches its manifest", () => {
     const unsigned = copyPack();
     writeFileSync(join(unsigned.root, "SIGNATURES.json"), "{}");
-    expect(() => verifyPackForServer(unsigned.pack)).toThrow(/no signature/);
+    expect(() => verifyPackForServer(unsigned.pack)).toThrow(/no owner digest approval/);
 
     const wrong = copyPack();
     const sig = JSON.parse(readFileSync(join(wrong.root, "SIGNATURES.json"), "utf8"));
     sig.n.manifest_sha256 = "0".repeat(64);
     writeFileSync(join(wrong.root, "SIGNATURES.json"), JSON.stringify(sig));
-    expect(() => verifyPackForServer(wrong.pack)).toThrow(/not the signed digest/);
+    expect(() => verifyPackForServer(wrong.pack)).toThrow(/not the approved digest/);
 
     const edited = copyPack();
     const file = join(edited.pack, "policy/RETENTION@1.0.0.yaml");

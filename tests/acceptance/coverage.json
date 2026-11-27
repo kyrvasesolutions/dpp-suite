@@ -1,14 +1,14 @@
 {
   "routes": [
-    "customer-pdf",
-    "erp-staging-csv",
-    "registry-prep-json"
+    "customer",
+    "internal",
+    "registry"
   ],
   "cases": [
     {
       "id": "AC-WRONG-ENCODING-PDF",
       "class": "wrong-encoding",
-      "route": "customer-pdf",
+      "route": "customer",
       "funcs": [
         "FUNC-039",
         "FUNC-133"
@@ -20,14 +20,14 @@
       "gates": [
         "G05"
       ],
-      "title": "wrong-encoding is refused at ingress and nothing reaches customer-pdf",
+      "title": "wrong-encoding is refused at ingress and nothing reaches customer",
       "outcome": "rejected-at-ingress",
       "expected": "bytes stage, error wrong-encoding: the file is refused with its typed error, no record is made, and the route has no output"
     },
     {
       "id": "AC-WRONG-ENCODING-CSV",
       "class": "wrong-encoding",
-      "route": "erp-staging-csv",
+      "route": "internal",
       "funcs": [
         "FUNC-039",
         "FUNC-133"
@@ -39,14 +39,14 @@
       "gates": [
         "G05"
       ],
-      "title": "wrong-encoding is refused at ingress and nothing reaches erp-staging-csv",
+      "title": "wrong-encoding is refused at ingress and nothing reaches internal",
       "outcome": "rejected-at-ingress",
       "expected": "bytes stage, error wrong-encoding: the file is refused with its typed error, no record is made, and the route has no output"
     },
     {
       "id": "AC-WRONG-ENCODING-REG",
       "class": "wrong-encoding",
-      "route": "registry-prep-json",
+      "route": "registry",
       "funcs": [
         "FUNC-039",
         "FUNC-133"
@@ -58,14 +58,14 @@
       "gates": [
         "G05"
       ],
-      "title": "wrong-encoding is refused at ingress and nothing reaches registry-prep-json",
+      "title": "wrong-encoding is refused at ingress and nothing reaches registry",
       "outcome": "rejected-at-ingress",
       "expected": "bytes stage, error wrong-encoding: the file is refused with its typed error, no record is made, and the route has no output"
     },
     {
       "id": "AC-MISSING-COLUMN-PDF",
       "class": "missing-column",
-      "route": "customer-pdf",
+      "route": "customer",
       "funcs": [
         "FUNC-039"
       ],
@@ -77,14 +77,14 @@
         "G05",
         "G07"
       ],
-      "title": "missing-column is refused at ingress and nothing reaches customer-pdf",
+      "title": "missing-column is refused at ingress and nothing reaches customer",
       "outcome": "rejected-at-ingress",
       "expected": "structure stage, error missing-column: the file is refused with its typed error, no record is made, and the route has no output"
     },
     {
       "id": "AC-MISSING-COLUMN-CSV",
       "class": "missing-column",
-      "route": "erp-staging-csv",
+      "route": "internal",
       "funcs": [
         "FUNC-039"
       ],
@@ -96,14 +96,14 @@
         "G05",
         "G07"
       ],
-      "title": "missing-column is refused at ingress and nothing reaches erp-staging-csv",
+      "title": "missing-column is refused at ingress and nothing reaches internal",
       "outcome": "rejected-at-ingress",
       "expected": "structure stage, error missing-column: the file is refused with its typed error, no record is made, and the route has no output"
     },
     {
       "id": "AC-MISSING-COLUMN-REG",
       "class": "missing-column",
-      "route": "registry-prep-json",
+      "route": "registry",
       "funcs": [
         "FUNC-039"
       ],
@@ -115,14 +115,14 @@
         "G05",
         "G07"
       ],
-      "title": "missing-column is refused at ingress and nothing reaches registry-prep-json",
+      "title": "missing-column is refused at ingress and nothing reaches registry",
       "outcome": "rejected-at-ingress",
       "expected": "structure stage, error missing-column: the file is refused with its typed error, no record is made, and the route has no output"
     },
     {
       "id": "AC-DECIMAL-COMMA-PDF",
       "class": "decimal-comma",
-      "route": "customer-pdf",
+      "route": "customer",
       "funcs": [
         "FUNC-039",
         "FUNC-017"
@@ -136,14 +136,14 @@
         "G05",
         "G06"
       ],
-      "title": "decimal-comma is refused at ingress and nothing reaches customer-pdf",
+      "title": "decimal-comma is refused at ingress and nothing reaches customer",
       "outcome": "rejected-at-ingress",
       "expected": "semantics stage, error decimal-comma: the file is refused with its typed error, no record is made, and the route has no output"
     },
     {
       "id": "AC-DECIMAL-COMMA-CSV",
       "class": "decimal-comma",
-      "route": "erp-staging-csv",
+      "route": "internal",
       "funcs": [
         "FUNC-039",
         "FUNC-017"
@@ -157,14 +157,14 @@
         "G05",
         "G06"
       ],
-      "title": "decimal-comma is refused at ingress and nothing reaches erp-staging-csv",
+      "title": "decimal-comma is refused at ingress and nothing reaches internal",
       "outcome": "rejected-at-ingress",
       "expected": "semantics stage, error decimal-comma: the file is refused with its typed error, no record is made, and the route has no output"
     },
     {
       "id": "AC-DECIMAL-COMMA-REG",
       "class": "decimal-comma",
-      "route": "registry-prep-json",
+      "route": "registry",
       "funcs": [
         "FUNC-039",
         "FUNC-017"
@@ -178,14 +178,14 @@
         "G05",
         "G06"
       ],
-      "title": "decimal-comma is refused at ingress and nothing reaches registry-prep-json",
+      "title": "decimal-comma is refused at ingress and nothing reaches registry",
       "outcome": "rejected-at-ingress",
       "expected": "semantics stage, error decimal-comma: the file is refused with its typed error, no record is made, and the route has no output"
     },
     {
       "id": "AC-DUPLICATE-JSON-KEY-PDF",
       "class": "duplicate-json-key",
-      "route": "customer-pdf",
+      "route": "customer",
       "funcs": [
         "FUNC-039",
         "FUNC-133"
@@ -197,14 +197,14 @@
       "gates": [
         "G05"
       ],
-      "title": "duplicate-json-key is refused at ingress and nothing reaches customer-pdf",
+      "title": "duplicate-json-key is refused at ingress and nothing reaches customer",
       "outcome": "rejected-at-ingress",
       "expected": "parse stage, error duplicate-key: the file is refused with its typed error, no record is made, and the route has no output"
     },
     {
       "id": "AC-DUPLICATE-JSON-KEY-CSV",
       "class": "duplicate-json-key",
-      "route": "erp-staging-csv",
+      "route": "internal",
       "funcs": [
         "FUNC-039",
         "FUNC-133"
@@ -216,14 +216,14 @@
       "gates": [
         "G05"
       ],
-      "title": "duplicate-json-key is refused at ingress and nothing reaches erp-staging-csv",
+      "title": "duplicate-json-key is refused at ingress and nothing reaches internal",
       "outcome": "rejected-at-ingress",
       "expected": "parse stage, error duplicate-key: the file is refused with its typed error, no record is made, and the route has no output"
     },
     {
       "id": "AC-DUPLICATE-JSON-KEY-REG",
       "class": "duplicate-json-key",
-      "route": "registry-prep-json",
+      "route": "registry",
       "funcs": [
         "FUNC-039",
         "FUNC-133"
@@ -235,14 +235,14 @@
       "gates": [
         "G05"
       ],
-      "title": "duplicate-json-key is refused at ingress and nothing reaches registry-prep-json",
+      "title": "duplicate-json-key is refused at ingress and nothing reaches registry",
       "outcome": "rejected-at-ingress",
       "expected": "parse stage, error duplicate-key: the file is refused with its typed error, no record is made, and the route has no output"
     },
     {
       "id": "AC-NON-FINITE-NUMBER-PDF",
       "class": "non-finite-number",
-      "route": "customer-pdf",
+      "route": "customer",
       "funcs": [
         "FUNC-039",
         "FUNC-133"
@@ -255,14 +255,14 @@
         "G05",
         "G06"
       ],
-      "title": "non-finite-number is refused at ingress and nothing reaches customer-pdf",
+      "title": "non-finite-number is refused at ingress and nothing reaches customer",
       "outcome": "rejected-at-ingress",
       "expected": "parse stage, error non-finite-number: the file is refused with its typed error, no record is made, and the route has no output"
     },
     {
       "id": "AC-NON-FINITE-NUMBER-CSV",
       "class": "non-finite-number",
-      "route": "erp-staging-csv",
+      "route": "internal",
       "funcs": [
         "FUNC-039",
         "FUNC-133"
@@ -275,14 +275,14 @@
         "G05",
         "G06"
       ],
-      "title": "non-finite-number is refused at ingress and nothing reaches erp-staging-csv",
+      "title": "non-finite-number is refused at ingress and nothing reaches internal",
       "outcome": "rejected-at-ingress",
       "expected": "parse stage, error non-finite-number: the file is refused with its typed error, no record is made, and the route has no output"
     },
     {
       "id": "AC-NON-FINITE-NUMBER-REG",
       "class": "non-finite-number",
-      "route": "registry-prep-json",
+      "route": "registry",
       "funcs": [
         "FUNC-039",
         "FUNC-133"
@@ -295,14 +295,14 @@
         "G05",
         "G06"
       ],
-      "title": "non-finite-number is refused at ingress and nothing reaches registry-prep-json",
+      "title": "non-finite-number is refused at ingress and nothing reaches registry",
       "outcome": "rejected-at-ingress",
       "expected": "parse stage, error non-finite-number: the file is refused with its typed error, no record is made, and the route has no output"
     },
     {
       "id": "AC-MISSING-UNIT-PDF",
       "class": "missing-unit",
-      "route": "customer-pdf",
+      "route": "customer",
       "funcs": [
         "FUNC-039",
         "FUNC-030"
@@ -314,14 +314,14 @@
       "gates": [
         "G06"
       ],
-      "title": "missing-unit is refused at ingress and nothing reaches customer-pdf",
+      "title": "missing-unit is refused at ingress and nothing reaches customer",
       "outcome": "rejected-at-ingress",
       "expected": "semantics stage, error missing-unit: the file is refused with its typed error, no record is made, and the route has no output"
     },
     {
       "id": "AC-MISSING-UNIT-CSV",
       "class": "missing-unit",
-      "route": "erp-staging-csv",
+      "route": "internal",
       "funcs": [
         "FUNC-039",
         "FUNC-030"
@@ -333,14 +333,14 @@
       "gates": [
         "G06"
       ],
-      "title": "missing-unit is refused at ingress and nothing reaches erp-staging-csv",
+      "title": "missing-unit is refused at ingress and nothing reaches internal",
       "outcome": "rejected-at-ingress",
       "expected": "semantics stage, error missing-unit: the file is refused with its typed error, no record is made, and the route has no output"
     },
     {
       "id": "AC-MISSING-UNIT-REG",
       "class": "missing-unit",
-      "route": "registry-prep-json",
+      "route": "registry",
       "funcs": [
         "FUNC-039",
         "FUNC-030"
@@ -352,14 +352,14 @@
       "gates": [
         "G06"
       ],
-      "title": "missing-unit is refused at ingress and nothing reaches registry-prep-json",
+      "title": "missing-unit is refused at ingress and nothing reaches registry",
       "outcome": "rejected-at-ingress",
       "expected": "semantics stage, error missing-unit: the file is refused with its typed error, no record is made, and the route has no output"
     },
     {
       "id": "AC-WRONG-UNIT-PDF",
       "class": "wrong-unit",
-      "route": "customer-pdf",
+      "route": "customer",
       "funcs": [
         "FUNC-039",
         "FUNC-030"
@@ -371,14 +371,14 @@
       "gates": [
         "G06"
       ],
-      "title": "wrong-unit is refused at ingress and nothing reaches customer-pdf",
-      "outcome": "rejected-at-ingress",
-      "expected": "semantics stage, error wrong-unit: the file is refused with its typed error, no record is made, and the route has no output"
+      "title": "wrong-unit on customer: output-made",
+      "outcome": "output-made",
+      "expected": "the output is made and is the golden one"
     },
     {
       "id": "AC-WRONG-UNIT-CSV",
       "class": "wrong-unit",
-      "route": "erp-staging-csv",
+      "route": "internal",
       "funcs": [
         "FUNC-039",
         "FUNC-030"
@@ -390,14 +390,14 @@
       "gates": [
         "G06"
       ],
-      "title": "wrong-unit is refused at ingress and nothing reaches erp-staging-csv",
-      "outcome": "rejected-at-ingress",
-      "expected": "semantics stage, error wrong-unit: the file is refused with its typed error, no record is made, and the route has no output"
+      "title": "wrong-unit on internal: route-hold-output-refused",
+      "outcome": "route-hold-output-refused",
+      "expected": "the route is on hold with the named rules and no file is made (RR-SHAPE-ERROR)"
     },
     {
       "id": "AC-WRONG-UNIT-REG",
       "class": "wrong-unit",
-      "route": "registry-prep-json",
+      "route": "registry",
       "funcs": [
         "FUNC-039",
         "FUNC-030"
@@ -409,14 +409,15 @@
       "gates": [
         "G06"
       ],
-      "title": "wrong-unit is refused at ingress and nothing reaches registry-prep-json",
-      "outcome": "rejected-at-ingress",
-      "expected": "semantics stage, error wrong-unit: the file is refused with its typed error, no record is made, and the route has no output"
+      "title": "wrong-unit on registry: NA",
+      "outcome": "NA",
+      "expected": "the class cannot affect this route; the route is unchanged (RR-STANDING-HOLD)",
+      "na": "The registry route carries only the product model identifier, the manufacturer identifier and the commodity code; this class does not touch them."
     },
     {
       "id": "AC-UNIT-ALIAS-PDF",
       "class": "unit-alias",
-      "route": "customer-pdf",
+      "route": "customer",
       "funcs": [
         "FUNC-039",
         "FUNC-030"
@@ -428,14 +429,14 @@
       "gates": [
         "G06"
       ],
-      "title": "unit-alias is refused at ingress and nothing reaches customer-pdf",
-      "outcome": "rejected-at-ingress",
-      "expected": "semantics stage, error wrong-unit: the file is refused with its typed error, no record is made, and the route has no output"
+      "title": "unit-alias on customer: route-hold-output-refused",
+      "outcome": "route-hold-output-refused",
+      "expected": "the route is on hold with the named rules and no file is made (RR-DERIVED-UNDETERMINABLE)"
     },
     {
       "id": "AC-UNIT-ALIAS-CSV",
       "class": "unit-alias",
-      "route": "erp-staging-csv",
+      "route": "internal",
       "funcs": [
         "FUNC-039",
         "FUNC-030"
@@ -447,14 +448,14 @@
       "gates": [
         "G06"
       ],
-      "title": "unit-alias is refused at ingress and nothing reaches erp-staging-csv",
-      "outcome": "rejected-at-ingress",
-      "expected": "semantics stage, error wrong-unit: the file is refused with its typed error, no record is made, and the route has no output"
+      "title": "unit-alias on internal: output-made",
+      "outcome": "output-made",
+      "expected": "the output is made and is the golden one"
     },
     {
       "id": "AC-UNIT-ALIAS-REG",
       "class": "unit-alias",
-      "route": "registry-prep-json",
+      "route": "registry",
       "funcs": [
         "FUNC-039",
         "FUNC-030"
@@ -466,14 +467,15 @@
       "gates": [
         "G06"
       ],
-      "title": "unit-alias is refused at ingress and nothing reaches registry-prep-json",
-      "outcome": "rejected-at-ingress",
-      "expected": "semantics stage, error wrong-unit: the file is refused with its typed error, no record is made, and the route has no output"
+      "title": "unit-alias on registry: NA",
+      "outcome": "NA",
+      "expected": "the class cannot affect this route; the route is unchanged (RR-STANDING-HOLD)",
+      "na": "The registry route carries only the product model identifier, the manufacturer identifier and the commodity code; this class does not touch them."
     },
     {
       "id": "AC-MULTIPLE-RECORDS-PDF",
       "class": "multiple-records",
-      "route": "customer-pdf",
+      "route": "customer",
       "funcs": [
         "FUNC-133"
       ],
@@ -483,14 +485,14 @@
       "gates": [
         "G14"
       ],
-      "title": "multiple-records is refused at ingress and nothing reaches customer-pdf",
+      "title": "multiple-records is refused at ingress and nothing reaches customer",
       "outcome": "rejected-at-ingress",
       "expected": "structure stage, error multiple-records: the file is refused with its typed error, no record is made, and the route has no output"
     },
     {
       "id": "AC-MULTIPLE-RECORDS-CSV",
       "class": "multiple-records",
-      "route": "erp-staging-csv",
+      "route": "internal",
       "funcs": [
         "FUNC-133"
       ],
@@ -500,14 +502,14 @@
       "gates": [
         "G14"
       ],
-      "title": "multiple-records is refused at ingress and nothing reaches erp-staging-csv",
+      "title": "multiple-records is refused at ingress and nothing reaches internal",
       "outcome": "rejected-at-ingress",
       "expected": "structure stage, error multiple-records: the file is refused with its typed error, no record is made, and the route has no output"
     },
     {
       "id": "AC-MULTIPLE-RECORDS-REG",
       "class": "multiple-records",
-      "route": "registry-prep-json",
+      "route": "registry",
       "funcs": [
         "FUNC-133"
       ],
@@ -517,14 +519,14 @@
       "gates": [
         "G14"
       ],
-      "title": "multiple-records is refused at ingress and nothing reaches registry-prep-json",
+      "title": "multiple-records is refused at ingress and nothing reaches registry",
       "outcome": "rejected-at-ingress",
       "expected": "structure stage, error multiple-records: the file is refused with its typed error, no record is made, and the route has no output"
     },
     {
       "id": "AC-TOO-DEEP-PDF",
       "class": "too-deep",
-      "route": "customer-pdf",
+      "route": "customer",
       "funcs": [
         "FUNC-133"
       ],
@@ -534,14 +536,14 @@
       "gates": [
         "G14"
       ],
-      "title": "too-deep is refused at ingress and nothing reaches customer-pdf",
+      "title": "too-deep is refused at ingress and nothing reaches customer",
       "outcome": "rejected-at-ingress",
       "expected": "parse stage, error too-deep: the file is refused with its typed error, no record is made, and the route has no output"
     },
     {
       "id": "AC-TOO-DEEP-CSV",
       "class": "too-deep",
-      "route": "erp-staging-csv",
+      "route": "internal",
       "funcs": [
         "FUNC-133"
       ],
@@ -551,14 +553,14 @@
       "gates": [
         "G14"
       ],
-      "title": "too-deep is refused at ingress and nothing reaches erp-staging-csv",
+      "title": "too-deep is refused at ingress and nothing reaches internal",
       "outcome": "rejected-at-ingress",
       "expected": "parse stage, error too-deep: the file is refused with its typed error, no record is made, and the route has no output"
     },
     {
       "id": "AC-TOO-DEEP-REG",
       "class": "too-deep",
-      "route": "registry-prep-json",
+      "route": "registry",
       "funcs": [
         "FUNC-133"
       ],
@@ -568,14 +570,14 @@
       "gates": [
         "G14"
       ],
-      "title": "too-deep is refused at ingress and nothing reaches registry-prep-json",
+      "title": "too-deep is refused at ingress and nothing reaches registry",
       "outcome": "rejected-at-ingress",
       "expected": "parse stage, error too-deep: the file is refused with its typed error, no record is made, and the route has no output"
     },
     {
       "id": "AC-TOO-LARGE-PDF",
       "class": "too-large",
-      "route": "customer-pdf",
+      "route": "customer",
       "funcs": [
         "FUNC-133"
       ],
@@ -586,14 +588,14 @@
         "G14"
       ],
       "note": "No pack fixture: a file one byte over the declared limit is built in the test.",
-      "title": "too-large is refused at ingress and nothing reaches customer-pdf",
+      "title": "too-large is refused at ingress and nothing reaches customer",
       "outcome": "rejected-at-ingress",
       "expected": "bytes stage, error too-large: the file is refused with its typed error, no record is made, and the route has no output"
     },
     {
       "id": "AC-TOO-LARGE-CSV",
       "class": "too-large",
-      "route": "erp-staging-csv",
+      "route": "internal",
       "funcs": [
         "FUNC-133"
       ],
@@ -604,14 +606,14 @@
         "G14"
       ],
       "note": "No pack fixture: a file one byte over the declared limit is built in the test.",
-      "title": "too-large is refused at ingress and nothing reaches erp-staging-csv",
+      "title": "too-large is refused at ingress and nothing reaches internal",
       "outcome": "rejected-at-ingress",
       "expected": "bytes stage, error too-large: the file is refused with its typed error, no record is made, and the route has no output"
     },
     {
       "id": "AC-TOO-LARGE-REG",
       "class": "too-large",
-      "route": "registry-prep-json",
+      "route": "registry",
       "funcs": [
         "FUNC-133"
       ],
@@ -622,14 +624,14 @@
         "G14"
       ],
       "note": "No pack fixture: a file one byte over the declared limit is built in the test.",
-      "title": "too-large is refused at ingress and nothing reaches registry-prep-json",
+      "title": "too-large is refused at ingress and nothing reaches registry",
       "outcome": "rejected-at-ingress",
       "expected": "bytes stage, error too-large: the file is refused with its typed error, no record is made, and the route has no output"
     },
     {
       "id": "AC-DEADLINE-PDF",
       "class": "deadline",
-      "route": "customer-pdf",
+      "route": "customer",
       "funcs": [
         "FUNC-133"
       ],
@@ -640,14 +642,14 @@
         "G14"
       ],
       "note": "No pack fixture: the clean extract is imported while the page's clock jumps past the 30-second deadline.",
-      "title": "deadline is refused at ingress and nothing reaches customer-pdf",
+      "title": "deadline is refused at ingress and nothing reaches customer",
       "outcome": "rejected-at-ingress",
       "expected": "bytes stage, error deadline: the file is refused with its typed error, no record is made, and the route has no output"
     },
     {
       "id": "AC-DEADLINE-CSV",
       "class": "deadline",
-      "route": "erp-staging-csv",
+      "route": "internal",
       "funcs": [
         "FUNC-133"
       ],
@@ -658,14 +660,14 @@
         "G14"
       ],
       "note": "No pack fixture: the clean extract is imported while the page's clock jumps past the 30-second deadline.",
-      "title": "deadline is refused at ingress and nothing reaches erp-staging-csv",
+      "title": "deadline is refused at ingress and nothing reaches internal",
       "outcome": "rejected-at-ingress",
       "expected": "bytes stage, error deadline: the file is refused with its typed error, no record is made, and the route has no output"
     },
     {
       "id": "AC-DEADLINE-REG",
       "class": "deadline",
-      "route": "registry-prep-json",
+      "route": "registry",
       "funcs": [
         "FUNC-133"
       ],
@@ -676,14 +678,14 @@
         "G14"
       ],
       "note": "No pack fixture: the clean extract is imported while the page's clock jumps past the 30-second deadline.",
-      "title": "deadline is refused at ingress and nothing reaches registry-prep-json",
+      "title": "deadline is refused at ingress and nothing reaches registry",
       "outcome": "rejected-at-ingress",
       "expected": "bytes stage, error deadline: the file is refused with its typed error, no record is made, and the route has no output"
     },
     {
       "id": "AC-AMBIGUOUS-FOOTPRINT-PDF",
       "class": "ambiguous-footprint",
-      "route": "customer-pdf",
+      "route": "customer",
       "funcs": [
         "FUNC-126",
         "FUNC-012"
@@ -696,14 +698,14 @@
         "G03",
         "G04"
       ],
-      "title": "ambiguous-footprint on customer-pdf: route-hold-output-refused",
+      "title": "ambiguous-footprint on customer: route-hold-output-refused",
       "outcome": "route-hold-output-refused",
-      "expected": "the route is on hold with the named rules and no file is made (RR-SEVERAL-RESULTS)"
+      "expected": "the route is on hold with the named rules and no file is made (RR-DERIVED-UNDETERMINABLE)"
     },
     {
       "id": "AC-AMBIGUOUS-FOOTPRINT-CSV",
       "class": "ambiguous-footprint",
-      "route": "erp-staging-csv",
+      "route": "internal",
       "funcs": [
         "FUNC-126",
         "FUNC-012"
@@ -716,14 +718,14 @@
         "G03",
         "G04"
       ],
-      "title": "ambiguous-footprint on erp-staging-csv: route-hold-output-refused",
-      "outcome": "route-hold-output-refused",
-      "expected": "the route is on hold with the named rules and no file is made (RR-SEVERAL-RESULTS)"
+      "title": "ambiguous-footprint on internal: output-made",
+      "outcome": "output-made",
+      "expected": "the output is made and is the golden one"
     },
     {
       "id": "AC-AMBIGUOUS-FOOTPRINT-REG",
       "class": "ambiguous-footprint",
-      "route": "registry-prep-json",
+      "route": "registry",
       "funcs": [
         "FUNC-126",
         "FUNC-012"
@@ -736,7 +738,7 @@
         "G03",
         "G04"
       ],
-      "title": "ambiguous-footprint on registry-prep-json: NA",
+      "title": "ambiguous-footprint on registry: NA",
       "outcome": "NA",
       "expected": "the class cannot affect this route; the route is unchanged (RR-STANDING-HOLD)",
       "na": "The registry route carries only the product model identifier, the manufacturer identifier and the commodity code; this class does not touch them."
@@ -744,7 +746,7 @@
     {
       "id": "AC-BLOCKED-EXPORT-PDF",
       "class": "blocked-export",
-      "route": "customer-pdf",
+      "route": "customer",
       "funcs": [
         "FUNC-012",
         "FUNC-041",
@@ -759,14 +761,14 @@
         "G03",
         "G10"
       ],
-      "title": "blocked-export on customer-pdf: route-hold-output-refused",
+      "title": "blocked-export on customer: route-hold-output-refused",
       "outcome": "route-hold-output-refused",
       "expected": "the route is on hold with the named rules and no file is made (RR-MISSING)"
     },
     {
       "id": "AC-BLOCKED-EXPORT-CSV",
       "class": "blocked-export",
-      "route": "erp-staging-csv",
+      "route": "internal",
       "funcs": [
         "FUNC-012",
         "FUNC-041",
@@ -781,14 +783,14 @@
         "G03",
         "G10"
       ],
-      "title": "blocked-export on erp-staging-csv: route-hold-output-refused",
+      "title": "blocked-export on internal: route-hold-output-refused",
       "outcome": "route-hold-output-refused",
       "expected": "the route is on hold with the named rules and no file is made (RR-MISSING)"
     },
     {
       "id": "AC-BLOCKED-EXPORT-REG",
       "class": "blocked-export",
-      "route": "registry-prep-json",
+      "route": "registry",
       "funcs": [
         "FUNC-012",
         "FUNC-041",
@@ -803,7 +805,7 @@
         "G03",
         "G10"
       ],
-      "title": "blocked-export on registry-prep-json: NA",
+      "title": "blocked-export on registry: NA",
       "outcome": "NA",
       "expected": "the class cannot affect this route; the route is unchanged (RR-STANDING-HOLD)",
       "na": "The registry route carries only the product model identifier, the manufacturer identifier and the commodity code; this class does not touch them."
@@ -811,7 +813,7 @@
     {
       "id": "AC-CONFLICTING-ASSERTIONS-PDF",
       "class": "conflicting-assertions",
-      "route": "customer-pdf",
+      "route": "customer",
       "funcs": [
         "FUNC-065",
         "FUNC-012"
@@ -825,14 +827,14 @@
         "G03",
         "G04"
       ],
-      "title": "conflicting-assertions on customer-pdf: route-hold-output-refused",
+      "title": "conflicting-assertions on customer: route-hold-output-refused",
       "outcome": "route-hold-output-refused",
       "expected": "the route is on hold with the named rules and no file is made (RR-CHALLENGED, RR-DERIVED-UNDETERMINABLE)"
     },
     {
       "id": "AC-CONFLICTING-ASSERTIONS-CSV",
       "class": "conflicting-assertions",
-      "route": "erp-staging-csv",
+      "route": "internal",
       "funcs": [
         "FUNC-065",
         "FUNC-012"
@@ -846,14 +848,14 @@
         "G03",
         "G04"
       ],
-      "title": "conflicting-assertions on erp-staging-csv: route-hold-output-refused",
-      "outcome": "route-hold-output-refused",
-      "expected": "the route is on hold with the named rules and no file is made (RR-CHALLENGED)"
+      "title": "conflicting-assertions on internal: output-made",
+      "outcome": "output-made",
+      "expected": "the output is made and is the golden one"
     },
     {
       "id": "AC-CONFLICTING-ASSERTIONS-REG",
       "class": "conflicting-assertions",
-      "route": "registry-prep-json",
+      "route": "registry",
       "funcs": [
         "FUNC-065",
         "FUNC-012"
@@ -867,7 +869,7 @@
         "G03",
         "G04"
       ],
-      "title": "conflicting-assertions on registry-prep-json: NA",
+      "title": "conflicting-assertions on registry: NA",
       "outcome": "NA",
       "expected": "the class cannot affect this route; the route is unchanged (RR-STANDING-HOLD)",
       "na": "The registry route carries only the product model identifier, the manufacturer identifier and the commodity code; this class does not touch them."
@@ -875,7 +877,7 @@
     {
       "id": "AC-EVIDENCE-DIGEST-MISSING-PDF",
       "class": "evidence-digest-missing",
-      "route": "customer-pdf",
+      "route": "customer",
       "funcs": [
         "FUNC-012",
         "FUNC-023"
@@ -888,14 +890,14 @@
         "G03",
         "G08"
       ],
-      "title": "evidence-digest-missing on customer-pdf: route-hold-output-refused",
+      "title": "evidence-digest-missing on customer: route-hold-output-refused",
       "outcome": "route-hold-output-refused",
-      "expected": "the route is on hold with the named rules and no file is made (RR-EVIDENCE-DIGEST)"
+      "expected": "the route is on hold with the named rules and no file is made (RR-EVIDENCE-DIGEST, RR-DERIVED-UNDETERMINABLE)"
     },
     {
       "id": "AC-EVIDENCE-DIGEST-MISSING-CSV",
       "class": "evidence-digest-missing",
-      "route": "erp-staging-csv",
+      "route": "internal",
       "funcs": [
         "FUNC-012",
         "FUNC-023"
@@ -908,14 +910,14 @@
         "G03",
         "G08"
       ],
-      "title": "evidence-digest-missing on erp-staging-csv: route-hold-output-refused",
+      "title": "evidence-digest-missing on internal: route-hold-output-refused",
       "outcome": "route-hold-output-refused",
       "expected": "the route is on hold with the named rules and no file is made (RR-EVIDENCE-DIGEST)"
     },
     {
       "id": "AC-EVIDENCE-DIGEST-MISSING-REG",
       "class": "evidence-digest-missing",
-      "route": "registry-prep-json",
+      "route": "registry",
       "funcs": [
         "FUNC-012",
         "FUNC-023"
@@ -928,7 +930,7 @@
         "G03",
         "G08"
       ],
-      "title": "evidence-digest-missing on registry-prep-json: NA",
+      "title": "evidence-digest-missing on registry: NA",
       "outcome": "NA",
       "expected": "the class cannot affect this route; the route is unchanged (RR-STANDING-HOLD)",
       "na": "The registry route carries only the product model identifier, the manufacturer identifier and the commodity code; this class does not touch them."
@@ -936,7 +938,7 @@
     {
       "id": "AC-UNKNOWN-CODE-PDF",
       "class": "unknown-code",
-      "route": "customer-pdf",
+      "route": "customer",
       "funcs": [
         "FUNC-012",
         "FUNC-039"
@@ -950,14 +952,14 @@
         "G03",
         "G12"
       ],
-      "title": "unknown-code on customer-pdf: route-hold-output-refused",
-      "outcome": "route-hold-output-refused",
-      "expected": "the route is on hold with the named rules and no file is made (RR-UNKNOWN-CODE)"
+      "title": "unknown-code is refused at ingress and nothing reaches customer",
+      "outcome": "rejected-at-ingress",
+      "expected": "semantics stage, error unknown-code: the file is refused with its typed error, no record is made, and the route has no output"
     },
     {
       "id": "AC-UNKNOWN-CODE-CSV",
       "class": "unknown-code",
-      "route": "erp-staging-csv",
+      "route": "internal",
       "funcs": [
         "FUNC-012",
         "FUNC-039"
@@ -971,14 +973,14 @@
         "G03",
         "G12"
       ],
-      "title": "unknown-code on erp-staging-csv: route-hold-output-refused",
-      "outcome": "route-hold-output-refused",
-      "expected": "the route is on hold with the named rules and no file is made (RR-UNKNOWN-CODE)"
+      "title": "unknown-code is refused at ingress and nothing reaches internal",
+      "outcome": "rejected-at-ingress",
+      "expected": "semantics stage, error unknown-code: the file is refused with its typed error, no record is made, and the route has no output"
     },
     {
       "id": "AC-UNKNOWN-CODE-REG",
       "class": "unknown-code",
-      "route": "registry-prep-json",
+      "route": "registry",
       "funcs": [
         "FUNC-012",
         "FUNC-039"
@@ -992,14 +994,14 @@
         "G03",
         "G12"
       ],
-      "title": "unknown-code on registry-prep-json: registry-draft-only",
-      "outcome": "registry-draft-only",
-      "expected": "only the HOLD draft is made, with the named holds, and it is never submitted (RR-STANDING-HOLD, RR-UNKNOWN-CODE)"
+      "title": "unknown-code is refused at ingress and nothing reaches registry",
+      "outcome": "rejected-at-ingress",
+      "expected": "semantics stage, error unknown-code: the file is refused with its typed error, no record is made, and the route has no output"
     },
     {
       "id": "AC-LEAKAGE-PDF",
       "class": "leakage",
-      "route": "customer-pdf",
+      "route": "customer",
       "funcs": [
         "FUNC-019",
         "FUNC-046"
@@ -1011,14 +1013,14 @@
       "gates": [
         "G05"
       ],
-      "title": "leakage on customer-pdf: field-withheld",
+      "title": "leakage on customer: field-withheld",
       "outcome": "field-withheld",
       "expected": "no field the recipient may not see is in the output or the recipient views"
     },
     {
       "id": "AC-LEAKAGE-CSV",
       "class": "leakage",
-      "route": "erp-staging-csv",
+      "route": "internal",
       "funcs": [
         "FUNC-019",
         "FUNC-046"
@@ -1030,14 +1032,14 @@
       "gates": [
         "G05"
       ],
-      "title": "leakage on erp-staging-csv: field-withheld",
+      "title": "leakage on internal: field-withheld",
       "outcome": "field-withheld",
       "expected": "no field the recipient may not see is in the output or the recipient views"
     },
     {
       "id": "AC-LEAKAGE-REG",
       "class": "leakage",
-      "route": "registry-prep-json",
+      "route": "registry",
       "funcs": [
         "FUNC-019",
         "FUNC-046"
@@ -1049,14 +1051,14 @@
       "gates": [
         "G05"
       ],
-      "title": "leakage on registry-prep-json: field-withheld",
+      "title": "leakage on registry: field-withheld",
       "outcome": "field-withheld",
       "expected": "no field the recipient may not see is in the output or the recipient views (RR-STANDING-HOLD)"
     },
     {
       "id": "AC-PROHIBITED-DISCLOSURE-PDF",
       "class": "prohibited-disclosure",
-      "route": "customer-pdf",
+      "route": "customer",
       "funcs": [
         "FUNC-019",
         "FUNC-046"
@@ -1069,14 +1071,14 @@
         "G05"
       ],
       "note": "The pack's fixture is a route variant that requires denied properties; it cannot be imported, so the unit tests run that variant. Here the recipient views show every denied property as withheld and no output holds one.",
-      "title": "prohibited-disclosure on customer-pdf: field-withheld",
+      "title": "prohibited-disclosure on customer: field-withheld",
       "outcome": "field-withheld",
       "expected": "no field the recipient may not see is in the output or the recipient views"
     },
     {
       "id": "AC-PROHIBITED-DISCLOSURE-CSV",
       "class": "prohibited-disclosure",
-      "route": "erp-staging-csv",
+      "route": "internal",
       "funcs": [
         "FUNC-019",
         "FUNC-046"
@@ -1089,14 +1091,14 @@
         "G05"
       ],
       "note": "The pack's fixture is a route variant that requires denied properties; it cannot be imported, so the unit tests run that variant. Here the recipient views show every denied property as withheld and no output holds one.",
-      "title": "prohibited-disclosure on erp-staging-csv: field-withheld",
+      "title": "prohibited-disclosure on internal: field-withheld",
       "outcome": "field-withheld",
       "expected": "no field the recipient may not see is in the output or the recipient views"
     },
     {
       "id": "AC-PROHIBITED-DISCLOSURE-REG",
       "class": "prohibited-disclosure",
-      "route": "registry-prep-json",
+      "route": "registry",
       "funcs": [
         "FUNC-019",
         "FUNC-046"
@@ -1109,14 +1111,14 @@
         "G05"
       ],
       "note": "The pack's fixture is a route variant that requires denied properties; it cannot be imported, so the unit tests run that variant. Here the recipient views show every denied property as withheld and no output holds one.",
-      "title": "prohibited-disclosure on registry-prep-json: field-withheld",
+      "title": "prohibited-disclosure on registry: field-withheld",
       "outcome": "field-withheld",
       "expected": "no field the recipient may not see is in the output or the recipient views (RR-STANDING-HOLD)"
     },
     {
       "id": "AC-REPRODUCIBILITY-PDF",
       "class": "reproducibility",
-      "route": "customer-pdf",
+      "route": "customer",
       "funcs": [
         "FUNC-041",
         "FUNC-042",
@@ -1130,14 +1132,14 @@
       "gates": [
         "G08"
       ],
-      "title": "reproducibility on customer-pdf: reproducible",
+      "title": "reproducibility on customer: reproducible",
       "outcome": "reproducible",
       "expected": "two separate runs give the same output bytes, the golden ones"
     },
     {
       "id": "AC-REPRODUCIBILITY-CSV",
       "class": "reproducibility",
-      "route": "erp-staging-csv",
+      "route": "internal",
       "funcs": [
         "FUNC-041",
         "FUNC-042",
@@ -1151,14 +1153,14 @@
       "gates": [
         "G08"
       ],
-      "title": "reproducibility on erp-staging-csv: reproducible",
+      "title": "reproducibility on internal: reproducible",
       "outcome": "reproducible",
       "expected": "two separate runs give the same output bytes, the golden ones"
     },
     {
       "id": "AC-REPRODUCIBILITY-REG",
       "class": "reproducibility",
-      "route": "registry-prep-json",
+      "route": "registry",
       "funcs": [
         "FUNC-041",
         "FUNC-042",
@@ -1172,15 +1174,15 @@
       "gates": [
         "G08"
       ],
-      "title": "reproducibility on registry-prep-json: reproducible",
+      "title": "reproducibility on registry: reproducible",
       "outcome": "reproducible",
       "expected": "two separate runs give the same output bytes, the golden ones (RR-STANDING-HOLD)"
     },
     {
       "id": "AC-POSITIVE-PDF",
-      "title": "the clean pair makes the customer-pdf output",
+      "title": "the clean pair makes the customer output",
       "class": "positive",
-      "route": "customer-pdf",
+      "route": "customer",
       "funcs": [
         "FUNC-041",
         "FUNC-042",
@@ -1203,9 +1205,9 @@
     },
     {
       "id": "AC-POSITIVE-CSV",
-      "title": "the clean pair makes the erp-staging-csv output",
+      "title": "the clean pair makes the internal output",
       "class": "positive",
-      "route": "erp-staging-csv",
+      "route": "internal",
       "funcs": [
         "FUNC-041",
         "FUNC-042",
@@ -1228,9 +1230,9 @@
     },
     {
       "id": "AC-POSITIVE-REG",
-      "title": "the clean pair makes the registry-prep-json output",
+      "title": "the clean pair makes the registry output",
       "class": "positive",
-      "route": "registry-prep-json",
+      "route": "registry",
       "funcs": [
         "FUNC-041",
         "FUNC-042",
