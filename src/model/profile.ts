@@ -336,6 +336,7 @@ export interface RouteInfo {
   targetContract?: string;
   mappingContract?: string;
   status: "FROZEN" | "HOLD";
+  submission?: string;
   holdReason?: string;
 }
 
@@ -634,6 +635,7 @@ export async function loadProfilePack(source: PackSource): Promise<ProfilePack> 
           ...(doc.target_contract ? { targetContract: doc.target_contract } : {}),
           ...(doc.mapping_contract ? { mappingContract: doc.mapping_contract } : {}),
           status: doc.status,
+          ...(doc.submission ? { submission: doc.submission } : {}),
           output: doc.output.items,
           sections: doc.output.sections ?? [],
           ...(doc.hold_reason ? { holdReason: doc.hold_reason } : {}),

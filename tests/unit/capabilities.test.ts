@@ -7,7 +7,7 @@ describe("capability registry", () => {
   it("has one entry per screen", () => {
     const ids = CAPABILITIES.map((c) => c.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect([...ids].sort()).toEqual(["graph", "identity-releases", "import", "load-security", "mapping", "outputs", "prepare", "profile", "readiness", "record", "requirements", "server", "validation"]);
+    expect([...ids].sort()).toEqual(["graph", "identity-releases", "import", "load-security", "mapping", "operations-content", "outputs", "prepare", "profile", "readiness", "record", "requirements", "server", "validation"]);
   });
 
   it("uses only the four labels", () => {
@@ -44,6 +44,7 @@ describe("capability registry", () => {
     server: "Cycle 6, 22 November 2026",
     "identity-releases": "Cycle 7, 23 November 2026",
     "load-security": "Cycle 8, 24 November 2026",
+    "operations-content": "Cycle 10, 27 November 2026",
   };
   it("labels a screen supported only after a recorded cycle exit", () => {
     const supported = CAPABILITIES.filter((c) => c.label === "supported").map((c) => c.id);
@@ -75,7 +76,7 @@ describe("capability registry", () => {
 
   // The P levels are kept locally like the N register: every P function labelled supported must be at F2 there,
   // and extensions (extends) without P completeness credit are recorded at F3.
-  const P_LEVELS = ["docs/assessment/cycle-9/p-levels.csv", "docs/assessment/cycle-8/p-levels.csv", "docs/assessment/cycle-7/p-levels.csv", "docs/assessment/cycle-6/p-levels.csv"].find((p) => existsSync(p));
+  const P_LEVELS = ["docs/assessment/cycle-10/p-levels.csv", "docs/assessment/cycle-9/p-levels.csv", "docs/assessment/cycle-8/p-levels.csv", "docs/assessment/cycle-7/p-levels.csv", "docs/assessment/cycle-6/p-levels.csv"].find((p) => existsSync(p));
   it.runIf(P_LEVELS)("labels supported only the P functions the local P levels put at F2", () => {
     const levels = new Map(
       readFileSync(P_LEVELS!, "utf8")
@@ -85,7 +86,7 @@ describe("capability registry", () => {
     );
     for (const c of CAPABILITIES.filter((x) => x.increment === "P")) {
       for (const f of c.functions) if (labelOfFunction(f, "P") === "supported") expect(levels.get(f), f).toBe("F2");
-      if (P_LEVELS === "docs/assessment/cycle-9/p-levels.csv") {
+      if (P_LEVELS === "docs/assessment/cycle-10/p-levels.csv" || P_LEVELS === "docs/assessment/cycle-9/p-levels.csv") {
         for (const f of c.extends ?? []) expect(levels.get(f), `${f} recorded as F3 extension`).toBe("F3");
       }
     }
@@ -137,6 +138,21 @@ describe("capability registry", () => {
     }
     expect(labelOfFunction("FUNC-131")).toBeUndefined();
     expect(labelOfFunction("FUNC-133")).toBeUndefined();
+  });
+
+  it("labels Cycle 10 operations, backup/restore & content acceptance P functions supported since Cycle 10 exit without altering N labels", () => {
+    const c10 = capabilityOf("operations-content");
+    expect(c10.label).toBe("supported");
+    expect(c10.increment).toBe("P");
+    expect(c10.screen).toBe(false);
+    for (const f of ["FUNC-105", "FUNC-132", "FUNC-042", "FUNC-043", "FUNC-126"]) {
+      expect(labelOfFunction(f, "P"), f).toBe("supported");
+    }
+    expect(labelOfFunction("FUNC-105")).toBeUndefined();
+    expect(labelOfFunction("FUNC-132")).toBeUndefined();
+    expect(labelOfFunction("FUNC-042")).toBe("supported"); // N label unchanged
+    expect(labelOfFunction("FUNC-043")).toBe("supported"); // N label unchanged
+    expect(labelOfFunction("FUNC-126")).toBe("supported"); // N label unchanged
   });
 
   it("fails loudly for an unknown screen", () => {

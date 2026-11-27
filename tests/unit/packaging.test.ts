@@ -54,6 +54,7 @@ describe("configuration example", () => {
       "BASE_PATH",
       "DPP_ALLOWED_ORIGIN",
       "DPP_AUTH_MODE",
+      "DPP_BACKUP_DIR",
       "DPP_CONTRACT_PACK",
       "DPP_DB_PATH",
       "DPP_DEPLOYMENT_SURFACE",
@@ -63,6 +64,7 @@ describe("configuration example", () => {
       "DPP_OIDC_JWKS_PATH",
       "DPP_SERVER_HOST",
       "DPP_SERVER_PORT",
+      "DPP_SERVICE_OWNER",
       "DPP_STATIC_DIR",
       "VITE_API_BASE",
       "VITE_ENABLE_LLM",
@@ -82,6 +84,8 @@ describe("configuration example", () => {
     expect(assignments.DPP_OIDC_ISSUER).toBe("");
     expect(assignments.DPP_OIDC_AUDIENCE).toBe("");
     expect(assignments.DPP_OIDC_JWKS_PATH).toBe("");
+    expect(assignments.DPP_SERVICE_OWNER).toBe("platform-ops-owner");
+    expect(assignments.DPP_BACKUP_DIR).toBe("");
   });
 
   it("is a template the secret scan allows", () => {

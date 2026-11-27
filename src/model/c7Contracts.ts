@@ -45,10 +45,20 @@ export const SERVER_ACTIONS = [
   "config-approve",
   "config-activate",
   "config-rollback",
-  /** Cycle 8: the submitter (ACT-01, own jobs only) or an ADMIN cancels a running import job. */
+  /** Cycle 8: the submitter (ACT-01, own jobs only) or an ACT-19 platform operator cancels a running import job. */
   "job:cancel",
   /** Cycle 8: counters only. */
   "metrics:read",
+  /** Cycle 10 (P07): backup creation, drill inspection, and retention-safe listing (ACT-19). */
+  "ops:backup",
+  /** Cycle 10 (P07, FUNC-105): authorised customer exit / DPPSP migration package export (ACT-19, ACT-01). */
+  "ops:migrate-export",
+  /** Cycle 10 (P07, FUNC-105): fresh-deployment migration package import/reconcile (ACT-19). */
+  "ops:migrate-import",
+  /** Cycle 10 (P07, FUNC-132): value-free structured fault alerts (ACT-19, ACT-17). */
+  "ops:alerts-read",
+  /** Cycle 10 (P08): production content acceptance & standing registry hold audit (ACT-19, ACT-20, ACT-17). */
+  "ops:content-audit",
 ] as const;
 export type ServerAction = (typeof SERVER_ACTIONS)[number];
 
@@ -67,6 +77,7 @@ export const ROLE_ACTION_MATRIX: Record<ServerRole, readonly ServerAction[]> = {
     "log-read",
     "config-read",
     "job:cancel",
+    "ops:migrate-export",
   ],
   "ACT-06": ["record-read-customer", "release-customer"],
   "ACT-19": [
@@ -87,6 +98,11 @@ export const ROLE_ACTION_MATRIX: Record<ServerRole, readonly ServerAction[]> = {
     "config-rollback",
     "job:cancel",
     "metrics:read",
+    "ops:backup",
+    "ops:migrate-export",
+    "ops:migrate-import",
+    "ops:alerts-read",
+    "ops:content-audit",
   ],
   "ACT-20": [
     "record-read-internal",
@@ -96,9 +112,20 @@ export const ROLE_ACTION_MATRIX: Record<ServerRole, readonly ServerAction[]> = {
     "config-approve",
     "config-activate",
     "config-rollback",
+    "ops:content-audit",
   ],
   /** External auditor (D9-05, C9-11): read-only; no write/release/legal-hold/grant; raw restricted requires explicitRawGrant. */
-  "ACT-17": ["record-read-customer", "evidence-read", "job-read", "log-read", "role-read", "config-read", "metrics:read"],
+  "ACT-17": [
+    "record-read-customer",
+    "evidence-read",
+    "job-read",
+    "log-read",
+    "role-read",
+    "config-read",
+    "metrics:read",
+    "ops:alerts-read",
+    "ops:content-audit",
+  ],
 };
 
 export interface AuthContext {

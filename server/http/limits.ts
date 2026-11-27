@@ -117,6 +117,12 @@ const TEMPLATES = [
   "POST /api/admin/users/:sub/deactivate",
   "GET /api/admin/audit",
   "GET /api/admin/metrics",
+  "GET /api/admin/alerts",
+  "GET /api/admin/backups",
+  "POST /api/admin/backups",
+  "POST /api/admin/migration/export",
+  "POST /api/admin/migration/import",
+  "GET /api/admin/content-acceptance",
   "GET /api/config-releases",
   "POST /api/config-releases/propose",
   "POST /api/config-releases/rollback",
@@ -181,17 +187,60 @@ export class ServerMetrics {
   readonly #startedAt = Date.now();
   readonly #byClass = new Map<string, number>();
   readonly #limits = new Map<string, number>();
+  readonly #recent5xx: number[] = [];
+  readonly #recentRateLimited: number[] = [];
+  readonly #recentTimeouts: number[] = [];
+  readonly #windowMs: number;
+  readonly #clock: () => number;
   #total = 0;
+
+  constructor(options: { windowMs?: number; clock?: () => number } = {}) {
+    this.#windowMs = options.windowMs ?? 15 * 60_000;
+    this.#clock = options.clock ?? (() => Date.now());
+  }
+
+  private pruneWindow(arr: number[], now: number): number {
+    const cutoff = now - this.#windowMs;
+    while (arr.length > 0 && arr[0]! < cutoff) arr.shift();
+    return arr.length;
+  }
 
   recordRequest(status: number): void {
     this.#total++;
     const klass = `${Math.floor(status / 100)}xx`;
     this.#byClass.set(klass, (this.#byClass.get(klass) ?? 0) + 1);
+    if (status >= 500 && status < 600) {
+      const now = this.#clock();
+      this.#recent5xx.push(now);
+      this.pruneWindow(this.#recent5xx, now);
+    }
   }
 
   recordLimit(outcome: LimitOutcome, limit: string): void {
     const key = `${outcome}\u0000${limit}`;
     this.#limits.set(key, (this.#limits.get(key) ?? 0) + 1);
+    const now = this.#clock();
+    if (
+      outcome === "OVER_LIMIT" &&
+      (limit === "rate_window" || limit.includes("rate_limit") || limit === "max_connections" || limit.includes("queue"))
+    ) {
+      this.#recentRateLimited.push(now);
+      this.pruneWindow(this.#recentRateLimited, now);
+    }
+    if (outcome === "TIMEOUT") {
+      this.#recentTimeouts.push(now);
+      this.pruneWindow(this.#recentTimeouts, now);
+    }
+  }
+
+  /** Rolling-window value-free counters fed into AlertMonitor so transient faults self-resolve once the window clears. */
+  faultCounters(): { errors5xx: number; rateLimitedCount: number; jobTimeouts: number } {
+    const now = this.#clock();
+    return {
+      errors5xx: this.pruneWindow(this.#recent5xx, now),
+      rateLimitedCount: this.pruneWindow(this.#recentRateLimited, now),
+      jobTimeouts: this.pruneWindow(this.#recentTimeouts, now),
+    };
   }
 
   snapshot(jobs: { activeTotal: number; queuedTotal: number; byDomain?: Record<string, { active: number; queued: number }> }) {

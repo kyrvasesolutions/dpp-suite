@@ -32,7 +32,8 @@
     "rehearse-install": "bash scripts/rehearse-install.sh",
     "acceptance": "node scripts/acceptance.mjs",
     "perf": "node scripts/perf.mjs",
-    "load": "node scripts/load.mjs"
+    "load": "node scripts/load.mjs",
+    "drill:restore": "node scripts/drill-restore.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "1.4.0",

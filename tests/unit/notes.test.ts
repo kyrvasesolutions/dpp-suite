@@ -35,7 +35,7 @@ describe.runIf(existsSync("docs/operator/install-notes.md"))("install notes", ()
 
   it("lists every configuration variable of config/env.example, and the declared limits", () => {
     const vars = read("config/env.example").split("\n").filter((l) => /^[A-Z_]+=/.test(l)).map((l) => l.split("=")[0]);
-    expect(vars).toHaveLength(15);
+    expect(vars).toHaveLength(17);
     for (const v of vars) expect(notes, v).toContain(`\`${v}\``);
     for (const limit of ["10 MiB", "**12**", "30 seconds", "one data row"]) expect(notes, limit).toContain(limit);
     const limits = read("contracts/n/policy/LIMITS@1.0.0.yaml");
@@ -203,5 +203,51 @@ describe.runIf(existsSync("docs/operator/identity-and-releases-notes.md"))("iden
     ]) {
       expect(notes, token).toContain(token);
     }
+  });
+});
+
+describe.runIf(existsSync("docs/operator/operations-runbook.md"))("operations runbook (Cycle 10, C10-04)", () => {
+  const runbook = existsSync("docs/operator/operations-runbook.md") ? read("docs/operator/operations-runbook.md") : "";
+
+  it("covers deployment, backup/restore, retention, upgrade/rollback, incidents, and customer exit", () => {
+    for (const section of [
+      "Deployment Procedure",
+      "Backup and Timed Restore Procedure",
+      "Retention and Legal-Hold Procedure",
+      "Controlled Upgrade and Rollback Procedure",
+      "Monitoring and Incident Response Procedure",
+      "Customer Exit and DPPSP Migration Procedure",
+    ]) {
+      expect(runbook, section).toContain(section);
+    }
+  });
+
+  it("documents D9-06 targets, compiled CLI flags, and all 7 structured fault classes", () => {
+    for (const phrase of [
+      "≤ 15 minutes",
+      "≤ 4 hours",
+      "99.5 %",
+      "--backup",
+      "--restore",
+      "--export-migration",
+      "--import-migration",
+      "AES-256-GCM",
+      "computeStoreChecksum",
+      "server_error_burst",
+      "rate_limit_saturation",
+      "job_timeout_or_stall",
+      "egress_blocked_attempt",
+      "backup_overdue",
+      "integrity_or_pack_failure",
+      "memory_budget_pressure",
+      "HOLD_TARGET_PROFILE_UNCONFIRMED",
+      "grantsTouched",
+    ]) {
+      expect(runbook, phrase).toContain(phrase);
+    }
+  });
+
+  it("only tells the operator to run npm scripts that exist", () => {
+    for (const s of npmRuns(runbook)) expect(Object.keys(pkg.scripts), s).toContain(s);
   });
 });
