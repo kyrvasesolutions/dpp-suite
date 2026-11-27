@@ -31,6 +31,11 @@ import {
   type ServerAction,
   type ServerRole,
 } from "../../src/model/c7Contracts";
+import { BACKUP_TIERS, OpsError, type BackupTier } from "../../src/model/c10Contracts";
+import { AlertMonitor } from "../ops/alertMonitor";
+import { createBackup, listBackupRecords } from "../ops/backupManager";
+import { evaluateContentAcceptance } from "../ops/contentAcceptance";
+import { exportMigrationPackage, importMigrationPackage } from "../ops/migrationPackage";
 import { CorrectionError, type CorrectionRequest } from "../../src/model/correction";
 import { project } from "../../src/model/disclosure";
 import { ERROR_TEXT } from "../../src/model/ingress";
@@ -110,6 +115,14 @@ export interface DppServerOptions {
    * route template, never the raw path or query. The entry point writes it to stdout; nothing else leaves the process.
    */
   log?: (entry: PublicLogEntry) => void;
+  /** Cycle 10 (P07): named service owner role identifier (default: `platform-ops-owner`, never a secret). */
+  serviceOwner?: string;
+  /** Cycle 10 (P07): server-configured local backup root directory for `POST /api/admin/backups`. */
+  backupDir?: string;
+  /** Cycle 10 (P07): optional pre-wired AlertMonitor instance (e.g. wired to egress guard). */
+  alertMonitor?: AlertMonitor;
+  /** Cycle 10 (P07): egress allow-list connect entries (default: empty) for validating off-host targets. */
+  egressAllowlistConnect?: readonly string[];
   /** Test-only seams (like Cycle 6 crash injection): hold a stage open so a cancel or a deadline lands mid-stage. */
   testHooks?: {
     stageHook?: ImportJobControl["stageHook"];
@@ -224,25 +237,19 @@ const base64Length = (bytes: number): number => Math.ceil(bytes / 3) * 4;
 /** Room for the JSON around the base64 of one import request (names, types, keys, small evidence). */
 const IMPORT_ENVELOPE_BYTES = 256 * 1024;
 
-/**
- * Reads a JSON object body under a byte cap that is enforced while the body streams (T13): a declared length over the cap is refused
- * before a byte is read, and an undeclared or understated one is refused as soon as the cap is crossed. The rest is discarded, never buffered.
- */
-async function readJsonObject(req: IncomingMessage, maxBytes: number, limitName: string = "max_request_body_bytes", timeoutMs?: number): Promise<Record<string, unknown>> {
+/** Reads raw UTF-8 request body text under byte and timeout bounds (T13, D8-12). */
+async function readRawBodyText(req: IncomingMessage, maxBytes: number, limitName: string = "max_request_body_bytes", timeoutMs?: number): Promise<string> {
   const tooLarge = () => bodyTooLarge(limitName);
   const declared = declaredLength(req);
   if (declared !== undefined && declared > maxBytes) {
     req.resume(); // discard what arrives; nothing is kept
     throw tooLarge();
   }
-  // Each chunk is decoded to text as it arrives and dropped at once, so the body is held once (as text), not as chunks plus a joined copy.
   const decoder = new TextDecoder("utf-8", { ignoreBOM: true });
   const pieces: string[] = [];
   let total = 0;
   await new Promise<void>((resolveBody, rejectBody) => {
-    // V2-13: already ended before listeners or timer are attached.
     if (req.readableEnded) return resolveBody();
-    // V1-10: a client whose stream was already destroyed before `readableEnded` (even if `req.complete` became true) will never emit `data`/`end`/`close`.
     if (req.destroyed) return rejectBody(Object.assign(new Error("The request was aborted"), { statusCode: 400, code: "request-aborted" }));
     let timer: NodeJS.Timeout | undefined;
     const settle = () => {
@@ -253,7 +260,6 @@ async function readJsonObject(req: IncomingMessage, maxBytes: number, limitName:
       req.off("close", onClose);
     };
     if (timeoutMs !== undefined) {
-      // D8-12: the whole body must arrive within `body_read_timeout_ms` of the grant of the slot. A slow drip cannot hold a slot or its bytes.
       timer = setTimeout(() => {
         settle();
         pieces.length = 0;
@@ -283,7 +289,6 @@ async function readJsonObject(req: IncomingMessage, maxBytes: number, limitName:
     };
     const onClose = () => {
       settle();
-      // V1-10: `onClose` only runs before `onEnd` (otherwise `onEnd` already called `settle`). Always reject when the stream closed without ending cleanly.
       if (!req.readableEnded) rejectBody(Object.assign(new Error("The request was aborted"), { statusCode: 400, code: "request-aborted" }));
       else resolveBody();
     };
@@ -292,10 +297,20 @@ async function readJsonObject(req: IncomingMessage, maxBytes: number, limitName:
     req.once("error", onError);
     req.once("close", onClose);
   });
-  if (total === 0) return {};
+  if (total === 0) return "";
   pieces.push(decoder.decode());
   const text = pieces.join("");
   pieces.length = 0;
+  return text;
+}
+
+/**
+ * Reads a JSON object body under a byte cap that is enforced while the body streams (T13): a declared length over the cap is refused
+ * before a byte is read, and an undeclared or understated one is refused as soon as the cap is crossed. The rest is discarded, never buffered.
+ */
+async function readJsonObject(req: IncomingMessage, maxBytes: number, limitName: string = "max_request_body_bytes", timeoutMs?: number): Promise<Record<string, unknown>> {
+  const text = await readRawBodyText(req, maxBytes, limitName, timeoutMs);
+  if (!text) return {};
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -400,6 +415,9 @@ function mapErrorRaw(err: unknown): { status: number; code: string; message: str
   if (err instanceof ConfigReleaseError) {
     return { status: err.statusCode, code: err.code, message: err.message };
   }
+  if (err instanceof OpsError) {
+    return { status: err.statusCode, code: err.code, message: err.message };
+  }
   if (err && typeof err === "object" && "statusCode" in err && typeof (err as { statusCode: unknown }).statusCode === "number") {
     const e = err as { statusCode: number; code?: string; message?: string; limit?: unknown; closeConnection?: boolean };
     return {
@@ -459,6 +477,17 @@ const FIXED_TEXT: Record<string, string> = {
   "repository-error": "The record store refused the change.",
   "user-not-found": "User not found.",
   "invalid-role": "The role is not one of the known roles.",
+  "backup-invalid": "The backup request or manifest is invalid.",
+  "backup-tampered": "Backup integrity verification failed.",
+  "backup-retention-protected": "The backup is protected by retention or legal hold.",
+  "restore-checksum-mismatch": "Restored store checksum did not match the backup manifest.",
+  "restore-evidence-mismatch": "Evidence integrity verification failed.",
+  "egress-target-refused": "The off-host backup target is not permitted by the declared egress allow-list.",
+  "migration-invalid": "The migration package is invalid or incompatible with the active pack.",
+  "migration-digest-mismatch": "The migration package digest does not match its content.",
+  "migration-conflict-overwrite": "The migration package conflicts with existing stored records or evidence.",
+  "migration-evidence-mismatch": "Migration evidence integrity verification failed.",
+  "reconstruction-mismatch": "Reconstructed release output did not match the expected digest.",
 };
 
 function mapError(err: unknown): ReturnType<typeof mapErrorRaw> {
@@ -539,6 +568,14 @@ export function createDppServer(options: DppServerOptions): Server {
     clock,
   });
   const metrics = new ServerMetrics();
+  const alertMonitor =
+    options.alertMonitor ??
+    new AlertMonitor({
+      serviceOwner: options.serviceOwner,
+      db: options.db,
+      now: options.now,
+    });
+  const backupRootDir = options.backupDir?.trim() || undefined;
   const coordinator = new JobCoordinator(limits);
   const liveJobs = new LiveJobs();
   /** Each import's ingress runs in a worker thread that the main thread can terminate (D8-10). */
@@ -1116,6 +1153,150 @@ export function createDppServer(options: DppServerOptions): Server {
         // Domain names are tenant information: only ACT-19 (platform operator) sees the per-domain split; ACT-17 sees totals (V2-04, D9-05).
         const visible = viewer.roles.includes("ACT-19") ? jobs : { activeTotal: jobs.activeTotal, queuedTotal: jobs.queuedTotal };
         sendJson(res, 200, metrics.snapshot(visible), allowedOrigin, undefined, allowMethods);
+        return;
+      }
+
+      // =========================================================================
+      // OPERATIONS, BACKUP/RESTORE, MIGRATION & CONTENT AUDIT (Cycle 10)
+      // =========================================================================
+
+      // GET /api/admin/alerts (FUNC-132): strictly value-free structured fault alerts.
+      if (method === "GET" && pathname === "/api/admin/alerts") {
+        requireAuth("ops:alerts-read");
+        const counters = metrics.faultCounters();
+        const report = alertMonitor.evaluate({
+          errors5xx: counters.errors5xx,
+          rateLimitedCount: counters.rateLimitedCount,
+          jobTimeouts: counters.jobTimeouts,
+          rssBytes: process.memoryUsage().rss,
+        });
+        sendJson(res, 200, report, allowedOrigin, undefined, allowMethods);
+        return;
+      }
+
+      // GET /api/admin/backups: append-only backup/drill audit records for this domain.
+      if (method === "GET" && pathname === "/api/admin/backups") {
+        requireAuth("ops:backup");
+        sendJson(res, 200, { backups: listBackupRecords(options.db, domain) }, allowedOrigin, undefined, allowMethods);
+        return;
+      }
+
+      // POST /api/admin/backups: creates a hot VACUUM INTO backup in server-configured backupDir.
+      // Never accepts caller-supplied filesystem paths and returns a domain-scoped summary only.
+      if (method === "POST" && pathname === "/api/admin/backups") {
+        const actor = requireAuth("ops:backup");
+        if (!backupRootDir) {
+          sendJson(
+            res,
+            409,
+            { code: "backup-dir-unconfigured", message: "Server DPP_BACKUP_DIR is not configured" },
+            allowedOrigin,
+            undefined,
+            allowMethods,
+          );
+          return;
+        }
+        const body = await readBody(req, defaultMaxBytes);
+        const tierRaw = typeof body.tier === "string" ? body.tier.trim() : "15m";
+        if (!(BACKUP_TIERS as readonly string[]).includes(tierRaw)) {
+          sendJson(res, 400, { code: "backup-invalid", message: "Backup tier must be one of: 15m, daily, monthly" }, allowedOrigin, undefined, allowMethods);
+          return;
+        }
+        const offHostTargetUrl = typeof body.offHostTargetUrl === "string" && body.offHostTargetUrl.trim() ? body.offHostTargetUrl.trim() : undefined;
+        try {
+          const created = createBackup(options.db, {
+            destDir: backupRootDir,
+            tier: tierRaw as BackupTier,
+            securityDomain: domain,
+            recordedBy: actor.sub,
+            nowIso: options.now?.(),
+            offHostTargetUrl,
+            egressAllowlistConnect: options.egressAllowlistConnect ?? [],
+          });
+          alertMonitor.recordBackupCompleted(created.manifest.createdAt);
+          const domainEvidenceCount = created.manifest.evidenceDigests.filter((e) => e.securityDomain === domain).length;
+          sendJson(
+            res,
+            201,
+            {
+              backup: {
+                backupId: created.manifest.backupId,
+                createdAt: created.manifest.createdAt,
+                securityDomain: domain,
+                tier: created.manifest.tier,
+                retainUntil: created.manifest.retainUntil,
+                hasLegalHold: created.manifest.hasLegalHold,
+                schemaVersion: created.manifest.schemaVersion,
+                storeChecksum: created.manifest.storeChecksum,
+                manifestDigest: created.manifest.manifestDigest,
+                evidenceCount: domainEvidenceCount,
+              },
+            },
+            allowedOrigin,
+            undefined,
+            allowMethods,
+          );
+        } catch (bkErr) {
+          if (bkErr instanceof OpsError && bkErr.code === "egress-target-refused") {
+            alertMonitor.recordEgressBlocked();
+          } else if (bkErr instanceof OpsError && (bkErr.code === "restore-evidence-mismatch" || bkErr.code === "backup-tampered")) {
+            alertMonitor.recordIntegrityFailure();
+          }
+          throw bkErr;
+        }
+        return;
+      }
+
+      // POST /api/admin/migration/export (FUNC-105): authorised customer exit / DPPSP migration package.
+      if (method === "POST" && pathname === "/api/admin/migration/export") {
+        const actor = requireAuth("ops:migrate-export");
+        const body = await readBody(req, defaultMaxBytes);
+        const reason = typeof body.reason === "string" ? body.reason : "";
+        const { activePack } = await loadRuntime();
+        const pkg = exportMigrationPackage(options.db, activePack, {
+          securityDomain: domain,
+          exportedBy: actor.sub,
+          reason,
+          nowIso: options.now?.(),
+        });
+        sendJson(res, 200, { package: pkg }, allowedOrigin, undefined, allowMethods);
+        return;
+      }
+
+      // POST /api/admin/migration/import (FUNC-105): fresh-deployment import & reconciliation.
+      // Reads raw body text so strict JSON parsing (depth/node/duplicate-key caps) always executes on HTTP input.
+      if (method === "POST" && pathname === "/api/admin/migration/import") {
+        requireAuth("ops:migrate-import");
+        const { activePack, maxBodyBytes } = await loadRuntime();
+        const rawText = await readRawBodyText(
+          req,
+          Math.min(maxBodyBytes, limits.http.max_request_body_bytes),
+          "max_request_body_bytes",
+          limits.http.body_read_timeout_ms,
+        );
+        try {
+          const result = importMigrationPackage(options.db, activePack, rawText, {
+            securityDomain: domain,
+            nowIso: options.now?.(),
+          });
+          sendJson(res, 200, { result }, allowedOrigin, undefined, allowMethods);
+        } catch (migErr) {
+          if (
+            migErr instanceof OpsError &&
+            (migErr.code === "migration-digest-mismatch" || migErr.code === "migration-evidence-mismatch")
+          ) {
+            alertMonitor.recordIntegrityFailure();
+          }
+          throw migErr;
+        }
+        return;
+      }
+
+      // GET /api/admin/content-acceptance: deterministic content & standing registry hold audit.
+      if (method === "GET" && pathname === "/api/admin/content-acceptance") {
+        requireAuth("ops:content-audit");
+        const { activePack } = await loadRuntime();
+        sendJson(res, 200, { report: evaluateContentAcceptance(activePack) }, allowedOrigin, undefined, allowMethods);
         return;
       }
 
@@ -1699,7 +1880,15 @@ export function createDppServer(options: DppServerOptions): Server {
       if (method === "GET" && evGetMatch) {
         requireAuth("evidence-read");
         const { runner } = await loadRuntime();
-        const found = runner.evidenceStore.get(evGetMatch[1]!);
+        let found;
+        try {
+          found = runner.evidenceStore.get(evGetMatch[1]!);
+        } catch (evErr) {
+          if (evErr instanceof RetentionViolationError && evErr.code === "digest-mismatch") {
+            alertMonitor.recordIntegrityFailure();
+          }
+          throw evErr;
+        }
         if (!found) {
           sendJson(res, 404, { code: "not-found", message: "Evidence object not found" }, allowedOrigin, undefined, allowMethods);
           return;

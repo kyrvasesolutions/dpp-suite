@@ -716,6 +716,94 @@ export const MIGRATIONS: readonly Migration[] = [
       ALTER TABLE role_grants_v7 RENAME TO role_grants;
     `,
   },
+  {
+    // Cycle 10: append-only backup/restore audit records and strictly value-free operational alert history.
+    // Frozen migrations v1..v8 stay untouched.
+    version: 9,
+    name: "0009_cycle10_operations",
+    up: `
+      CREATE TABLE IF NOT EXISTS backup_records (
+        backup_id TEXT PRIMARY KEY,
+        security_domain TEXT NOT NULL,
+        tier TEXT NOT NULL CHECK (tier IN ('15m', 'daily', 'monthly')),
+        created_at TEXT NOT NULL,
+        retain_until TEXT NOT NULL,
+        has_legal_hold INTEGER NOT NULL DEFAULT 0 CHECK (has_legal_hold IN (0, 1)),
+        schema_version INTEGER NOT NULL,
+        store_checksum TEXT NOT NULL,
+        manifest_digest TEXT NOT NULL,
+        evidence_count INTEGER NOT NULL,
+        encrypted_offhost INTEGER NOT NULL DEFAULT 0 CHECK (encrypted_offhost IN (0, 1)),
+        recorded_by TEXT NOT NULL
+      );
+
+      CREATE TRIGGER IF NOT EXISTS trg_backup_records_no_update
+      BEFORE UPDATE ON backup_records
+      BEGIN
+        SELECT RAISE(ABORT, 'backup_records is append-only and cannot be updated');
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_backup_records_no_delete
+      BEFORE DELETE ON backup_records
+      BEGIN
+        SELECT RAISE(ABORT, 'backup_records is append-only and cannot be deleted');
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_backup_records_no_replace
+      BEFORE INSERT ON backup_records
+      WHEN EXISTS (SELECT 1 FROM backup_records WHERE backup_id = NEW.backup_id)
+      BEGIN
+        SELECT RAISE(ABORT, 'backup_records is append-only; a row that exists cannot be replaced');
+      END;
+
+      CREATE TABLE IF NOT EXISTS operational_alerts (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        alert_id TEXT NOT NULL,
+        fault_class TEXT NOT NULL CHECK (fault_class IN (
+          'server_error_burst',
+          'rate_limit_saturation',
+          'job_timeout_or_stall',
+          'egress_blocked_attempt',
+          'backup_overdue',
+          'integrity_or_pack_failure',
+          'memory_budget_pressure'
+        )),
+        severity TEXT NOT NULL CHECK (severity IN ('warning', 'critical')),
+        state TEXT NOT NULL CHECK (state IN ('firing', 'resolved')),
+        raised_at TEXT NOT NULL,
+        resolved_at TEXT,
+        count REAL NOT NULL,
+        threshold REAL NOT NULL,
+        service_owner TEXT NOT NULL,
+        runbook_ref TEXT NOT NULL
+      );
+
+      CREATE TRIGGER IF NOT EXISTS trg_operational_alerts_no_update
+      BEFORE UPDATE ON operational_alerts
+      BEGIN
+        SELECT RAISE(ABORT, 'operational_alerts is append-only and cannot be updated');
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_operational_alerts_no_delete
+      BEFORE DELETE ON operational_alerts
+      BEGIN
+        SELECT RAISE(ABORT, 'operational_alerts is append-only and cannot be deleted');
+      END;
+
+      CREATE INDEX IF NOT EXISTS idx_operational_alerts_class_seq
+        ON operational_alerts (fault_class, seq);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_operational_alerts_class_seq;
+      DROP TRIGGER IF EXISTS trg_operational_alerts_no_delete;
+      DROP TRIGGER IF EXISTS trg_operational_alerts_no_update;
+      DROP TABLE IF EXISTS operational_alerts;
+      DROP TRIGGER IF EXISTS trg_backup_records_no_replace;
+      DROP TRIGGER IF EXISTS trg_backup_records_no_delete;
+      DROP TRIGGER IF EXISTS trg_backup_records_no_update;
+      DROP TABLE IF EXISTS backup_records;
+    `,
+  },
 ];
 
 export function migrationChecksum(m: Migration): string {

@@ -147,17 +147,17 @@ describe("Cycle 7 forward/backward migration checksum preservation on a producti
     prodDb.backup(copyPath);
     prodDb.close();
 
-    // 2. Open production-like copy and run forward migration v5 -> latest (v8)
+    // 2. Open production-like copy and run forward migration v5 -> latest (v9)
     const copyDb = new SqliteAdapter({ path: copyPath });
     try {
       expect(currentMigrationVersion(copyDb)).toBe(5);
       expect(computeStoreChecksum(copyDb)).toBe(baselineChecksum);
 
       migrateUp(copyDb);
-      expect(currentMigrationVersion(copyDb)).toBe(8);
+      expect(currentMigrationVersion(copyDb)).toBe(9);
       expect(computeStoreChecksum(copyDb)).toBe(baselineChecksum);
 
-      // Populate Cycle 7/9 identity + multi-release predecessor chain in config_packages while on v8
+      // Populate Cycle 7/9 identity + multi-release predecessor chain in config_packages while on v9
       const grants = new GrantStore(copyDb, undefined, { now: () => NOW });
       grants.upsertUser({ sub: "admin-1", displayName: "Admin", roles: ["ACT-19"], actorSub: "bootstrap", reason: "Migration test" });
       const cfg = new ConfigReleaseStore(copyDb, undefined, { now: () => NOW });
@@ -165,7 +165,7 @@ describe("Cycle 7 forward/backward migration checksum preservation on a producti
       const nextProp = buildPackageProposal(packSource, {
         version: "1.1.0",
         predecessorReleaseId: initRel.releaseId,
-        note: "Predecessor chain test before v8->v5 rollback",
+        note: "Predecessor chain test before v9->v5 rollback",
         mutateFiles: (files) => {
           files["code-lists/TEMPER@1.0.0.csv"] = `${files["code-lists/TEMPER@1.0.0.csv"]}H14\n`;
         },
@@ -177,11 +177,11 @@ describe("Cycle 7 forward/backward migration checksum preservation on a producti
         copyDb.run("UPDATE config_packages SET release_id = NULL WHERE release_id = ?", initRel.releaseId),
       ).toThrow(/immutable|NOT NULL/i);
 
-      // Atomic refusal: rolling back past v5 (into v4, which drops retained triggers) fails atomically at v8!
+      // Atomic refusal: rolling back past v5 (into v4, which drops retained triggers) fails atomically at v9!
       expect(() => migrateDown(copyDb, 4)).toThrow(/retained or legal-hold/i);
-      expect(currentMigrationVersion(copyDb)).toBe(8);
+      expect(currentMigrationVersion(copyDb)).toBe(9);
 
-      // 3. Backward migration v8 -> v5 (with 2-release predecessor chain!): exact baseline checksum preserved
+      // 3. Backward migration v9 -> v5 (with 2-release predecessor chain!): exact baseline checksum preserved
       migrateDown(copyDb, 5);
       expect(currentMigrationVersion(copyDb)).toBe(5);
       expect(computeStoreChecksum(copyDb)).toBe(baselineChecksum);
@@ -191,9 +191,9 @@ describe("Cycle 7 forward/backward migration checksum preservation on a producti
       );
       expect(c7Tables).toHaveLength(0);
 
-      // 4. Re-forward migration v5 -> v8: exact baseline checksum STILL preserved, every record/blob intact
+      // 4. Re-forward migration v5 -> v9: exact baseline checksum STILL preserved, every record/blob intact
       migrateUp(copyDb);
-      expect(currentMigrationVersion(copyDb)).toBe(8);
+      expect(currentMigrationVersion(copyDb)).toBe(9);
       expect(computeStoreChecksum(copyDb)).toBe(baselineChecksum);
 
       const afterRunner = new ImportJobRunner(copyDb, pack, undefined, { now: () => NOW });

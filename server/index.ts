@@ -4,6 +4,11 @@
  *
  * CLI mode:
  *   DPP_DB_PATH=data/dpp.sqlite node dist-server/server.mjs --bootstrap-admin <sub-id> "<Display Name>" [--domain <domain>] [--reason "<reason>"]
+ *   DPP_DB_PATH=data/dpp.sqlite node dist-server/server.mjs --backup <dest-dir> [--tier 15m|daily|monthly] [--encrypt-out <file> --key-env <ENV_VAR> --key-id <id>]
+ *   node dist-server/server.mjs --restore <backup-dir> --target-db <path> [--decrypt-in <file> --key-env <ENV_VAR>]
+ *   node dist-server/server.mjs --prune-backups <backup-root>
+ *   DPP_DB_PATH=data/dpp.sqlite node dist-server/server.mjs --export-migration <out-file> [--reason "<reason>"]
+ *   DPP_DB_PATH=data/dpp.sqlite node dist-server/server.mjs --import-migration <in-file>
  *
  * Configuration via environment variables (no secrets):
  *   DPP_CONTRACT_PACK      contract pack directory (default: contracts/n)
@@ -17,11 +22,14 @@
  *   DPP_OIDC_ISSUER        expected OIDC `iss` claim (required when DPP_AUTH_MODE=oidc)
  *   DPP_OIDC_AUDIENCE      expected OIDC `aud` claim (required when DPP_AUTH_MODE=oidc)
  *   DPP_OIDC_JWKS_PATH     path to local public JWKS JSON file (required when DPP_AUTH_MODE=oidc)
+ *   DPP_SERVICE_OWNER      named service owner role identifier for alerts/runbooks (default: platform-ops-owner)
+ *   DPP_BACKUP_DIR         local directory where server-triggered backups are written (optional)
  */
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { readPack } from "../config/contractPack";
 import egressAllowlist from "../config/egress-allowlist.json";
 import { AUTH_MODES, DEPLOYMENT_SURFACES, type AuthMode, type DeploymentSurface } from "../src/model/c7Contracts";
+import { BACKUP_TIERS, type BackupTier } from "../src/model/c10Contracts";
 import { DEFAULT_SECURITY_DOMAIN } from "../src/model/pContracts";
 import { loadProfilePack } from "../src/model/profile";
 import { GrantStore } from "./auth/grantStore";
@@ -32,6 +40,9 @@ import { createDppServer, isLoopbackBindHost } from "./http/api";
 import { ImportJobRunner } from "./jobs/importJobRunner";
 import { crashLine, installExceptionBarrier } from "./log/barrier";
 import { publicLogWriter } from "./log/publicLog";
+import { AlertMonitor } from "./ops/alertMonitor";
+import { createBackup, pruneExpiredBackups, restoreBackup } from "./ops/backupManager";
+import { exportMigrationPackage, importMigrationPackage } from "./ops/migrationPackage";
 import { ConfigReleaseStore } from "./releases/configReleaseStore";
 import { allowlistHosts, installEgressGuard } from "./security/egressGuard";
 import { PolicyStore } from "./store/policyStore";
@@ -89,16 +100,152 @@ function maybeRunBootstrapCli(argv: string[], dbPath: string): boolean {
   return true;
 }
 
+function argValue(argv: string[], flag: string): string | undefined {
+  const idx = argv.indexOf(flag);
+  return idx !== -1 && argv[idx + 1] && !argv[idx + 1]!.startsWith("--") ? argv[idx + 1] : undefined;
+}
+
+/** Handles Cycle 10 operator CLI commands (`--backup`, `--restore`, `--export-migration`, `--import-migration`). */
+async function maybeRunOpsCli(argv: string[], dbPath: string, packDir: string): Promise<boolean> {
+  const backupDest = argValue(argv, "--backup");
+  if (backupDest) {
+    const tierRaw = argValue(argv, "--tier") ?? "15m";
+    if (!(BACKUP_TIERS as readonly string[]).includes(tierRaw)) {
+      throw new Error(`Invalid --tier "${tierRaw}" (expected: ${BACKUP_TIERS.join(", ")})`);
+    }
+    const domain = argValue(argv, "--domain") ?? DEFAULT_SECURITY_DOMAIN;
+    const encryptOut = argValue(argv, "--encrypt-out");
+    const keyEnv = argValue(argv, "--key-env");
+    const keyId = argValue(argv, "--key-id") ?? "backup-key-1";
+    let offHostEncrypt: { outPath: string; keyHex: string; keyId: string } | undefined;
+    if (encryptOut) {
+      if (!keyEnv || !process.env[keyEnv]) {
+        throw new Error("Encrypted off-host backup requires --key-env naming a populated 64-hex-char environment variable");
+      }
+      offHostEncrypt = { outPath: encryptOut, keyHex: process.env[keyEnv]!, keyId };
+    }
+    const db = new SqliteAdapter({ path: dbPath });
+    try {
+      migrateUp(db);
+      const created = createBackup(db, {
+        destDir: backupDest,
+        tier: tierRaw as BackupTier,
+        securityDomain: domain,
+        recordedBy: "ops-cli",
+        offHostEncrypt,
+      });
+      process.stdout.write(
+        `${JSON.stringify({
+          ok: true,
+          backupId: created.manifest.backupId,
+          tier: created.manifest.tier,
+          schemaVersion: created.manifest.schemaVersion,
+          storeChecksum: created.manifest.storeChecksum,
+          evidenceCount: created.manifest.evidenceCount,
+          manifestDigest: created.manifest.manifestDigest,
+          encryptedOffHost: Boolean(created.manifest.encryptedOffHost),
+        })}\n`,
+      );
+    } finally {
+      db.close();
+    }
+    return true;
+  }
+
+  const restoreDir = argValue(argv, "--restore");
+  if (restoreDir) {
+    const targetDbPath = argValue(argv, "--target-db");
+    if (!targetDbPath) {
+      throw new Error("Usage: node dist-server/server.mjs --restore <backup-dir> --target-db <path> [--decrypt-in <file> --key-env <ENV_VAR>]");
+    }
+    const decryptIn = argValue(argv, "--decrypt-in");
+    const keyEnv = argValue(argv, "--key-env");
+    let fromEncryptedArchive: { archivePath: string; keyHex: string } | undefined;
+    if (decryptIn) {
+      if (!keyEnv || !process.env[keyEnv]) {
+        throw new Error("Encrypted restore requires --key-env naming a populated 64-hex-char environment variable");
+      }
+      fromEncryptedArchive = { archivePath: decryptIn, keyHex: process.env[keyEnv]! };
+    }
+    const result = restoreBackup({ backupDir: restoreDir, targetDbPath, fromEncryptedArchive });
+    process.stdout.write(`${JSON.stringify(result)}\n`);
+    if (!result.passed) process.exitCode = 1;
+    return true;
+  }
+
+  const exportOut = argValue(argv, "--export-migration");
+  if (exportOut) {
+    const reason = argValue(argv, "--reason") ?? "Operator customer exit / DPPSP migration export";
+    const domain = argValue(argv, "--domain") ?? DEFAULT_SECURITY_DOMAIN;
+    verifyPackForServer(packDir);
+    const pack = await loadProfilePack(readPack(packDir));
+    const db = new SqliteAdapter({ path: dbPath });
+    try {
+      migrateUp(db);
+      const pkg = exportMigrationPackage(db, pack, { securityDomain: domain, exportedBy: "ops-cli", reason });
+      writeFileSync(exportOut, `${JSON.stringify(pkg, null, 2)}\n`, "utf8");
+      process.stdout.write(
+        `${JSON.stringify({
+          ok: true,
+          packageId: pkg.packageId,
+          reconciliation: pkg.reconciliation,
+          substantiveDigest: pkg.substantiveDigest,
+        })}\n`,
+      );
+    } finally {
+      db.close();
+    }
+    return true;
+  }
+
+  const pruneRoot = argValue(argv, "--prune-backups");
+  if (pruneRoot) {
+    const res = pruneExpiredBackups(pruneRoot);
+    process.stdout.write(`${JSON.stringify({ ok: true, ...res })}\n`);
+    return true;
+  }
+
+  const importIn = argValue(argv, "--import-migration");
+  if (importIn) {
+    const MAX_CLI_MIGRATION_BYTES = 32 * 1024 * 1024;
+    if (statSync(importIn).size > MAX_CLI_MIGRATION_BYTES) {
+      throw new Error(`Migration package file exceeds ${MAX_CLI_MIGRATION_BYTES} byte limit`);
+    }
+    const domain = argValue(argv, "--domain");
+    verifyPackForServer(packDir);
+    const pack = await loadProfilePack(readPack(packDir));
+    const db = new SqliteAdapter({ path: dbPath });
+    try {
+      migrateUp(db);
+      const raw = readFileSync(importIn, "utf8");
+      const result = importMigrationPackage(db, pack, raw, { securityDomain: domain });
+      process.stdout.write(`${JSON.stringify({ ok: result.mismatches.length === 0, result })}\n`);
+      if (result.mismatches.length > 0) process.exitCode = 1;
+    } finally {
+      db.close();
+    }
+    return true;
+  }
+
+  return false;
+}
+
 async function main(): Promise<void> {
   // Before anything else: nothing a crash can carry reaches the output, and no connection leaves this host (D8-04, D8-05).
   installExceptionBarrier();
-  installEgressGuard({ allowlist: allowlistHosts(egressAllowlist.connect), mode: "refuse" });
+  const egressHandle = installEgressGuard({
+    allowlist: allowlistHosts(egressAllowlist.connect),
+    mode: "refuse",
+  });
   const dbPath = process.env.DPP_DB_PATH?.trim() || "data/dpp.sqlite";
+  const packDir = process.env.DPP_CONTRACT_PACK?.trim() || "contracts/n";
   if (maybeRunBootstrapCli(process.argv.slice(2), dbPath)) {
     return;
   }
+  if (await maybeRunOpsCli(process.argv.slice(2), dbPath, packDir)) {
+    return;
+  }
 
-  const packDir = process.env.DPP_CONTRACT_PACK?.trim() || "contracts/n";
   const host = process.env.DPP_SERVER_HOST?.trim() || "127.0.0.1";
   const port = Number(process.env.DPP_SERVER_PORT?.trim() || "4174");
   const authMode = parseAuthMode(process.env.DPP_AUTH_MODE);
@@ -157,6 +304,14 @@ async function main(): Promise<void> {
       ? { resumed: [], rolledBack: [] }
       : new ImportJobRunner(db, activePack).recoverPendingJobs({ force: true });
 
+  const serviceOwner = process.env.DPP_SERVICE_OWNER?.trim() || "platform-ops-owner";
+  const backupDir = process.env.DPP_BACKUP_DIR?.trim() || undefined;
+  const runtimeAlertMonitor = new AlertMonitor({
+    serviceOwner,
+    db,
+    egressAttempts: () => egressHandle.attempts.length,
+  });
+
   const server = createDppServer({
     db,
     pack: activePack,
@@ -167,6 +322,10 @@ async function main(): Promise<void> {
     surface,
     oidc: oidcVerifier,
     log: publicLogWriter,
+    serviceOwner,
+    backupDir,
+    alertMonitor: runtimeAlertMonitor,
+    egressAllowlistConnect: egressAllowlist.connect,
   });
   server.listen(port, host, () => {
     // Port and surface only: no path, issuer, audience, subject or release detail is printed (D8-04).

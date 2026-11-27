@@ -24,7 +24,8 @@ export interface Capability {
     | "graph"
     | "server"
     | "identity-releases"
-    | "load-security";
+    | "load-security"
+    | "operations-content";
   /**
    * The increment of the plan this entry labels: "N" (the narrow demonstrator, the default) or "P" (the durable server).
    * A function carries one label per increment, so the P slice of a function the N screens already deliver is labelled
@@ -162,6 +163,15 @@ export const CAPABILITIES: Capability[] = [
     screen: false,
     functions: ["FUNC-131", "FUNC-133"],
     basis: "Cycle 8 exit: pinned OPERATIONAL-LIMITS@1.0.0 budgets, worker-isolated ingress with cooperative cancellation and forced termination, per-domain job coordinator and byte-budget quotas, HTTP timeouts and rate limits, linear parsing/outputs and identifier/text hardening, six-field public log with crash barrier, runtime egress guard with LLM boundary enforcement, and blocking CI secret/dependency/bundle gates. Real customer host measurements, container cgroup enforcement, streaming ingestion above 2 MiB, and production IdP/signing remain dated holds. The N labels of the same functions on the screens above are unchanged.",
+  },
+  {
+    id: "operations-content",
+    name: "Operations, backup/restore & content acceptance (P)",
+    label: "supported",
+    increment: "P",
+    screen: false,
+    functions: ["FUNC-105", "FUNC-132", "FUNC-042", "FUNC-043", "FUNC-126"],
+    basis: "Cycle 10 exit: hot VACUUM INTO backups with retention/legal-hold protection and AES-256-GCM off-host archival, timed restore drill with checksum and evidence SHA-256 verification, FUNC-105 DPPSP migration package with no-revocation-replay and no-evidence-overwrite invariants, seven value-free fault-class alerts, operator runbooks, content acceptance verifier with unrounded uncertainty-aware thresholds, and standing EU registry hold. Real customer agreement to operational targets, real metallurgical limits, and live registry contract remain dated holds.",
   },
 ];
 
